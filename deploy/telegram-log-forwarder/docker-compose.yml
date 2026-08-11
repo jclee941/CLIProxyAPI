@@ -1,0 +1,47 @@
+name: cliproxy-telegram-forwarder
+
+services:
+  telegram-log-forwarder:
+    image: cliproxy-telegram-log-forwarder:current
+    build:
+      context: ../..
+      dockerfile: deploy/telegram-log-forwarder/Dockerfile
+    container_name: cliproxy-telegram-forwarder
+    restart: unless-stopped
+    env_file:
+      - ${TELEGRAM_ENV_FILE:-.env}
+    environment:
+      CPA_LOG_DIR: /logs
+      STATE_PATH: /state/delivered.json
+      DEPLOY_ENV: production
+      INSTANCE_NAME: cliproxy@192.168.50.114
+      DASHBOARD_URL: https://cliproxy.jclee.me/management.html#/logs
+      POLL_INTERVAL: 1s
+      SETTLE_DELAY: 2s
+      GROUP_INTERVAL: ${GROUP_INTERVAL:-5m}
+      TZ: Asia/Seoul
+    volumes:
+      - cliproxyapi_logs:/logs:ro
+      - ./state:/state
+    read_only: true
+    user: "65532:65532"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/telegram-log-forwarder", "-help"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  cliproxyapi_logs:
+    external: true
+    name: dashboard_cliproxyapi_logs
