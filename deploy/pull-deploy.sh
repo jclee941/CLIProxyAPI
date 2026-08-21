@@ -52,16 +52,20 @@ if [ -z "${GITOPS_LOCK_HELD:-}" ]; then
     exit "$lock_status"
 fi
 
+fresh_clone=0
 if [ ! -d "$deploy_dir/.git" ]; then
     log "cloning $remote ($branch) into $deploy_dir"
     mkdir -p "$deploy_dir"
     git clone --branch "$branch" "$remote" "$deploy_dir"
+    fresh_clone=1
 fi
 
 cd "$deploy_dir"
 
-if [ -n "$(git status --porcelain)" ]; then
-    git status --porcelain >&2
+# Only tracked modifications abort the run. Untracked operator files such as
+# .env, state/, and pull-deploy.log are expected to live inside the clone.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    git status --porcelain --untracked-files=no >&2
     fail "$deploy_dir has local changes; the deploy clone must stay clean"
 fi
 
@@ -70,14 +74,18 @@ git fetch --quiet "$remote" "$branch"
 current_head="$(git rev-parse HEAD)"
 target_head="$(git rev-parse FETCH_HEAD)"
 
-if [ "$current_head" = "$target_head" ]; then
+if [ "$current_head" = "$target_head" ] && [ "$fresh_clone" -eq 0 ]; then
     log "up to date at $current_head"
     exit 0
 fi
-
-log "updating $current_head -> $target_head"
-git checkout --quiet "$branch" 2>/dev/null || git checkout --quiet -B "$branch" FETCH_HEAD
-git reset --hard --quiet FETCH_HEAD
+# A fresh clone already sits at the target; only an existing clone needs the reset.
+if [ "$fresh_clone" -eq 0 ]; then
+    log "updating $current_head -> $target_head"
+    git checkout --quiet "$branch" 2>/dev/null || git checkout --quiet -B "$branch" FETCH_HEAD
+    git reset --hard --quiet FETCH_HEAD
+else
+    log "initial deployment at $target_head"
+fi
 
 # Word splitting is intentional: GITOPS_COMPOSE_FILES is space-separated.
 # shellcheck disable=SC2086
