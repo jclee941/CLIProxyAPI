@@ -1,0 +1,116 @@
+name: upstream-sync
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REMOTE: https://github.com/router-for-me/CLIProxyAPI.git
+  UPSTREAM_BRANCH: main
+  TARGET_BRANCH: main
+  CONFLICT_ISSUE_TITLE: 'upstream-sync: merge conflict'
+  CONFLICT_ISSUE_LABEL: upstream-sync
+
+jobs:
+  sync:
+    # Never run on the upstream repository itself; forks only.
+    if: github.event.repository.fork == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Configure git identity
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+      - name: Fetch upstream
+        run: |
+          set -euo pipefail
+          git remote add upstream "$UPSTREAM_REMOTE"
+          git fetch upstream "$UPSTREAM_BRANCH"
+      - name: Merge upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          before_head="$(git rev-parse HEAD)"
+          upstream_head="$(git rev-parse "upstream/${UPSTREAM_BRANCH}")"
+
+          if [[ "$before_head" == "$upstream_head" ]]; then
+            echo "Already at upstream ${UPSTREAM_BRANCH} (${upstream_head}); nothing to do."
+            exit 0
+          fi
+
+          if git merge --no-edit "upstream/${UPSTREAM_BRANCH}"; then
+            after_head="$(git rev-parse HEAD)"
+            if [[ "$before_head" == "$after_head" ]]; then
+              echo "Merge produced no new commit; already up to date."
+              exit 0
+            fi
+            git push origin "HEAD:${TARGET_BRANCH}"
+            echo "Pushed ${before_head} -> ${after_head} to origin/${TARGET_BRANCH}."
+            exit 0
+          fi
+
+          git merge --abort
+          echo "Merge conflict against upstream/${UPSTREAM_BRANCH}; reporting and failing." >&2
+
+          conflict_range="${before_head}..${upstream_head}"
+          body_file="$(mktemp)"
+          trap 'rm -f "$body_file"' EXIT
+          {
+            printf 'Automatic merge of `upstream/%s` into `%s` failed and was aborted.\n\n' "$UPSTREAM_BRANCH" "$TARGET_BRANCH"
+            printf -- '- Fork HEAD: `%s`\n' "$before_head"
+            printf -- '- Upstream HEAD: `%s`\n' "$upstream_head"
+            printf -- '- Conflicting commit range: `%s`\n' "$conflict_range"
+            printf -- '- Workflow run: %s/%s/actions/runs/%s\n\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf 'Upstream commits not yet merged:\n\n```\n'
+            git log --oneline --no-decorate --max-count=50 "$conflict_range"
+            printf '```\n\n'
+            printf 'Resolve locally, then push to `%s`:\n\n' "$TARGET_BRANCH"
+            printf '```bash\n'
+            printf 'git remote add upstream %s\n' "$UPSTREAM_REMOTE"
+            printf 'git fetch upstream %s\n' "$UPSTREAM_BRANCH"
+            printf 'git checkout %s\n' "$TARGET_BRANCH"
+            printf 'git merge upstream/%s\n' "$UPSTREAM_BRANCH"
+            printf '```\n'
+          } > "$body_file"
+
+          gh label create "$CONFLICT_ISSUE_LABEL" \
+            --description 'Automatic upstream merge status' \
+            --color 'B60205' >/dev/null 2>&1 || true
+
+          issue_number="$(
+            gh issue list \
+              --state open \
+              --label "$CONFLICT_ISSUE_LABEL" \
+              --limit 100 \
+              --json number,title \
+              --jq "[.[] | select(.title == \"${CONFLICT_ISSUE_TITLE}\") | .number] | first // empty"
+          )"
+
+          if [[ -n "$issue_number" ]]; then
+            gh issue comment "$issue_number" --body-file "$body_file"
+            echo "Updated existing issue #${issue_number}."
+          else
+            gh issue create \
+              --title "$CONFLICT_ISSUE_TITLE" \
+              --label "$CONFLICT_ISSUE_LABEL" \
+              --body-file "$body_file"
+            echo "Opened a new upstream-sync conflict issue."
+          fi
+
+          exit 1
