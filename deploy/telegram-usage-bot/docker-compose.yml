@@ -1,0 +1,39 @@
+name: cliproxy-telegram-usage-bot
+
+services:
+  telegram-usage-bot:
+    image: cliproxy-telegram-usage-bot:current
+    build:
+      context: ../..
+      dockerfile: deploy/telegram-usage-bot/Dockerfile
+    container_name: cliproxy-telegram-usage-bot
+    restart: unless-stopped
+    env_file:
+      # required: false keeps `docker compose config` usable before the
+      # operator copies .env.example to .env on the deployment host.
+      - path: ${TELEGRAM_ENV_FILE:-.env}
+        required: false
+    environment:
+      CPA_BASE_URL: ${CPA_BASE_URL:-http://host.docker.internal:8317}
+      TELEGRAM_POLL_TIMEOUT_SECONDS: ${TELEGRAM_POLL_TIMEOUT_SECONDS:-30}
+      REPORT_TIME: ${REPORT_TIME:-09:00}
+      REPORT_ENABLED: ${REPORT_ENABLED:-true}
+      STATE_PATH: /state/telegram-usage-bot.json
+      TZ: Asia/Seoul
+    # Lets the container reach a CPA instance published on the Docker host.
+    # Drop this when CPA_BASE_URL points at a reachable service or LAN address.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./state:/state
+    read_only: true
+    user: "65532:65532"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
