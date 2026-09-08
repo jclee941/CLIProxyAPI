@@ -1,0 +1,15 @@
+[Unit]
+Description=Gemini web bridge with 1Password runtime secrets
+Requires=docker.service
+After=docker.service network-online.target cliproxy-compose.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh /opt/gemini-web2api/start.sh
+ExecReload=/bin/sh /opt/gemini-web2api/start.sh
+ExecStop=/usr/bin/docker compose -f /opt/gemini-web2api/docker-compose.yml stop
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
