@@ -1,0 +1,35 @@
+name: cliproxy-gemini-web
+
+services:
+  gemini-web2api:
+    image: gemini-web2api:2bb988b
+    container_name: cliproxy-gemini-web2api
+    command: [python, -m, gemini_web2api, --config, /run/gemini-web2api/config.json]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:8081"
+    networks:
+      - cliproxy-backend
+    volumes:
+      - /run/gemini-web2api:/run/gemini-web2api:ro
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      HOME: /tmp
+    read_only: true
+    user: "65532:65532"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    logging:
+      driver: local
+      options:
+        max-size: 5m
+        max-file: "2"
+
+networks:
+  cliproxy-backend:
+    external: true
+    name: cliproxyapi_backend
