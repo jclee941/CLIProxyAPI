@@ -32,7 +32,14 @@ func (h *BaseAPIHandler) ExecuteStructuredOutput(ctx context.Context, handlerTyp
 		return h.ExecuteWithAuthManager(ctx, handlerType, modelName, rawJSON, alt)
 	}
 
+	// A schema is checked on the whole reply, so this path always runs buffered.
+	// The caller may have asked for streaming, and leaving that in the payload
+	// would make the upstream answer with SSE that no longer parses as a chat
+	// completion.
 	payload := rawJSON
+	if updated, err := sjson.SetBytes(payload, "stream", false); err == nil {
+		payload = updated
+	}
 	if _, known := structuredOutputHints.Load(modelName); known {
 		payload = withSystemInstruction(payload, structuredoutput.InstructionText(spec))
 	}
