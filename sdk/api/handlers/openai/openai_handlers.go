@@ -437,7 +437,7 @@ func (h *OpenAIAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSON []
 	modelName := gjson.GetBytes(rawJSON, "model").String()
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 	stopKeepAlive := h.StartNonStreamingKeepAlive(c, cliCtx)
-	resp, upstreamHeaders, errMsg := h.ExecuteStructuredOutput(cliCtx, h.HandlerType(), modelName, rawJSON, h.GetAlt(c))
+	resp, upstreamHeaders, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, h.GetAlt(c))
 	stopKeepAlive()
 	if errMsg != nil {
 		h.WriteErrorResponse(c, errMsg)
@@ -466,13 +466,6 @@ func (h *OpenAIAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON []byt
 				Type:    "server_error",
 			},
 		})
-		return
-	}
-
-	// A schema can only be validated on the complete reply, so structured-output
-	// requests are answered as a buffered SSE sequence.
-	if handlers.RequiresStructuredOutput(rawJSON) {
-		h.streamStructuredOutput(c, flusher, rawJSON)
 		return
 	}
 
