@@ -325,10 +325,85 @@ index a420e11..43ce982 100644
  
      def log(self, suffix: str, result: object = None, status: str = "success", error: str = "",
 diff --git a/services/openai_backend_api.py b/services/openai_backend_api.py
-index 8cb0f06..e1c4473 100644
+index 8cb0f06..696bf58 100644
 --- a/services/openai_backend_api.py
 +++ b/services/openai_backend_api.py
-@@ -512,9 +512,12 @@ class OpenAIBackendAPI:
+@@ -150,6 +150,60 @@ class EditableFileExportResult:
+     zip_path: Path
+ 
+ 
++class _RetryingSession:
++    """Wraps a curl_cffi session so transport failures are retried once or twice.
++
++    Only failures raised before a response exists are retried: the upstream edge
++    refuses the connection outright when calls arrive too quickly, so nothing has
++    been sent and repeating the request cannot duplicate work. HTTP errors are
++    returned untouched, because those carry a status the caller must see.
++    """
++
++    _TRANSIENT = (
++        "failed to connect",
++        "connection reset",
++        "recv failure",
++        "send failure",
++        "could not resolve",
++        "operation timed out",
++        "empty reply",
++    )
++
++    def __init__(self, session, attempts: int = 3, backoff: float = 0.6) -> None:
++        self._session = session
++        self._attempts = max(1, attempts)
++        self._backoff = backoff
++
++    def __getattr__(self, name):
++        target = getattr(self._session, name)
++        if name not in {"get", "post", "put", "patch", "delete", "head", "request"}:
++            return target
++
++        def call(*args, **kwargs):
++            last = None
++            for attempt in range(self._attempts):
++                try:
++                    return target(*args, **kwargs)
++                except Exception as exc:
++                    text = str(exc).lower()
++                    if not any(marker in text for marker in self._TRANSIENT):
++                        raise
++                    last = exc
++                    if attempt + 1 >= self._attempts:
++                        break
++                    delay = self._backoff * (2 ** attempt) + random.uniform(0, 0.2)
++                    logger.warning({
++                        "event": "upstream_transient_retry",
++                        "attempt": attempt + 1,
++                        "sleep_secs": round(delay, 2),
++                        "error": str(exc)[:200],
++                    })
++                    time.sleep(delay)
++            raise last
++
++        return call
++
++
+ class OpenAIBackendAPI:
+     """ChatGPT Web 后端封装。
+ 
+@@ -181,11 +235,11 @@ class OpenAIBackendAPI:
+         self.pow_script_sources: list[str] = []
+         self.pow_data_build = ""
+         self.progress_callback: Callable[[str], None] | None = None
+-        self.session = requests.Session(**proxy_settings.build_session_kwargs(
++        self.session = _RetryingSession(requests.Session(**proxy_settings.build_session_kwargs(
+             account=self.account,
+             impersonate=self.fp["impersonate"],
+             verify=True,
+-        ))
++        )))
+         self.session.headers.update({
+             "User-Agent": self.user_agent,
+             "Origin": self.base_url,
+@@ -512,9 +566,12 @@ class OpenAIBackendAPI:
          normalized = str(value or "").strip().lower()
          if normalized in {"", "none", "auto"}:
              return ""

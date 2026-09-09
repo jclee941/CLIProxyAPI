@@ -3,7 +3,7 @@ services:
     build:
       context: /opt/chatgpt2api
       dockerfile: Dockerfile
-    image: chatgpt2api:e55aef2-cjk-free-effort
+    image: chatgpt2api:e55aef2-stable
     container_name: chatgpt2api
     restart: unless-stopped
     command: ["/app/.venv/bin/uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80", "--access-log"]
