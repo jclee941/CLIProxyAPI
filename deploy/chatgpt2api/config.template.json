@@ -1,0 +1,40 @@
+{
+  "auth-key": "",
+  "refresh_account_interval_minute": 1440,
+  "auto_remove_rate_limited_accounts": false,
+  "auto_remove_invalid_accounts": false,
+  "proxy": "",
+  "proxy_runtime": {
+    "enabled": false,
+    "egress_mode": "single_proxy",
+    "proxy_url": "",
+    "resource_proxy_url": "",
+    "skip_ssl_verify": false,
+    "clearance": {
+      "enabled": false,
+      "mode": "",
+      "cf_cookies": "",
+      "cf_clearance": "",
+      "user_agent": "",
+      "browser": "",
+      "flaresolverr_url": "",
+      "timeout_sec": 60,
+      "refresh_interval": 0,
+      "warm_up_on_start": false
+    }
+  },
+  "base_url": "",
+  "global_system_prompt": "",
+  "default_upstream_model_name": "gpt-6-pro",
+  "default_thinking_effort": "auto",
+  "backup": {
+    "enabled": false
+  },
+  "image_remove_conversation_always": true,
+  "image_storage": {
+    "enabled": false
+  },
+  "chat_completion_cache": {
+    "enabled": false
+  }
+}

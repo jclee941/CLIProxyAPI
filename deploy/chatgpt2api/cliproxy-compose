@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+set -a
+. /etc/cliproxy/op-service-account.env
+set +a
+install -d -m 700 /run/cliproxy
+op inject --in-file=/opt/dashboard/config.local.yaml --out-file=/run/cliproxy/config.yaml --force
+op inject --in-file=/opt/chatgpt2api/config.template.json --out-file=/run/cliproxy/chatgpt2api-config.json --force
+op inject --in-file=/opt/chatgpt2api/chatgpt2api.env --out-file=/run/cliproxy/chatgpt2api.env --force
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+source = Path("/run/cliproxy/config.yaml")
+target = Path("/run/cliproxy/chatgpt2api-config.json")
+proxy = ""
+for line in source.read_text(encoding="utf-8").splitlines():
+    key, separator, value = line.strip().partition(":")
+    if separator and key == "proxy-url":
+        proxy = value.strip().strip("\"'")
+        break
+if not proxy:
+    raise SystemExit("configured proxy-url is required for chatgpt2api")
+# CLIProxy uses "direct"/"none" as sentinels meaning "bypass proxies"; chatgpt2api
+# hands its proxy value straight to curl, so the sentinel must become an empty value.
+if proxy.lower() in ("direct", "none"):
+    proxy = ""
+config = json.loads(target.read_text(encoding="utf-8"))
+config["proxy"] = proxy
+target.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+PY
+chmod 600 /run/cliproxy/config.yaml /run/cliproxy/chatgpt2api-config.json /run/cliproxy/chatgpt2api.env
+exec docker compose -f /opt/dashboard/docker-compose.dashboard-only.yml -f /opt/dashboard/docker-compose.chatgpt2api.yml --project-directory /opt/dashboard "$@"

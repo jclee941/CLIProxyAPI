@@ -1,0 +1,351 @@
+diff --git a/api/ai.py b/api/ai.py
+index 7143d6b..bdf6c5d 100644
+--- a/api/ai.py
++++ b/api/ai.py
+@@ -97,7 +97,7 @@ def create_router() -> APIRouter:
+         identity = require_identity(authorization)
+         payload = body.model_dump(mode="python")
+         payload["base_url"] = resolve_image_base_url(request)
+-        call = LoggedCall(identity, "/v1/images/generations", body.model, "文生图", request_text=body.prompt)
++        call = LoggedCall(identity, "/v1/images/generations", body.model, "Text to image", request_text=body.prompt)
+         await filter_or_log(call, body.prompt)
+         return await call.run(openai_v1_image_generations.handle, payload)
+ 
+@@ -110,7 +110,7 @@ def create_router() -> APIRouter:
+         payload, image_sources, mask_sources = await parse_image_edit_request(request)
+         prompt = str(payload["prompt"])
+         model = str(payload["model"])
+-        call = LoggedCall(identity, "/v1/images/edits", model, "图生图", request_text=prompt)
++        call = LoggedCall(identity, "/v1/images/edits", model, "Image to image", request_text=prompt)
+         await filter_or_log(call, prompt)
+         payload["images"] = await read_image_sources(image_sources)
+         if mask_sources:
+@@ -170,7 +170,7 @@ def create_router() -> APIRouter:
+     @router.post("/v1/search")
+     async def search(body: SearchRequest, authorization: str | None = Header(default=None)):
+         identity = require_identity(authorization)
+-        call = LoggedCall(identity, "/v1/search", openai_search.MODEL, "搜索", request_text=body.prompt)
++        call = LoggedCall(identity, "/v1/search", openai_search.MODEL, "Search", request_text=body.prompt)
+         await filter_or_log(call, body.prompt)
+         return await call.run(openai_search.handle, body.model_dump(mode="python"))
+ 
+@@ -191,7 +191,7 @@ def create_router() -> APIRouter:
+     @router.post("/v1/ppt/generations")
+     async def create_ppt_task(body: EditableFileTaskRequest, request: Request, authorization: str | None = Header(default=None)):
+         identity = require_identity(authorization)
+-        await filter_or_log(LoggedCall(identity, "/v1/ppt/generations", "gpt-5-5-thinking", "PPT生成任务", request_text=body.prompt), body.prompt)
++        await filter_or_log(LoggedCall(identity, "/v1/ppt/generations", "gpt-5-5-thinking", "PPT generation task", request_text=body.prompt), body.prompt)
+         return await run_in_threadpool(
+             editable_file_task_service.submit_ppt,
+             identity,
+@@ -204,7 +204,7 @@ def create_router() -> APIRouter:
+     @router.post("/v1/psd/generations")
+     async def create_psd_task(body: EditableFileTaskRequest, request: Request, authorization: str | None = Header(default=None)):
+         identity = require_identity(authorization)
+-        await filter_or_log(LoggedCall(identity, "/v1/psd/generations", "gpt-5-5-thinking", "PSD生成任务", request_text=body.prompt), body.prompt)
++        await filter_or_log(LoggedCall(identity, "/v1/psd/generations", "gpt-5-5-thinking", "PSD generation task", request_text=body.prompt), body.prompt)
+         return await run_in_threadpool(
+             editable_file_task_service.submit_psd,
+             identity,
+diff --git a/api/image_tasks.py b/api/image_tasks.py
+index aaa08f8..5074bf5 100644
+--- a/api/image_tasks.py
++++ b/api/image_tasks.py
+@@ -53,7 +53,7 @@ def create_router() -> APIRouter:
+         authorization: str | None = Header(default=None),
+     ):
+         identity = require_identity(authorization)
+-        await filter_or_log(LoggedCall(identity, "/api/image-tasks/generations", body.model, "文生图任务", request_text=body.prompt), body.prompt)
++        await filter_or_log(LoggedCall(identity, "/api/image-tasks/generations", body.model, "Text to image task", request_text=body.prompt), body.prompt)
+         try:
+             return await run_in_threadpool(
+                 image_task_service.submit_generation,
+@@ -80,7 +80,7 @@ def create_router() -> APIRouter:
+             raise HTTPException(status_code=400, detail={"error": "client_task_id is required"})
+         prompt = str(payload["prompt"])
+         model = str(payload["model"])
+-        await filter_or_log(LoggedCall(identity, "/api/image-tasks/edits", model, "图生图任务", request_text=prompt), prompt)
++        await filter_or_log(LoggedCall(identity, "/api/image-tasks/edits", model, "Image to image task", request_text=prompt), prompt)
+         images = await read_image_sources(image_sources)
+         masks = await read_image_sources(mask_sources) if mask_sources else None
+         try:
+diff --git a/api/support.py b/api/support.py
+index db6c486..249a80d 100644
+--- a/api/support.py
++++ b/api/support.py
+@@ -23,7 +23,7 @@ def extract_bearer_token(authorization: str | None) -> str:
+ def _legacy_admin_identity(token: str) -> dict[str, object] | None:
+     auth_key = str(config.auth_key or "").strip()
+     if auth_key and token == auth_key:
+-        return {"id": "admin", "name": "管理员", "role": "admin"}
++        return {"id": "admin", "name": "Administrator", "role": "admin"}
+     return None
+ 
+ 
+@@ -42,7 +42,7 @@ def require_auth_key(authorization: str | None) -> None:
+ def require_admin(authorization: str | None) -> dict[str, object]:
+     identity = require_identity(authorization)
+     if identity.get("role") != "admin":
+-        raise HTTPException(status_code=403, detail={"error": "需要管理员权限才能执行这个操作"})
++        raise HTTPException(status_code=403, detail={"error": "administrator privileges are required for this operation"})
+     return identity
+ 
+ 
+diff --git a/services/account_service.py b/services/account_service.py
+index 885334b..cbc62e4 100644
+--- a/services/account_service.py
++++ b/services/account_service.py
+@@ -316,7 +316,7 @@ class AccountService:
+                 self._save_accounts()
+         log_service.add(
+             LOG_TYPE_ACCOUNT,
+-            "refresh_token 刷新 access_token 失败",
++            "refresh_token failed to refresh access_token",
+             {"source": event, "token": anonymize_token(access_token), "error": str(error or "")},
+         )
+ 
+@@ -429,7 +429,7 @@ class AccountService:
+ 
+         log_service.add(
+             LOG_TYPE_ACCOUNT,
+-            "refresh_token 已刷新 access_token",
++            "refresh_token refreshed access_token",
+             {"source": event, "token": anonymize_token(new_token), "rotated": rotated},
+         )
+         return new_token
+@@ -499,7 +499,7 @@ class AccountService:
+ 
+                 log_service.add(
+                     LOG_TYPE_ACCOUNT,
+-                    "更新账号",
++                    "Updated account",
+                     {
+                         "source": event,
+                         "old_token": anonymize_token(access_token),
+@@ -516,7 +516,7 @@ class AccountService:
+                 if error_type == "password_verify_failed_403" and isinstance(result.get("detail"), dict):
+                     log_service.add(
+                         LOG_TYPE_ACCOUNT,
+-                        "更新账号",
++                        "Updated account",
+                         {
+                             "source": event,
+                             "token": anonymize_token(access_token),
+@@ -533,7 +533,7 @@ class AccountService:
+                         account = self.get_account(access_token) or {}
+                         log_service.add(
+                             LOG_TYPE_ACCOUNT,
+-                            "账号已停用-标记禁用",
++                            "Account deactivated - marked disabled",
+                             {
+                                 "source": event,
+                                 "token": anonymize_token(access_token),
+@@ -551,7 +551,7 @@ class AccountService:
+                 else:
+                     log_service.add(
+                         LOG_TYPE_ACCOUNT,
+-                        "更新账号",
++                        "Updated account",
+                         {
+                             "source": event,
+                             "token": anonymize_token(access_token),
+@@ -568,7 +568,7 @@ class AccountService:
+         except Exception as exc:
+             log_service.add(
+                 LOG_TYPE_ACCOUNT,
+-                "更新账号",
++                "Updated account",
+                 {
+                     "source": event,
+                     "token": anonymize_token(access_token),
+@@ -1055,7 +1055,7 @@ class AccountService:
+             return False
+         removed = bool(self.delete_accounts([access_token])["removed"])
+         if removed:
+-            log_service.add(LOG_TYPE_ACCOUNT, "自动移除异常账号",
++            log_service.add(LOG_TYPE_ACCOUNT, "Auto-removed invalid account",
+                             {"source": event, "token": anonymize_token(access_token)})
+         elif access_token:
+             self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
+@@ -1185,7 +1185,7 @@ class AccountService:
+                     self._accounts[access_token] = account
+             self._save_accounts()
+             items = [dict(item) for item in self._accounts.values()]
+-            log_service.add(LOG_TYPE_ACCOUNT, f"新增 {added} 个账号，跳过 {skipped} 个",
++            log_service.add(LOG_TYPE_ACCOUNT, f"Added {added} accounts, skipped {skipped}",
+                             {"added": added, "skipped": skipped})
+         return {"added": added, "skipped": skipped, "items": items}
+ 
+@@ -1209,7 +1209,7 @@ class AccountService:
+                 else:
+                     self._index = 0
+                 self._save_accounts()
+-                log_service.add(LOG_TYPE_ACCOUNT, f"删除 {removed} 个账号", {"removed": removed})
++                log_service.add(LOG_TYPE_ACCOUNT, f"Removed {removed} accounts", {"removed": removed})
+             items = [dict(item) for item in self._accounts.values()]
+         return {"removed": removed, "items": items}
+ 
+@@ -1227,12 +1227,12 @@ class AccountService:
+             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
+                 self._accounts.pop(access_token, None)
+                 self._save_accounts()
+-                log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
++                log_service.add(LOG_TYPE_ACCOUNT, "Auto-removed rate-limited account", {"token": anonymize_token(access_token)})
+                 return None
+             self._accounts[access_token] = account
+             self._save_accounts()
+             if not quiet:
+-                log_service.add(LOG_TYPE_ACCOUNT, "更新账号",
++                log_service.add(LOG_TYPE_ACCOUNT, "Updated account",
+                                 {"token": anonymize_token(access_token), "status": account.get("status")})
+             return dict(account)
+         return None
+@@ -1292,7 +1292,7 @@ class AccountService:
+             if should_defer:
+                 log_service.add(
+                     LOG_TYPE_ACCOUNT,
+-                    "暂缓标记异常账号",
++                    "Deferred marking account as invalid",
+                     {"source": event, "token": anonymize_token(access_token), "error": str(error or "")},
+                 )
+                 return False
+@@ -1325,7 +1325,7 @@ class AccountService:
+             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
+                 self._accounts.pop(access_token, None)
+                 self._save_accounts()
+-                log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
++                log_service.add(LOG_TYPE_ACCOUNT, "Auto-removed rate-limited account", {"token": anonymize_token(access_token)})
+                 return None
+             self._accounts[access_token] = account
+             self._save_accounts()
+diff --git a/services/auth_service.py b/services/auth_service.py
+index ef9a29b..83482d0 100644
+--- a/services/auth_service.py
++++ b/services/auth_service.py
+@@ -35,7 +35,7 @@ class AuthService:
+ 
+     @staticmethod
+     def _default_name(role: object) -> str:
+-        return "管理员密钥" if str(role or "").strip().lower() == "admin" else "普通用户"
++        return "Admin key" if str(role or "").strip().lower() == "admin" else "Regular user"
+ 
+     def _normalize_item(self, raw: object) -> dict[str, object] | None:
+         if not isinstance(raw, dict):
+@@ -108,7 +108,7 @@ class AuthService:
+             raise ValueError("请输入新的专用密钥")
+         admin_key = self._clean(config.auth_key)
+         if admin_key and hmac.compare_digest(candidate, admin_key):
+-            raise ValueError("这个密钥和管理员密钥冲突了，请换一个新的密钥")
++            raise ValueError("this key collides with the administrator key; choose a different one")
+         key_hash = _hash_key(candidate)
+         if self._has_key_hash_locked(key_hash, exclude_id=exclude_id):
+             raise ValueError("这个专用密钥已经存在，请换一个新的密钥")
+diff --git a/services/editable_file_task_service.py b/services/editable_file_task_service.py
+index 0e566ef..c3922de 100644
+--- a/services/editable_file_task_service.py
++++ b/services/editable_file_task_service.py
+@@ -252,7 +252,7 @@ class EditableFileTaskService:
+         if result:
+             detail["result"] = result
+         try:
+-            log_service.add(LOG_TYPE_CALL, f"{kind.upper()}生成任务{'失败' if status == 'failed' else '完成'}", detail)
++            log_service.add(LOG_TYPE_CALL, f"{kind.upper()} generation task {'failed' if status == 'failed' else 'completed'}", detail)
+         except Exception:
+             pass
+ 
+diff --git a/services/log_service.py b/services/log_service.py
+index a420e11..43ce982 100644
+--- a/services/log_service.py
++++ b/services/log_service.py
+@@ -230,20 +230,20 @@ class LoggedCall:
+         try:
+             result = await run_in_threadpool(handler, *args)
+         except ImageGenerationError as exc:
+-            self.log("调用失败", status="failed", error=str(exc), account_email=getattr(exc, "account_email", ""),
++            self.log(" failed", status="failed", error=str(exc), account_email=getattr(exc, "account_email", ""),
+                      conversation_id=getattr(exc, "conversation_id", ""))
+             return _image_error_response(exc)
+         except HTTPException as exc:
+-            self.log("调用失败", status="failed", error=str(exc.detail))
++            self.log(" failed", status="failed", error=str(exc.detail))
+             raise
+         except Exception as exc:
+-            self.log("调用失败", status="failed", error=str(exc), account_email=getattr(exc, "account_email", ""))
++            self.log(" failed", status="failed", error=str(exc), account_email=getattr(exc, "account_email", ""))
+             if self.endpoint.startswith("/v1/images"):
+                 return _image_error_response(exc)
+             return _protocol_error_response(exc, 502, sse)
+ 
+         if isinstance(result, dict):
+-            self.log("调用完成", result)
++            self.log(" completed", result)
+             response = dict(result)
+             response.pop("_account_email", None)
+             return response
+@@ -252,19 +252,19 @@ class LoggedCall:
+         try:
+             has_first, first = await run_in_threadpool(_next_item, result)
+         except ImageGenerationError as exc:
+-            self.log("调用失败", status="failed", error=str(exc), account_email=getattr(exc, "account_email", ""),
++            self.log(" failed", status="failed", error=str(exc), account_email=getattr(exc, "account_email", ""),
+                      conversation_id=getattr(exc, "conversation_id", ""))
+             return _image_error_response(exc)
+         except HTTPException as exc:
+-            self.log("调用失败", status="failed", error=str(exc.detail))
++            self.log(" failed", status="failed", error=str(exc.detail))
+             raise
+         except Exception as exc:
+-            self.log("调用失败", status="failed", error=str(exc), account_email=getattr(exc, "account_email", ""))
++            self.log(" failed", status="failed", error=str(exc), account_email=getattr(exc, "account_email", ""))
+             if self.endpoint.startswith("/v1/images"):
+                 return _image_error_response(exc)
+             return _protocol_error_response(exc, 502, sse)
+         if not has_first:
+-            self.log("流式调用结束")
++            self.log(" stream finished")
+             return StreamingResponse(sender(()), media_type="text/event-stream")
+         return StreamingResponse(sender(self.stream(itertools.chain([first], result))), media_type="text/event-stream")
+ 
+@@ -282,7 +282,7 @@ class LoggedCall:
+         except Exception as exc:
+             failed = True
+             self.log(
+-                "流式调用失败",
++                " stream failed",
+                 status="failed",
+                 error=str(exc),
+                 urls=urls,
+@@ -296,7 +296,7 @@ class LoggedCall:
+             raise
+         finally:
+             if not failed:
+-                self.log("流式调用结束", urls=urls, account_email=account_emails[0] if account_emails else "",
++                self.log(" stream finished", urls=urls, account_email=account_emails[0] if account_emails else "",
+                          conversation_id=conversation_ids[0] if conversation_ids else "")
+ 
+     def log(self, suffix: str, result: object = None, status: str = "success", error: str = "",
+diff --git a/services/protocol/conversation.py b/services/protocol/conversation.py
+index 745ee7a..849791f 100644
+--- a/services/protocol/conversation.py
++++ b/services/protocol/conversation.py
+@@ -215,12 +215,14 @@ def assistant_history_messages(messages: list[dict[str, Any]]) -> list[str]:
+ 
+ 
+ def build_image_prompt(prompt: str, size: str | None, quality: str = "auto") -> str:
+-    hints = []
+-    if size:
+-        hints.append(f"输出图片尺寸为 {size}。")
+-    if quality:
+-        hints.append(f"输出图片质量为 {quality}。")
+-    return f"{prompt.strip()}\n\n{''.join(hints)}" if hints else prompt
++    """Return the prompt as written by the caller.
++
++    Size and quality used to be appended here as Chinese sentences, so they leaked
++    into every image prompt and could be rendered into the picture. The codex image
++    path already sends both as structured tool arguments, and the plain path gives
++    up prompt-level size control deliberately rather than injecting foreign text.
++    """
++    return prompt.strip()
+ 
+ 
+ def encoding_for_model(model: str):
