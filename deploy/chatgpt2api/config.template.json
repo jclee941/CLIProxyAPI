@@ -26,7 +26,7 @@
   "base_url": "",
   "global_system_prompt": "",
   "default_upstream_model_name": "gpt-6-pro",
-  "default_thinking_effort": "auto",
+  "default_thinking_effort": "extended",
   "backup": {
     "enabled": false
   },

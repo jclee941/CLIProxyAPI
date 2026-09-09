@@ -324,6 +324,26 @@ index a420e11..43ce982 100644
                           conversation_id=conversation_ids[0] if conversation_ids else "")
  
      def log(self, suffix: str, result: object = None, status: str = "success", error: str = "",
+diff --git a/services/openai_backend_api.py b/services/openai_backend_api.py
+index 8cb0f06..e1c4473 100644
+--- a/services/openai_backend_api.py
++++ b/services/openai_backend_api.py
+@@ -512,9 +512,12 @@ class OpenAIBackendAPI:
+         normalized = str(value or "").strip().lower()
+         if normalized in {"", "none", "auto"}:
+             return ""
+-        if normalized in {"low", "medium", "high", "standard", "max"}:
+-            return normalized
+-        if normalized in {"xhigh", "extended"}:
++        # The conversation backend only accepts "standard" and "extended"; the
++        # OpenAI scale and "max" are rejected with 422 or answered with empty
++        # content, so they are folded onto the nearest working level.
++        if normalized in {"low", "medium", "standard"}:
++            return "standard"
++        if normalized in {"high", "max", "xhigh", "extended"}:
+             return "extended"
+         return ""
+ 
 diff --git a/services/protocol/conversation.py b/services/protocol/conversation.py
 index 745ee7a..849791f 100644
 --- a/services/protocol/conversation.py
@@ -349,3 +369,22 @@ index 745ee7a..849791f 100644
  
  
  def encoding_for_model(model: str):
+diff --git a/services/protocol/openai_v1_chat_complete.py b/services/protocol/openai_v1_chat_complete.py
+index e493610..1ae88de 100644
+--- a/services/protocol/openai_v1_chat_complete.py
++++ b/services/protocol/openai_v1_chat_complete.py
+@@ -48,9 +48,11 @@ def normalize_thinking_effort(value: object) -> str:
+     normalized = str(value or "").strip().lower()
+     if normalized in {"", "none"}:
+         return ""
+-    if normalized in {"low", "medium", "high"}:
+-        return normalized
+-    if normalized in {"xhigh", "extended"}:
++    # Mirrors OpenAIBackendAPI._normalize_thinking_effort: the upstream vocabulary
++    # is only "standard" and "extended".
++    if normalized in {"low", "medium", "standard"}:
++        return "standard"
++    if normalized in {"high", "max", "xhigh", "extended"}:
+         return "extended"
+     return ""
+ 
