@@ -89,7 +89,7 @@ func extractJSON(text string) (string, bool) {
 		candidate = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(candidate), "json"))
 	}
 	if json.Valid([]byte(candidate)) {
-		return candidate, true
+		return unwrapEncoded(candidate), true
 	}
 	for _, pair := range [][2]byte{{'{', '}'}, {'[', ']'}} {
 		start := strings.IndexByte(candidate, pair[0])
@@ -99,8 +99,27 @@ func extractJSON(text string) (string, bool) {
 		}
 		block := candidate[start : end+1]
 		if json.Valid([]byte(block)) {
-			return block, true
+			return unwrapEncoded(block), true
 		}
 	}
 	return "", false
+}
+
+// unwrapEncoded recovers the inner document when a reply arrives double-encoded:
+// a JSON string whose own content is an object or array. Models occasionally quote
+// their whole answer, and passing that through would hand the caller a string
+// where an object was requested.
+func unwrapEncoded(candidate string) string {
+	var inner string
+	if err := json.Unmarshal([]byte(candidate), &inner); err != nil {
+		return candidate
+	}
+	trimmed := strings.TrimSpace(inner)
+	if trimmed == "" {
+		return candidate
+	}
+	if (trimmed[0] == '{' || trimmed[0] == '[') && json.Valid([]byte(trimmed)) {
+		return trimmed
+	}
+	return candidate
 }
