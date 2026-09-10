@@ -66,6 +66,10 @@ type pluginConfig struct {
 	Instruct bool `yaml:"instruct"`
 	// Clean strips fences and prose from the reply so only the JSON value remains.
 	Clean bool `yaml:"clean"`
+	// StripAgentTags removes dangling <Image .../> cards whose src is an internal
+	// agent placeholder rather than a resolvable image, which some web bridges emit.
+	// Off by default because it rewrites ordinary replies, not just structured ones.
+	StripAgentTags bool `yaml:"strip_agent_tags"`
 }
 
 type envelope struct {
@@ -223,28 +227,33 @@ func passThroughRequest(raw []byte) ([]byte, error) {
 	return okEnvelope(pluginapi.RequestInterceptResponse{Headers: req.Headers, Body: req.Body})
 }
 
-// interceptResponse reduces the reply to its JSON value when the caller asked for
-// structured output. A reply that already is a bare JSON value is left untouched.
+// interceptResponse cleans the reply text: dangling agent tags are removed, and a
+// reply to a structured request is reduced to its JSON value. A reply that needs
+// neither is left untouched.
 func interceptResponse(raw []byte) ([]byte, error) {
 	var req pluginapi.ResponseInterceptRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return nil, err
 	}
-	if !currentConfig().Clean {
-		return okEnvelope(pluginapi.ResponseInterceptResponse{})
-	}
-	if spec := parseResponseFormat(req.OriginalRequest); spec == nil {
-		return okEnvelope(pluginapi.ResponseInterceptResponse{})
-	}
+	cfg := currentConfig()
 	content := gjson.GetBytes(req.Body, "choices.0.message.content")
 	if !content.Exists() {
 		return okEnvelope(pluginapi.ResponseInterceptResponse{})
 	}
-	cleaned, ok := extractJSON(content.String())
-	if !ok || cleaned == content.String() {
+
+	text := content.String()
+	if cfg.StripAgentTags {
+		text = stripAgentTags(text)
+	}
+	if cfg.Clean && parseResponseFormat(req.OriginalRequest) != nil {
+		if extracted, ok := extractJSON(text); ok {
+			text = extracted
+		}
+	}
+	if text == content.String() {
 		return okEnvelope(pluginapi.ResponseInterceptResponse{})
 	}
-	updated, err := sjson.SetBytes(req.Body, "choices.0.message.content", cleaned)
+	updated, err := sjson.SetBytes(req.Body, "choices.0.message.content", text)
 	if err != nil {
 		return okEnvelope(pluginapi.ResponseInterceptResponse{})
 	}

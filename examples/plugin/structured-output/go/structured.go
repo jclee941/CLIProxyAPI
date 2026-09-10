@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -122,4 +123,18 @@ func unwrapEncoded(candidate string) string {
 		return trimmed
 	}
 	return candidate
+}
+
+// agentTagPattern matches a self-closing card whose src is an internal agent
+// placeholder. Some web bridges emit these when the upstream attaches a media
+// card, but the placeholder resolves to nothing, so the markup is dead weight.
+var agentTagPattern = regexp.MustCompile(`(?s)<([A-Z]\w*)\b[^>]*\bsrc="[a-z_]*agent_tag_[0-9a-zA-Z]+"[^>]*/>`)
+
+// stripAgentTags removes those cards and tidies the whitespace they leave behind.
+func stripAgentTags(text string) string {
+	if !strings.Contains(text, "agent_tag_") {
+		return text
+	}
+	stripped := agentTagPattern.ReplaceAllString(text, "")
+	return strings.TrimSpace(stripped)
 }
