@@ -1,0 +1,204 @@
+diff --git i/internal/runtime/executor/claude_executor_request.go w/internal/runtime/executor/claude_executor_request.go
+index a3054385b..3af663712 100644
+--- i/internal/runtime/executor/claude_executor_request.go
++++ w/internal/runtime/executor/claude_executor_request.go
+@@ -1162,11 +1162,24 @@ func applyClaudeHeadersWithNativeProfile(
+ 			helps.ApplyClaudeDeviceProfileHeaders(r, deviceProfile)
+ 		} else {
+ 			helps.ApplyClaudeDefaultDeviceProfileHeaders(r, cfg)
+ 		}
+ 	} else {
+-		helps.ApplyClaudeLegacyDeviceHeaders(r, incomingHeaders, cfg, confirmedClaudeCode)
++		preserveClientPlatform := confirmedClaudeCode
++		if auth != nil {
++			for name, value := range auth.Attributes {
++				override := strings.TrimSpace(value)
++				if override == "" || strings.HasPrefix(override, "$") || override == strings.TrimSpace(incomingHeaders.Get("User-Agent")) {
++					continue
++				}
++				if strings.HasPrefix(name, "header:") && strings.EqualFold(strings.TrimSpace(strings.TrimPrefix(name, "header:")), "User-Agent") {
++					preserveClientPlatform = false
++					break
++				}
++			}
++		}
++		helps.ApplyClaudeLegacyDeviceHeaders(r, incomingHeaders, cfg, preserveClientPlatform)
+ 	}
+ 	var attrs map[string]string
+ 	if auth != nil {
+ 		attrs = auth.Attributes
+ 	}
+diff --git i/internal/translator/antigravity/openai/chat-completions/antigravity_openai_request.go w/internal/translator/antigravity/openai/chat-completions/antigravity_openai_request.go
+index 214bdf71e..5a14ddc29 100644
+--- i/internal/translator/antigravity/openai/chat-completions/antigravity_openai_request.go
++++ w/internal/translator/antigravity/openai/chat-completions/antigravity_openai_request.go
+@@ -28,10 +28,16 @@ const antigravityFunctionThoughtSignature = "skip_thought_signature_validator"
+ // Returns:
+ //   - []byte: The transformed request data in Antigravity API format
+ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _ bool) []byte {
+ 	rawJSON := inputRawJSON
+ 	functionNameMap := util.SanitizedFunctionNameMap(rawJSON)
++	mapFunctionName := func(name string) string {
++		if name == "" {
++			return "unknown_tool"
++		}
++		return util.MapSanitizedFunctionName(functionNameMap, name)
++	}
+ 	// Base envelope (no default thinkingConfig)
+ 	out := []byte(`{"project":"","request":{"contents":[]},"model":"gemini-2.5-pro"}`)
+ 
+ 	// Model
+ 	out, _ = sjson.SetBytes(out, "model", modelName)
+@@ -141,11 +147,11 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _
+ 				if tcs.IsArray() {
+ 					for _, tc := range tcs.Array() {
+ 						if tc.Get("type").String() == "function" {
+ 							id := tc.Get("id").String()
+ 							name := tc.Get("function.name").String()
+-							if id != "" && name != "" {
++							if id != "" {
+ 								tcID2Name[id] = name
+ 							}
+ 						}
+ 					}
+ 				}
+@@ -272,14 +278,15 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _
+ 					for _, tc := range tcs.Array() {
+ 						if tc.Get("type").String() != "function" {
+ 							continue
+ 						}
+ 						functionID := tc.Get("id").String()
+-						functionName := util.MapSanitizedFunctionName(functionNameMap, tc.Get("function.name").String())
+-						if functionName == "" {
++						originalName := tc.Get("function.name").String()
++						if functionID == "" && originalName == "" {
+ 							continue
+ 						}
++						functionName := mapFunctionName(originalName)
+ 						functionArgs := tc.Get("function.arguments").String()
+ 						part := []byte(`{"functionCall":{"id":"","name":""}}`)
+ 						part, _ = sjson.SetBytes(part, "functionCall.id", functionID)
+ 						part, _ = sjson.SetBytes(part, "functionCall.name", functionName)
+ 						if gjson.Valid(functionArgs) {
+@@ -300,11 +307,11 @@ func ConvertOpenAIRequestToAntigravity(modelName string, inputRawJSON []byte, _
+ 					responseParts := make([][]byte, 0, len(functionIDs))
+ 					for _, functionID := range functionIDs {
+ 						if name, ok := tcID2Name[functionID]; ok {
+ 							part := []byte(`{"functionResponse":{"id":"","name":""}}`)
+ 							part, _ = sjson.SetBytes(part, "functionResponse.id", functionID)
+-							part, _ = sjson.SetBytes(part, "functionResponse.name", util.MapSanitizedFunctionName(functionNameMap, name))
++							part, _ = sjson.SetBytes(part, "functionResponse.name", mapFunctionName(name))
+ 							response := toolResponses[functionID]
+ 							if response == "" {
+ 								response = "{}"
+ 							}
+ 							// Keep it as a string instead of parsing it into JSON.
+diff --git i/internal/translator/kiro/openai/kiro_openai_request.go w/internal/translator/kiro/openai/kiro_openai_request.go
+index 2df0d410f..e170ae075 100644
+--- i/internal/translator/kiro/openai/kiro_openai_request.go
++++ w/internal/translator/kiro/openai/kiro_openai_request.go
+@@ -532,13 +532,11 @@ func processOpenAIMessages(messages gjson.Result, modelID, origin string, allowS
+ 
+ 	if !messages.IsArray() {
+ 		return history, currentUserMsg, currentToolResults
+ 	}
+ 
+-	// Roles Kiro does not understand must become user before merging, so
+-	// consecutive unknown-role turns are folded into one user turn.
+-	messagesArray := kirocommon.MergeAdjacentMessages(normalizeRoles(messages.Array()))
++	messagesArray := normalizeRoles(kirocommon.MergeAdjacentMessages(messages.Array()))
+ 
+ 	// Track pending tool results that should be attached to the next user message
+ 	// This is critical for LiteLLM-translated requests where tool results appear
+ 	// as separate "tool" role messages between assistant and user messages
+ 	var pendingToolResults []KiroToolResult
+diff --git i/internal/util/nocopy_invariant_test.go w/internal/util/nocopy_invariant_test.go
+index d5913aecb..e70aaf8ed 100644
+--- i/internal/util/nocopy_invariant_test.go
++++ w/internal/util/nocopy_invariant_test.go
+@@ -102,20 +102,22 @@ type reviewedInPlaceByteWrite struct {
+ 	count  int
+ 	reason string
+ }
+ 
+ var reviewedInPlaceByteWrites = map[string]reviewedInPlaceByteWrite{
+-	"internal/runtime/executor/claude_signing.go":           {2, "writes CCH digits into bytes.Clone(body); the caller's body is never touched"},
+-	"internal/runtime/executor/claude_executor_cloaking.go": {1, "shifts []string headers to prepend a block; no byte of any payload is rewritten"},
+-	"internal/runtime/executor/claude_executor_request.go":  {3, "shifts []string headers to insert a part; no byte of any payload is rewritten"},
+-	"internal/runtime/executor/helps/claude_mcp_alias.go":   {1, "copies an HMAC sum into a local fixed-size digest array"},
+-	"internal/client/codex/live/tcp_proxy.go":               {1, "copies header and payload into a freshly allocated frame"},
+-	"internal/home/client.go":                               {1, "zeroes a secret buffer after json.Unmarshal has copied every value out"},
+-	"internal/pluginstore/auth.go":                          {1, "zeroes a locally built credential buffer after base64 encoding copied it out"},
+-	"internal/auth/cursor/proto/connect.go":                 {1, "copies payload into a freshly allocated frame; the source data is never modified"},
+-	"internal/keeperexport/runtime.go":                      {1, "zeroes a freshly hex-decoded fingerprint secret buffer private to the writer"},
+-	"internal/keeperexport/exporter.go":                     {2, "zeroes freshly hex-decoded fingerprint secret buffers private to the writer"},
++	"internal/runtime/executor/openai_compat_zen_fingerprint.go": {1, "copies 16 bytes from a local SHA-256 [32]byte into a fresh local [16]byte UUID; neither array is shared with a JSON reader"},
++	"internal/runtime/executor/zcode_executor.go":                {1, "copies bytes [10:16] of a private 16-byte random UUID into [2:8] of a fresh local [8]byte for big-endian formatting; no JSON reader sees either buffer"},
++	"internal/runtime/executor/claude_signing.go":                {2, "writes CCH digits into bytes.Clone(body); the caller's body is never touched"},
++	"internal/runtime/executor/claude_executor_cloaking.go":      {1, "shifts []string headers to prepend a block; no byte of any payload is rewritten"},
++	"internal/runtime/executor/claude_executor_request.go":       {3, "shifts []string headers to insert a part; no byte of any payload is rewritten"},
++	"internal/runtime/executor/helps/claude_mcp_alias.go":        {1, "copies an HMAC sum into a local fixed-size digest array"},
++	"internal/client/codex/live/tcp_proxy.go":                    {1, "copies header and payload into a freshly allocated frame"},
++	"internal/home/client.go":                                    {1, "zeroes a secret buffer after json.Unmarshal has copied every value out"},
++	"internal/pluginstore/auth.go":                               {1, "zeroes a locally built credential buffer after base64 encoding copied it out"},
++	"internal/auth/cursor/proto/connect.go":                      {1, "copies payload into a freshly allocated frame; the source data is never modified"},
++	"internal/keeperexport/runtime.go":                           {1, "zeroes a freshly hex-decoded fingerprint secret buffer private to the writer"},
++	"internal/keeperexport/exporter.go":                          {2, "zeroes freshly hex-decoded fingerprint secret buffers private to the writer"},
+ }
+ 
+ // TestInPlaceByteWritesAreReviewed keeps the set of in-place byte writes small
+ // and justified. Any change to the set, including a new write in an already
+ // reviewed file, fails until the author proves that no no-copy GJSON result
+diff --git 1/internal/runtime/executor/claude_executor_legacy_override_test.go 2/internal/runtime/executor/claude_executor_legacy_override_test.go
+new file mode 100644
+index 000000000..3e097599d
+--- /dev/null
++++ 2/internal/runtime/executor/claude_executor_legacy_override_test.go
+@@ -0,0 +1,47 @@
++package executor
++
++import (
++	"net/http"
++	"testing"
++
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
++	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
++)
++
++func TestApplyClaudeHeaders_LegacyOverridePreservesClientPlatformWhenIdentityUnchanged(t *testing.T) {
++	const clientUserAgent = "claude-cli/2.1.62 (external, cli)"
++	for _, testCase := range []struct {
++		name     string
++		override string
++	}{
++		{name: "same literal", override: clientUserAgent},
++		{name: "dynamic passthrough", override: "$User-Agent"},
++		{name: "missing dynamic header", override: "$Missing-User-Agent"},
++	} {
++		t.Run(testCase.name, func(t *testing.T) {
++			stabilize := false
++			cfg := &config.Config{ClaudeHeaderDefaults: config.ClaudeHeaderDefaults{
++				UserAgent:              "claude-cli/2.1.60 (external, cli)",
++				PackageVersion:         "0.70.0",
++				RuntimeVersion:         "v22.0.0",
++				StabilizeDeviceProfile: &stabilize,
++			}}
++			auth := &cliproxyauth.Auth{ID: testCase.name, Attributes: map[string]string{
++				"api_key":           "test-legacy-override",
++				"header:user-agent": testCase.override,
++			}}
++			request := newClaudeHeaderTestRequest(t, http.Header{
++				"User-Agent":       {clientUserAgent},
++				"X-Stainless-Os":   {"Linux"},
++				"X-Stainless-Arch": {"x64"},
++			})
++
++			errHeaders := applyClaudeHeaders(request, auth, "test-legacy-override", false, nil, nil, cfg, nil, true)
++
++			if errHeaders != nil {
++				t.Fatal(errHeaders)
++			}
++			assertClaudeFingerprint(t, request.Header, clientUserAgent, "0.70.0", "v22.0.0", "Linux", "x64")
++		})
++	}
++}
