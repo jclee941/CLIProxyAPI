@@ -1,0 +1,5 @@
+*
+!Dockerfile
+!extension/
+!extension/**
+**/__pycache__/

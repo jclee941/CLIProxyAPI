@@ -2,9 +2,9 @@ name: cliproxy-gemini-web
 
 services:
   gemini-web2api:
-    image: gemini-web2api:2bb988b
+    image: gemini-web2api:web-http-20260911
     container_name: cliproxy-gemini-web2api
-    command: [python, -m, gemini_web2api, --config, /run/gemini-web2api/config.json]
+    command: [python, -m, extension, --config, /run/gemini-web2api/config.json]
     restart: unless-stopped
     ports:
       - "127.0.0.1:8081:8081"
