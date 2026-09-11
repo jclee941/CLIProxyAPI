@@ -1,0 +1,65 @@
+name: cpa-manager-plus
+
+services:
+  cpa-manager-plus:
+    profiles: [approval-required]
+    image: seakee/cpa-manager-plus:v1.12.11@sha256:a2e8c99c80f9193e42da02f468bbfd3eba1d865ff88954e1582d29bc98850a24
+    pull_policy: never
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - test -s /run/secrets/cpa_admin_key && test -s /data/data.key && exec cpa-manager-plus
+    ports:
+      - "127.0.0.1:18317:18317"
+      - "192.168.50.114:18317:18317"
+    environment:
+      HTTP_ADDR: "0.0.0.0:18317"
+      USAGE_DATA_DIR: /data
+      USAGE_DB_PATH: /data/usage.sqlite
+      CPA_MANAGER_ADMIN_KEY_FILE: /run/secrets/cpa_admin_key
+      CPA_MANAGER_DATA_KEY_PATH: /data/data.key
+      USAGE_COLLECTOR_MODE: http
+      USAGE_BATCH_SIZE: "100"
+      USAGE_POLL_INTERVAL_MS: "500"
+      USAGE_QUERY_LIMIT: "50000"
+      USAGE_CORS_ORIGINS: "http://127.0.0.1:18317,http://localhost:18317,http://192.168.50.114:18317"
+      USAGE_QUOTA_COOLDOWN_ENABLED: "false"
+      USAGE_ACCOUNT_ACTIONS_ENABLED: "false"
+      USAGE_ACCOUNT_ACTIONS_AUTO_DISABLE: "false"
+      CPAMP_UPDATE_CHECK_ENABLED: "false"
+    volumes:
+      - manager-data:/data
+      - type: bind
+        source: /run/cliproxy-manager-plus/cpa_admin_key
+        target: /run/secrets/cpa_admin_key
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /run/cliproxy-manager-plus/data.key
+        target: /data/data.key
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [backend]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://127.0.0.1:18317/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  manager-data:
+    name: cliproxy-cpa-manager-plus-data
+
+networks:
+  backend:
+    external: true
+    name: cliproxyapi_backend

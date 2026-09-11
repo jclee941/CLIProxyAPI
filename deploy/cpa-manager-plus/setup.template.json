@@ -1,0 +1,13 @@
+{
+  "cpaBaseUrl": "http://cliproxyapi:8317",
+  "cpaManagementKey": "op://homelab/hazdy6l5k5rfahjdcdszzenizm/management_key",
+  "collectorMode": "http",
+  "queue": "usage",
+  "popSide": "right",
+  "batchSize": 100,
+  "pollIntervalMs": 500,
+  "queryLimit": 50000,
+  "tlsSkipVerify": false,
+  "ensureUsageStatisticsEnabled": false,
+  "requestMonitoringEnabled": false
+}

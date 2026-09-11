@@ -1,0 +1,15 @@
+[Unit]
+Description=CPA Manager Plus with 1Password runtime keys
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/cpa-manager-plus/start.sh
+ExecReload=/opt/cpa-manager-plus/start.sh
+ExecStop=/usr/bin/docker compose -f /opt/cpa-manager-plus/compose.yml --profile approval-required stop cpa-manager-plus
+
+[Install]
+WantedBy=multi-user.target
