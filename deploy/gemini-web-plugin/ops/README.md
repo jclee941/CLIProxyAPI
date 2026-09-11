@@ -1,10 +1,17 @@
 # External Session Maintenance
 
-These files implement the `.114` job component locally. Installation and live
-integration are separate gates; no production deployment is claimed here.
-The plugin/sidecar maintenance version and the five validated host-only source
-bindings must be installed before enabling the timer. Preserve existing Plus,
-Manager, structured-output, ChatGPT2API, and legacy Gemini configuration.
+The `.114` job is deployed with five validated host-only source bindings. Two
+distinct scheduled runs completed five minutes apart with four ready accounts and
+one intentionally disabled account. The public CPA model registry and a real
+`gemini-web-flash-3.8` request were also verified after maintenance. This does not
+promise to log an account back in when Google requires authentication.
+
+Install the matching plugin/sidecar and source bindings before enabling the timer.
+Preserve existing core, Manager, structured-output, ChatGPT2API and legacy Gemini
+configuration. Every core rollout path must retain the read-only `op` binary mount
+and the existing service-account environment, including paths that use only the
+base Compose file. Missing runtime dependencies cause `secret_store_unavailable`,
+not a Google cookie-expiration diagnosis.
 
 ## Runtime Contract
 
