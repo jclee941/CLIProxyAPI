@@ -43,14 +43,46 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	if request.AuthProvider != provider || request.Metadata.PinnedAuthID != "" && request.Metadata.PinnedAuthID != request.AuthID {
 		return nil, failure(400, "auth_identity_mismatch")
 	}
-	record, token, err := service.resolve(ctx, request.StorageJSON, request.AuthID)
+	record, err := service.parseStorage(request.StorageJSON, false)
+	if err != nil {
+		return nil, executionFailure(request.Model, err)
+	}
+	if record.ID != request.AuthID {
+		return nil, failure(400, "auth_identity_mismatch")
+	}
+	if record.Disabled {
+		return nil, executionFailure(request.Model, failure(409, "account_disabled"))
+	}
+	exclusive := request.Model == omniModel
+	lease, err := service.acquireCredential(record.TokenRef, exclusive)
+	if err != nil {
+		return nil, executionFailure(request.Model, err)
+	}
+	if exclusive {
+		defer lease.guard.Unlock()
+	} else {
+		defer lease.guard.RUnlock()
+	}
+	if binding, bound := service.settings().MaintenanceSources[record.ID]; bound && binding.TokenRef != record.TokenRef {
+		return nil, executionFailure(request.Model, failure(409, "binding_mismatch"))
+	}
+	_, token, err := service.resolve(ctx, request.StorageJSON, request.AuthID)
 	if err != nil {
 		return nil, executionFailure(request.Model, err)
 	}
 	if request.Model == omniModel {
+		if lease.snapshot().state == maintenanceHostPending {
+			return nil, executionFailure(request.Model, failure(409, "host_sync_pending"))
+		}
 		token, err = service.renewForVideo(ctx, record, token)
 		if err != nil {
 			return nil, executionFailure(request.Model, err)
+		}
+		if lease.snapshot().state == maintenanceHostPending && request.HostCallbackID != "" {
+			if err := service.syncCredentialHost(request.HostCallbackID, record); err != nil {
+				return nil, executionFailure(request.Model, err)
+			}
+			lease.set(credentialState{state: maintenanceReady})
 		}
 	}
 	model := omniModel
@@ -76,10 +108,17 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	}
 	response, err := service.sidecar(ctx, sidecarRequest{Method: "POST", Path: "/v1beta/models/" + model + ":generateContent", Token: token, Body: body})
 	if err != nil {
+		if exclusive {
+			switch safeCredentialCode(err) {
+			case "sidecar_transport_failed", "sidecar_response_failed", "sidecar_response_invalid", "sidecar_caller_disconnected":
+				lease.set(credentialState{state: maintenanceOperator, errCode: "submission_outcome_unknown"})
+			}
+		}
 		return nil, executionFailure(request.Model, err)
 	}
 	if request.Model == omniModel {
 		if err := validateVideoResponse(response.Body); err != nil {
+			lease.set(credentialState{state: maintenanceOperator, errCode: "submission_outcome_unknown"})
 			return nil, executionFailure(request.Model, err)
 		}
 	}

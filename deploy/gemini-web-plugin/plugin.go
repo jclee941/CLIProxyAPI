@@ -13,8 +13,9 @@ import (
 )
 
 type pluginConfig struct {
-	Vault         string `yaml:"vault"`
-	DashboardPath string `yaml:"dashboard_path"`
+	Vault              string                       `yaml:"vault"`
+	DashboardPath      string                       `yaml:"dashboard_path"`
+	MaintenanceSources map[string]maintenanceSource `yaml:"maintenance_sources"`
 }
 type hostCall func(string, []byte) ([]byte, error)
 type service struct {
@@ -24,10 +25,12 @@ type service struct {
 	secrets secretStore
 	client  *http.Client
 	now     func() time.Time
+	source  credentialSource
+	leases  credentialLeases
 }
 
 func newService(host hostCall) *service {
-	return &service{config: pluginConfig{Vault: "homelab", DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html"}, host: host, secrets: opStore{vault: "homelab", run: runOP}, client: newSidecarClient(), now: time.Now}
+	return &service{config: pluginConfig{Vault: "homelab", DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html"}, host: host, secrets: opStore{vault: "homelab", run: runOP}, client: newSidecarClient(), now: time.Now, source: newCDPCredentialSource()}
 }
 
 func (service *service) handle(ctx context.Context, method string, raw []byte) []byte {
@@ -84,8 +87,14 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	if config.Vault != "homelab" || !filepath.IsAbs(config.DashboardPath) || filepath.Ext(config.DashboardPath) != ".html" {
 		return nil, failure(400, "invalid_plugin_config")
 	}
+	if err := validateMaintenanceSources(config.MaintenanceSources, config.Vault); err != nil {
+		return nil, err
+	}
+	if err := service.reconfigureCredentials(config); err != nil {
+		return nil, err
+	}
 	service.config = config
-	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"vault","Type":"enum","EnumValues":["homelab"],"Description":"1Password vault; web-session field references only"},{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini"],"management_api":true,"request_interceptor":true}}`), nil
+	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"vault","Type":"enum","EnumValues":["homelab"],"Description":"1Password vault; web-session field references only"},{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"},{"Name":"maintenance_sources","Type":"object","Description":"Non-secret account-ID keyed credential source bindings"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini"],"management_api":true,"request_interceptor":true}}`), nil
 }
 
 func (service *service) dispatch(ctx context.Context, method string, raw []byte) (interface{}, error) {
@@ -127,7 +136,7 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 			Models   []modelInfo
 		}{provider, []modelInfo{}}, nil
 	case "management.register":
-		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/refresh"}],"resources":[{"Path":"/index","Menu":"Gemini Web","Description":"Five-account models and measured usage dashboard"}]}`), nil
+		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/refresh"},{"Method":"POST","Path":"/plugins/gemini-web/maintain"}],"resources":[{"Path":"/index","Menu":"Gemini Web","Description":"Five-account models and measured usage dashboard"}]}`), nil
 	case "management.handle":
 		return service.management(ctx, raw)
 	case "request.intercept_before", "request.intercept_after":

@@ -14,7 +14,8 @@
   "sidecar": "http://gemini-web2api:8081",
   "config": {
     "vault": "homelab",
-    "dashboard_path": "/CLIProxyAPI/plugins/gemini-web/index.html"
+    "dashboard_path": "/CLIProxyAPI/plugins/gemini-web/index.html",
+    "maintenance_sources": {}
   },
   "production_deployment": true
 }

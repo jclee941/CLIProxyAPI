@@ -13,12 +13,15 @@ import (
 )
 
 type memorySecrets struct {
+	mu     sync.Mutex
 	tokens map[string]sessionToken
 	reads  []string
 	writes int
 }
 
 func (store *memorySecrets) Resolve(_ context.Context, reference secretReference) (sessionToken, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
 	store.reads = append(store.reads, reference.value)
 	token, exists := store.tokens[reference.value]
 	if !exists {
@@ -28,6 +31,8 @@ func (store *memorySecrets) Resolve(_ context.Context, reference secretReference
 }
 
 func (store *memorySecrets) Put(_ context.Context, request secretWrite) (secretReference, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
 	store.writes++
 	reference := request.Existing
 	if reference.value == "" {
@@ -35,6 +40,17 @@ func (store *memorySecrets) Put(_ context.Context, request secretWrite) (secretR
 	}
 	store.tokens[reference.value] = request.Token
 	return reference, nil
+}
+
+func (store *memorySecrets) ReplaceIfExpected(_ context.Context, request secretReplacement) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.tokens[request.Reference.value] != request.Expected {
+		return failure(409, "credential_changed")
+	}
+	store.writes++
+	store.tokens[request.Reference.value] = request.Replacement
+	return nil
 }
 
 func TestMemorySecretStoreIsolatesReferences_whenUpdated(t *testing.T) {
@@ -119,12 +135,15 @@ func TestRegistrationPersistsOnlyReference_whenAccountVerified(t *testing.T) {
 	}
 	for field := range storage {
 		switch field {
-		case "type", "id", "label", "token_ref", "disabled", "request_scoped_errors":
+		case "type", "id", "label", "token_ref", "disabled", "request_scoped_errors", "session_revision":
 		default:
 			t.Fatalf("unexpected auth storage field %s", field)
 		}
 	}
 	record, err := service.parseStorage(saved.JSON, true)
+	if record.SessionRevision != 1 {
+		t.Fatal("new account registration must publish its initial non-secret revision")
+	}
 	if err != nil || record.Type != provider || record.ID != saved.Name || record.Label != "<Test Label>" || record.TokenRef != recordFixture(t, "a").TokenRef {
 		t.Fatal("stored reference identity changed")
 	}

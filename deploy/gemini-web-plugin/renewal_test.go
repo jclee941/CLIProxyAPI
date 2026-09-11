@@ -19,6 +19,22 @@ type renewalStore struct {
 	persisted atomic.Bool
 }
 
+func (store *renewalStore) ReplaceIfExpected(ctx context.Context, request secretReplacement) error {
+	store.lastWrite = secretWrite{Token: request.Replacement, Existing: request.Reference}
+	if store.writeErr != nil {
+		store.writes++
+		return store.writeErr
+	}
+	if err := store.memorySecrets.ReplaceIfExpected(ctx, request); err != nil {
+		return err
+	}
+	store.persisted.Store(true)
+	if store.resultRef.value != "" && store.resultRef != request.Reference {
+		return failure(503, "secret_write_outcome_unknown")
+	}
+	return nil
+}
+
 func (store *renewalStore) Put(ctx context.Context, request secretWrite) (secretReference, error) {
 	store.lastWrite = request
 	if store.writeErr != nil {
@@ -58,7 +74,7 @@ func TestOmniRenewsBeforeSubmission_whenSessionAcquisitionSucceeds(t *testing.T)
 				case "/v1/session/renew":
 					renewals.Add(1)
 					body, err := io.ReadAll(request.Body)
-					if err != nil || len(body) != 0 || request.Header.Get("x-goog-api-key") != original {
+					if err != nil || string(body) != "{}" || request.Header.Get("x-goog-api-key") != original {
 						t.Error("renewal contract changed")
 					}
 					writeFixture(t, writer, `{"token":"`+renewed+`"}`)
@@ -82,7 +98,7 @@ func TestOmniRenewsBeforeSubmission_whenSessionAcquisitionSucceeds(t *testing.T)
 				t.Fatal("selected record was not retained")
 			}
 			if changed {
-				if store.writes != 1 || store.lastWrite.Existing.value != record.TokenRef || store.lastWrite.Label != record.Label || store.lastWrite.Token.value != renewed {
+				if store.writes != 1 || store.lastWrite.Existing.value != record.TokenRef || store.lastWrite.Label != "" || store.lastWrite.Token.value != renewed {
 					t.Fatal("renewal was not persisted to existing reference")
 				}
 			} else if store.writes != 0 {

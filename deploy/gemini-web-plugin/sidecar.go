@@ -24,7 +24,7 @@ func newSidecarClient() *http.Client {
 func (service *service) sidecar(ctx context.Context, request sidecarRequest) (httpResponse, error) {
 	allowed := request.Method == "GET" && (request.Path == "/v1/account-models" || request.Path == "/v1/usage")
 	allowed = allowed || request.Method == "POST" && (request.Path == "/v1beta/models/gemini-3.8-flash:generateContent" || request.Path == "/v1beta/models/gemini-web-omni:generateContent")
-	allowed = allowed || request.Method == "POST" && request.Path == "/v1/session/renew" && len(request.Body) == 0
+	allowed = allowed || request.Method == "POST" && (request.Path == "/v1/session/renew" || request.Path == "/v1/session/inspect") && (len(request.Body) == 0 || string(request.Body) == "{}")
 	if !allowed {
 		return httpResponse{}, failure(400, "sidecar_route_denied")
 	}
@@ -44,6 +44,20 @@ func (service *service) sidecar(ctx context.Context, request sidecarRequest) (ht
 		return httpResponse{}, failure(502, "sidecar_response_failed")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		var credentialError struct {
+			Error struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if strictJSON(body, &credentialError) == nil && (credentialError.Error.Code == 0 || credentialError.Error.Code == response.StatusCode) {
+			if response.StatusCode == 401 && credentialError.Error.Message == "auth_error" {
+				return httpResponse{}, &AuthenticationFailure{}
+			}
+			if response.StatusCode == 504 && credentialError.Error.Message == "credential_timeout" {
+				return httpResponse{}, failure(504, "credential_timeout")
+			}
+		}
 		code := "sidecar_request_failed"
 		if response.StatusCode >= 500 && response.StatusCode < 600 {
 			var upstreamError struct {
@@ -75,10 +89,11 @@ type capability struct {
 	Mode         int    `json:"mode"`
 }
 type accountModels struct {
-	Available  bool         `json:"available"`
-	StatusCode *int         `json:"status_code"`
-	Models     []capability `json:"models"`
-	ObservedAt float64      `json:"observed_at"`
+	AccountSHA256 string       `json:"account_sha256,omitempty"`
+	Available     bool         `json:"available"`
+	StatusCode    *int         `json:"status_code"`
+	Models        []capability `json:"models"`
+	ObservedAt    float64      `json:"observed_at"`
 }
 
 func (service *service) accountModels(ctx context.Context, token sessionToken) (accountModels, error) {

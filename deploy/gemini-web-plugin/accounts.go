@@ -99,7 +99,8 @@ func (service *service) getRecord(callbackID string, entry hostEntry) (storageRe
 	if record.ID != entry.ID || entry.Name != record.ID {
 		return record, false, failure(400, "auth_identity_mismatch")
 	}
-	return record, !runtime.Auth.Disabled, nil
+	record.Disabled = record.Disabled || runtime.Auth.Disabled || entry.Disabled
+	return record, !record.Disabled, nil
 }
 
 func (service *service) findRecord(callbackID, id string) (storageRecord, bool, error) {

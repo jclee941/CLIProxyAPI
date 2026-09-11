@@ -12,10 +12,17 @@ type secretWrite struct {
 	Label    string
 	Token    sessionToken
 	Existing secretReference
+	expected *sessionToken
+}
+type secretReplacement struct {
+	Reference   secretReference
+	Expected    sessionToken
+	Replacement sessionToken
 }
 type secretStore interface {
 	Resolve(context.Context, secretReference) (sessionToken, error)
 	Put(context.Context, secretWrite) (secretReference, error)
+	ReplaceIfExpected(context.Context, secretReplacement) error
 }
 type commandRunner func(context.Context, []string, []byte) ([]byte, error)
 type opStore struct {
@@ -66,6 +73,7 @@ func (store opStore) Put(ctx context.Context, request secretWrite) (secretRefere
 			return secretReference{}, err
 		}
 		raw, err := store.run(ctx, []string{"item", "get", reference.item, "--vault", store.vault, "--format", "json"}, nil)
+		document = nil
 		if err != nil || json.Unmarshal(raw, &document) != nil {
 			return secretReference{}, failure(503, "secret_store_unavailable")
 		}
@@ -77,27 +85,38 @@ func (store opStore) Put(ctx context.Context, request secretWrite) (secretRefere
 		if json.Unmarshal(document["fields"], &previous) != nil {
 			return secretReference{}, failure(502, "secret_item_invalid")
 		}
+		matches := 0
 		for _, rawField := range previous {
 			var existing struct {
 				ID, Label string
+				Value     string
 				Section   json.RawMessage
 			}
 			if json.Unmarshal(rawField, &existing) != nil {
 				return secretReference{}, failure(502, "secret_item_invalid")
 			}
 			if existing.ID == "web-session" || existing.Label == "web-session" {
+				matches++
 				if len(existing.Section) > 0 && string(existing.Section) != "null" {
 					return secretReference{}, failure(400, "secret_item_field_ambiguous")
+				}
+				if request.expected != nil && existing.Value != request.expected.value {
+					return secretReference{}, failure(409, "credential_changed")
 				}
 				continue
 			}
 			fields = append(fields, rawField)
 		}
+		if matches > 1 || request.expected != nil && matches != 1 {
+			return secretReference{}, failure(400, "secret_item_field_ambiguous")
+		}
 		args = []string{"item", "edit", reference.item, "--vault", store.vault, "--format", "json"}
 	}
-	document["title"], err = json.Marshal(request.Label)
-	if err != nil {
-		return secretReference{}, failure(500, "secret_encoding_failed")
+	if request.expected == nil {
+		document["title"], err = json.Marshal(request.Label)
+		if err != nil {
+			return secretReference{}, failure(500, "secret_encoding_failed")
+		}
 	}
 	document["fields"], err = json.Marshal(fields)
 	if err != nil {
@@ -109,13 +128,25 @@ func (store opStore) Put(ctx context.Context, request secretWrite) (secretRefere
 	}
 	output, err := store.run(ctx, args, input)
 	if err != nil {
-		return secretReference{}, failure(503, "secret_store_unavailable")
+		return secretReference{}, failure(503, "secret_write_outcome_unknown")
 	}
 	var result struct {
 		ID string `json:"id"`
 	}
 	if json.Unmarshal(output, &result) != nil {
-		return secretReference{}, failure(502, "secret_item_invalid")
+		return secretReference{}, failure(503, "secret_write_outcome_unknown")
 	}
-	return parseReference("op://"+store.vault+"/"+result.ID+"/web-session", store.vault)
+	reference, err := parseReference("op://"+store.vault+"/"+result.ID+"/web-session", store.vault)
+	if err != nil || request.Existing.value != "" && reference != request.Existing {
+		return secretReference{}, failure(503, "secret_write_outcome_unknown")
+	}
+	return reference, nil
+}
+
+func (store opStore) ReplaceIfExpected(ctx context.Context, request secretReplacement) error {
+	if request.Reference.value == "" {
+		return failure(400, "invalid_token_reference")
+	}
+	_, err := store.Put(ctx, secretWrite{Token: request.Replacement, Existing: request.Reference, expected: &request.Expected})
+	return err
 }

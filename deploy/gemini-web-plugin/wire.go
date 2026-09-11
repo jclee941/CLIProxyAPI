@@ -35,11 +35,12 @@ func failure(status int, code string) *publicError {
 }
 
 type storageRecord struct {
-	Type     string `json:"type"`
-	ID       string `json:"id"`
-	Label    string `json:"label"`
-	TokenRef string `json:"token_ref"`
-	Disabled bool   `json:"disabled,omitempty"`
+	Type            string `json:"type"`
+	ID              string `json:"id"`
+	Label           string `json:"label"`
+	TokenRef        string `json:"token_ref"`
+	Disabled        bool   `json:"disabled,omitempty"`
+	SessionRevision uint64 `json:"session_revision,omitempty"`
 }
 
 type stopRule struct {
@@ -52,6 +53,7 @@ type authMetadata struct {
 	Type                string     `json:"type"`
 	TokenRef            string     `json:"token_ref"`
 	RequestScopedErrors []stopRule `json:"request_scoped_errors"`
+	SessionRevision     uint64     `json:"session_revision,omitempty"`
 }
 
 type authData struct {

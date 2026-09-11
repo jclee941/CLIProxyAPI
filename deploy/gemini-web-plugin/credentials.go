@@ -149,5 +149,5 @@ func authFromRecord(record storageRecord) (authData, error) {
 	if err != nil {
 		return authData{}, failure(500, "auth_encoding_failed")
 	}
-	return authData{Provider: provider, ID: record.ID, FileName: record.ID, Label: record.Label, ProxyURL: "direct", Disabled: record.Disabled, StorageJSON: raw, Metadata: authMetadata{Type: provider, TokenRef: record.TokenRef, RequestScopedErrors: rules}}, nil
+	return authData{Provider: provider, ID: record.ID, FileName: record.ID, Label: record.Label, ProxyURL: "direct", Disabled: record.Disabled, StorageJSON: raw, Metadata: authMetadata{Type: provider, TokenRef: record.TokenRef, RequestScopedErrors: rules, SessionRevision: record.SessionRevision}}, nil
 }

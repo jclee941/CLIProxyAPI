@@ -24,8 +24,8 @@ int main(int count, char** arguments) {
     cliproxy_host_api host = {1, NULL, reject_callback, free_callback};
     cliproxy_plugin_api plugin = {0};
     if (initialize(&host, &plugin) != 0 || plugin.abi_version != 1) return 1;
-    char* methods[] = {"plugin.register", "management.register", "auth.identifier", "model.static", "executor.count_tokens"};
-    char* payloads[] = {"{}", "{}", "{}", "{}", "{\"Model\":\"gemini-web-omni\"}"};
+    char* methods[] = {"plugin.register", "management.register", "auth.identifier", "model.static", "executor.count_tokens", "management.handle"};
+    char* payloads[] = {"{}", "{}", "{}", "{}", "{\"Model\":\"gemini-web-omni\"}", "{\"Method\":\"POST\",\"Path\":\"/v0/management/plugins/gemini-web/maintain\",\"Body\":\"eyJpZCI6IiJ9\"}"};
     for (size_t index = 0; index < sizeof(methods)/sizeof(methods[0]); index++) {
         cliproxy_buffer response = {0};
         if (plugin.call(methods[index], (uint8_t*)payloads[index], strlen(payloads[index]), &response) != 0 || response.ptr == NULL) return 1;
@@ -36,6 +36,9 @@ int main(int count, char** arguments) {
         const char* expected = index == 4 ? "\"ok\":false" : "\"ok\":true";
         if (strstr(text, expected) == NULL || strstr(text, "op://") != NULL || strstr(text, "gemini-web:v1:") != NULL) return 1;
         if (index == 0 && strstr(text, "\"request_interceptor\":true") == NULL) return 1;
+        if (index == 0 && strstr(text, "\"Name\":\"maintenance_sources\",\"Type\":\"object\"") == NULL) return 1;
+        if (index == 1 && strstr(text, "\"Method\":\"POST\",\"Path\":\"/plugins/gemini-web/maintain\"") == NULL) return 1;
+        if (index == 5 && strstr(text, "\"StatusCode\":400") == NULL) return 1;
         printf("%s: %s\n", methods[index], expected);
         free(text);
         plugin.free_buffer(response.ptr, response.len);

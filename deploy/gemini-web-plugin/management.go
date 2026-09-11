@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -69,6 +70,8 @@ func (service *service) managementOperation(ctx context.Context, request managem
 		}{accounts, provider}, nil
 	case request.Method == "POST" && request.Path == accountsPath:
 		return service.registerAccount(ctx, request)
+	case request.Method == "POST" && request.Path == "/v0/management"+maintainPath:
+		return service.maintain(ctx, request)
 	case request.Method == "POST" && request.Path == refreshPath:
 		var body struct {
 			ID string `json:"id"`
@@ -122,28 +125,135 @@ func (service *service) registerAccount(ctx context.Context, request managementR
 	var token sessionToken
 	var reference secretReference
 	var err error
+	references := []string{}
+	if existing.value != "" {
+		references = append(references, existing.value)
+	}
+	if body.TokenRef != "" && body.TokenRef != existing.value {
+		if _, err := parseReference(body.TokenRef, service.settings().Vault); err != nil {
+			return nil, err
+		}
+		references = append(references, body.TokenRef)
+	}
+	sort.Strings(references)
+	for _, reference := range references {
+		lease, err := service.acquireCredential(reference, true)
+		if err != nil {
+			return nil, err
+		}
+		defer lease.guard.Unlock()
+	}
+	if body.ExistingID != "" {
+		latest, enabled, err := service.findRecord(request.HostCallbackID, body.ExistingID)
+		if err != nil {
+			return nil, err
+		}
+		if !enabled {
+			return nil, failure(409, "disabled_account_update_requires_host_enable")
+		}
+		if latest.TokenRef != existing.value {
+			return nil, failure(409, "binding_mismatch")
+		}
+		record = latest
+		record.Label = body.Label
+	}
+	binding, bound := service.settings().MaintenanceSources[record.ID]
+	if bound && (existing.value != binding.TokenRef || body.TokenRef != "" && body.TokenRef != binding.TokenRef) {
+		return nil, failure(409, "binding_mismatch")
+	}
+	for id, source := range service.settings().MaintenanceSources {
+		if id != record.ID && (source.TokenRef == existing.value || source.TokenRef == body.TokenRef) {
+			return nil, failure(409, "binding_mismatch")
+		}
+	}
+	var expected sessionToken
+	if existing.value != "" {
+		expected, err = service.secrets.Resolve(ctx, existing)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if body.TokenRef != "" {
 		reference, err = parseReference(body.TokenRef, service.settings().Vault)
 		if err != nil {
 			return nil, err
 		}
-		token, err = service.secrets.Resolve(ctx, reference)
+		if reference == existing {
+			token = expected
+		} else {
+			token, err = service.secrets.Resolve(ctx, reference)
+		}
 	} else {
 		token, err = parseToken(body.Token)
 	}
 	if err != nil {
 		return nil, err
 	}
+	if bound {
+		expectedUser, err := tokenAuthUser(expected)
+		if err != nil {
+			return nil, err
+		}
+		user, err := tokenAuthUser(token)
+		if err != nil {
+			return nil, err
+		}
+		if user != expectedUser || binding.AuthUser != nil && *binding.AuthUser != user {
+			return nil, failure(409, "binding_mismatch")
+		}
+		inspection, err := service.inspectCredential(ctx, existing.value, token)
+		if err != nil {
+			return nil, err
+		}
+		if inspection.AccountSHA256 != binding.ExpectedGaiaSHA256 || inspection.AuthUser != user {
+			return nil, failure(409, "binding_mismatch")
+		}
+	}
 	if _, err := service.accountModels(ctx, token); err != nil {
 		return nil, err
 	}
-	if body.Token != "" {
-		reference, err = service.secrets.Put(ctx, secretWrite{Label: body.Label, Token: token, Existing: existing})
+	if body.ExistingID != "" {
+		latest, enabled, err := service.findRecord(request.HostCallbackID, body.ExistingID)
 		if err != nil {
+			return nil, err
+		}
+		if !enabled {
+			return nil, failure(409, "disabled_account_update_requires_host_enable")
+		}
+		if latest.TokenRef != existing.value {
+			return nil, failure(409, "binding_mismatch")
+		}
+		record = latest
+		record.Label = body.Label
+	}
+	if body.Token != "" {
+		if existing.value == "" {
+			reference, err = service.secrets.Put(ctx, secretWrite{Label: body.Label, Token: token})
+		} else {
+			reference = existing
+			err = service.secrets.ReplaceIfExpected(ctx, secretReplacement{Reference: existing, Expected: expected, Replacement: token})
+		}
+		if err != nil {
+			if existing.value != "" {
+				service.credentialFailure(existing.value, err)
+			}
 			return nil, err
 		}
 	}
 	record.TokenRef = reference.value
+	lease := service.leases.get(reference.value)
+	lease.set(credentialState{state: maintenanceHostPending, tokenHash: tokenFingerprint(token)})
+	if body.ExistingID != "" {
+		latest, _, err := service.findRecord(request.HostCallbackID, record.ID)
+		if err != nil {
+			return nil, failure(503, "host_sync_pending")
+		}
+		if latest.TokenRef != existing.value {
+			return nil, failure(409, "binding_mismatch")
+		}
+		record.Disabled = latest.Disabled
+	}
+	record.SessionRevision++
 	auth, err := authFromRecord(record)
 	if err != nil {
 		return nil, err
@@ -154,6 +264,7 @@ func (service *service) registerAccount(ctx context.Context, request managementR
 	if err := service.callback("host.auth.save", callbackRequest{HostCallbackID: request.HostCallbackID, Name: record.ID, JSON: auth.StorageJSON}, &saved); err != nil {
 		return nil, failure(503, "auth_save_failed_reference_retained_in_1password")
 	}
+	lease.set(credentialState{state: maintenanceReady})
 	return struct {
 		ID     string `json:"id"`
 		Status string `json:"status"`
