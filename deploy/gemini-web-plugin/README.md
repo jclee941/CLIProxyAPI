@@ -5,8 +5,11 @@ No Go plugin interfaces or core executor changes are required to load the binary
 The backend has no frontend build step; `web/` and `DESIGN.md` are separately owned.
 The plugin is deployed alongside `structured-output` on the Plus core. The
 Manager resource is at `http://192.168.50.114:18317/management.html#/plugin-pages/gemini-web/0`.
-Runtime model requests use direct HTTP; no browser automation is installed in the
-sidecar or invoked by this plugin.
+Runtime model requests remain direct HTTP, never browser-driven generation.
+The separately gated maintenance credential-recovery path can read an existing
+Gemini page through the fixed `.220` CDP endpoint; it cannot log in or manipulate
+browser accounts. The maintenance runner/timer described below is a local
+implementation, not evidence that the new maintenance version is deployed.
 
 ## Build And Local Verification
 
@@ -32,7 +35,23 @@ Plugin ID: `gemini-web`. Plugin configuration keys:
 ```yaml
 vault: homelab
 dashboard_path: /CLIProxyAPI/plugins/gemini-web/index.html
+maintenance_sources:
+  gemini-web-synthetic-2.json:
+    token_ref: op://homelab/aaaaaaaaaaaaaaaaaaaaaaaaaa/web-session
+    profile_guid: 00000000-0000-4000-8000-000000000002
+    expected_gaia_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    auth_user: 0
 ```
+
+The maintenance example is deliberately synthetic, not an account inventory.
+`maintenance_sources` maps the existing CPA AuthID/filename to exactly
+`token_ref`, `profile_guid`, `expected_gaia_sha256`, and optional non-negative
+integer `auth_user`. Each source must have a distinct item reference, GUID, and
+Gaia SHA-256 digest. Bind it to the existing auth record's reference; never
+replace account IDs or commit the actual five bindings, emails, cookies, or
+account hashes. The integrating operator installs validated host configuration;
+the discovery-only `/tmp/opencode/gemini-session-source-inventory-8c630506.json`
+is not runner input or an automatically trusted configuration source.
 
 The vault is intentionally restricted to `homelab`; imported references must
 use a 26-character item ID and the unsectioned `web-session` field. Item names,
@@ -52,9 +71,11 @@ Updates preserve other fields and require a Secure Note item, avoiding passkey
 template replacement. A failed CPA save leaves the 1Password item intact for
 recovery; no automatic secret/account deletion is performed.
 
-The only upstream is `http://gemini-web2api:8081`. The plugin's own HTTP transport
-ignores environment and host proxies, follows no redirects, sets no network
-timeouts, and performs no submission retry. Only an internally constructed
+The model/sidecar upstream is `http://gemini-web2api:8081`. The plugin's HTTP
+transport for model execution ignores environment and host proxies, follows no
+redirects, sets no network timeouts, and performs no submission retry. The
+separate credential-acquisition workflow is bounded as described below.
+Only an internally constructed
 `x-goog-api-key` header carries the selected session token. Host HTTP callbacks
 are deliberately not used: their stable transport can log requests and apply a
 host proxy. Host auth callbacks forward the incoming `host_callback_id`.
@@ -112,6 +133,7 @@ authentication. They are not exposed as auth-free resource routes.
 - `GET /plugins/gemini-web/accounts`: `{accounts:[{id,label,enabled,status,models:[{id,name}],usage,error?,observed_at}],provider:"gemini-web"}`.
 - `POST /plugins/gemini-web/accounts`: `{label,token,existing_id?}` or `{label,token_ref,existing_id?}`; verifies current account availability before writing. Returns `{id,status}`.
 - `POST /plugins/gemini-web/refresh`: `{id}`; checks that account only and returns its account-view object. It does not renew Google cookies or launch a browser.
+- `POST /plugins/gemini-web/maintain`: `{}` for a due-account cycle, or `{id}` for an explicit diagnostic selection. Returns `{results:[{id,state,error?,next_due_at?}]}` with no tokens. States are `ready`, `busy_skip`, `disabled_skip`, `cooldown`, `source_rejected`, `credential_error`, `fenced`, `host_sync_pending`, and `needs_operator`. Selection does not bypass disabled state, cooldown, or credential fences. This is the authenticated job endpoint, not a new dashboard action.
 
 Lists use `host.auth.list`, provider-filtered `get_runtime`, and `get` for the
 reference-only record. Health and usage are queried afresh; expired accounts
@@ -180,8 +202,35 @@ browser. Before submitting an Omni job, the plugin asks the private sidecar to
 renew the selected valid session through Google's HTTP RotateCookies endpoint,
 verifies the result, and stores a changed token in the same 1Password item before
 submission. Renewal or persistence failure stops the request without generating.
-There is no background renewal loop and no automatic login for expired sessions.
-If a session expires, sign into Gemini in its original profile, obtain a fresh
-full session token, and replace it here. For a disabled record, deliberately
-enable it through Credential Management before replacing the token; the update
-route does not silently enable accounts.
+There is no plugin background scheduler or automatic login. The external `.114`
+oneshot timer is the only scheduled maintenance owner; it does not depend on
+CPA host 401 handling or skipped/disabled auth refresh. The dashboard's manual
+Refresh remains read-only. See [maintenance operations](ops/README.md) for local
+validation, installation, two fresh-process smoke invocations, and drain rules.
+
+Maintenance tries valid-session HTTP RotateCookies first. Only an explicit HTTP
+authentication failure permits read-only recovery from an already signed-in
+Gemini page at `http://192.168.50.220:9222`. Permission-denied 403, 429, network,
+and parser failures do not trigger capture. The configured expected Gaia digest,
+the account identity read from the browser page, and the recovered token's HTTP
+account identity must all match. Missing target identity or multiple browser
+contexts fail closed. Tab/context IDs are rediscovered, never pinned; a native
+physical profile GUID is inventory metadata, not current identity attestation.
+No page opening, login, 2FA, cookie clearing, or account switching is allowed.
+
+Credential workers are bounded to 60 seconds and killed/waited on expiry. The
+Go owner fences the reference for 70 seconds on lost response. Authentication
+failure imposes a per-reference 30-minute cooldown, not a relogin loop. Unknown
+write or submission outcomes require `needs_operator`, with no automatic retry.
+`host_sync_pending` retains the new 1Password token and resynchronizes host auth
+on the next cycle; it never rolls credentials back. Routine account-cookie
+updates require no Docker restart. Profile 1 remains disabled and is never
+automatically enabled; deliberate host enablement is a separate operator action.
+
+One active plugin process must own writes to these references. Per-reference
+expected-token comparison is **not CAS**: a real 1Password stale-version test
+showed an old version can overwrite a newer item. Before external 1Password UI
+edits, CPA-core/ref edits, or manual credential replacement, stop the timer and
+drain maintenance, Flash, Omni, and manual credential writes. Stopping only the
+timer does not drain existing work. Keep other plugin writers disabled during
+that interval, and never use a restart to clear uncertainty after a write.

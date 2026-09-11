@@ -1,0 +1,22 @@
+[Unit]
+Description=Gemini Web session maintenance through the authenticated local API
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/cliproxy/op-service-account.env
+ConditionFileIsExecutable=/usr/bin/op
+ConditionFileIsExecutable=/usr/bin/python3
+ConditionPathExists=/opt/gemini-web-plugin/ops/maintain.py
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/cliproxy/op-service-account.env
+Environment=GEMINI_MAINTENANCE_KEY=op://homelab/hazdy6l5k5rfahjdcdszzenizm/management_key
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/op run -- /usr/bin/python3 /opt/gemini-web-plugin/ops/maintain.py
+Restart=no
+TimeoutStartSec=0
+UMask=0077
+LimitCORE=0
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gemini-session-maintenance
