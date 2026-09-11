@@ -1,0 +1,19 @@
+[project]
+name = "cliproxy-gemini-web-extension"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["httpx>=0.25,<1"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "basedpyright>=1.38,<2", "ruff>=0.14,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.basedpyright]
+include = ["extension", "tests"]
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+extraPaths = ["."]
