@@ -1,0 +1,6 @@
+services:
+  cliproxyapi:
+    env_file:
+      - /etc/cliproxy/op-service-account.env
+    volumes:
+      - /usr/bin/op:/usr/local/bin/op:ro

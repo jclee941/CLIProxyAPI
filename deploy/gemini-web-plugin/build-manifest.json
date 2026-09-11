@@ -1,0 +1,20 @@
+{
+  "plugin_id": "gemini-web",
+  "version": "0.1.0",
+  "abi_version": 1,
+  "schema_version": 6,
+  "sdk_baseline": "router-for-me/CLIProxyAPI v7.2.157 09a29bd",
+  "format": "c-shared",
+  "artifact": "gemini-web.so",
+  "generated_header": "gemini-web.h",
+  "platform": "linux/amd64",
+  "libc": "glibc",
+  "verified_go_version": "go1.26.5",
+  "build": "make check",
+  "sidecar": "http://gemini-web2api:8081",
+  "config": {
+    "vault": "homelab",
+    "dashboard_path": "/CLIProxyAPI/plugins/gemini-web/index.html"
+  },
+  "production_deployment": true
+}
