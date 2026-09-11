@@ -12,10 +12,12 @@ from unittest.mock import patch
 import pytest
 
 from extension.account import AccountError
+from extension.credential_worker import account_failure, execute
 from extension.credentials import SessionCredential, decode_token, encode_token
 from extension.native import NativeSession
 from extension.renewal import renew_session
 from extension.server import WebHandler
+from tests.test_identity import DIGEST, GAIA
 
 
 class RenewalWire(ThreadingHTTPServer):
@@ -47,7 +49,7 @@ class RenewalHandler(BaseHTTPRequestHandler):
             account = json.dumps([None] * 14 + [server.account_status, [], []])
             frame = json.dumps([["wrb.fr", "otAQ7b", account, None, None, None]]).encode()
             payload = (
-                b'{"SNlM0e":"synthetic-xsrf","cfb2h":"synthetic-build"}'
+                ('<script>window.WIZ_global_data=' + json.dumps({"SNlM0e": "synthetic-xsrf", "cfb2h": "synthetic-build", "S06Grb": GAIA, "W3Yyqf": GAIA, "qDCSke": GAIA}) + ';</script>').encode()
                 if self.command == "GET"
                 else b")]}'\n\n" + str(len(frame)).encode() + b"\n" + frame + b"\n"
             )
@@ -75,7 +77,7 @@ def renewal_wire() -> Iterator[RenewalWire]:
             return NativeSession(cookie, account_index, upstream_url=f"http://127.0.0.1:{server.server_port}")
 
         try:
-            with patch("extension.renewal.HTTPSConnection", connection), patch("extension.renewal.NativeSession", session):
+            with patch("extension.renewal.HTTPSConnection", connection), patch("extension.renewal.HttpSession", session), patch("extension.credential_worker.HttpSession", session):
                 yield server
         finally:
             server.shutdown()
@@ -128,7 +130,7 @@ def test_renewal_ignores_cookies_outside_gemini_contract(header: str) -> None:
         assert decode_token(token).cookie == "SID=synthetic-original; SIDCC=fresh"
 
 
-@pytest.mark.parametrize("status", [401, 302, 500])
+@pytest.mark.parametrize("status", [401, 403, 429, 302, 500])
 def test_renewal_never_returns_token_when_rotation_fails(status: int) -> None:
     with renewal_wire() as server:
         server.status = status
@@ -139,6 +141,7 @@ def test_renewal_never_returns_token_when_rotation_fails(status: int) -> None:
         assert caught.value.http_status == status
         assert "synthetic" not in str(caught.value)
         assert len(server.requests) == 1
+        assert account_failure(caught.value).kind == ("auth_error" if status == 401 else "upstream_status")
 
 
 def test_renewal_never_returns_token_when_new_session_is_unavailable() -> None:
@@ -156,24 +159,36 @@ def test_renewal_never_returns_token_when_new_session_is_unavailable() -> None:
     ("synthetic-legacy-key", b"", 401),
     ("", b"", 401),
     ("gemini-web:v1:invalid", b"", 400),
-    (encode_token("SID=synthetic-original"), b"{}", 400),
+    (encode_token("SID=synthetic-original", 2), b"{}", 200),
+    (encode_token("SID=synthetic-original", 2), b"  {}\n", 200),
+    (encode_token("SID=synthetic-original"), b'{"unexpected":1}', 400),
+    (encode_token("SID=synthetic-original"), b'{"token":"no"}', 400),
+    (encode_token("SID=synthetic-original"), b'{"x":1,"x":2}', 400),
+    (encode_token("SID=synthetic-original"), b'[]', 400),
+    (encode_token("SID=synthetic-original"), b'null', 400),
+    (encode_token("SID=synthetic-original"), b'{}{}', 400),
 ])
-def test_private_renewal_http_contract(key: str, body: bytes, status: int, capsys: pytest.CaptureFixture[str]) -> None:
-    with renewal_wire() as upstream, patch("extension.server.CONFIG", {"api_keys": ["synthetic-legacy-key"]}), patch("extension.server.load_cookie") as legacy:
+@pytest.mark.parametrize("operation", ["inspect", "renew"])
+def test_private_renewal_http_contract(key: str, body: bytes, status: int, capsys: pytest.CaptureFixture[str], operation: str) -> None:
+    with renewal_wire() as upstream, patch("extension.server.CONFIG", {"api_keys": ["synthetic-legacy-key"]}), patch("extension.server.load_cookie") as legacy, patch("extension.server.run_credential_operation", side_effect=execute):
         upstream.cookies = ["SIDCC=fresh; Domain=.google.com; Path=/; Secure"]
         with ThreadingHTTPServer(("127.0.0.1", 0), WebHandler) as server:
             thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
             thread.start()
             try:
                 with closing(HTTPConnection("127.0.0.1", server.server_port)) as client:
-                    client.request("POST", "/v1/session/renew", body, {"x-goog-api-key": key})
+                    client.request("POST", "/v1/session/" + operation, body, {"x-goog-api-key": key})
                     with client.getresponse() as response:
                         payload = response.read()
                         assert response.status == status
                         assert response.getheader("Cache-Control") == "no-store"
                 if status == 200:
-                    assert payload == json.dumps({"token": encode_token("SID=synthetic-original; SIDCC=fresh", 2)}).encode()
-                    assert len(upstream.requests) == 3
+                    expected: dict[str, str | int] = {"account_sha256": DIGEST, "auth_user": 2}
+                    if operation == "renew":
+                        expected["token"] = encode_token("SID=synthetic-original; SIDCC=fresh", 2)
+                    assert json.loads(payload) == expected
+                    assert len(upstream.requests) == (5 if operation == "renew" else 2)
+                    assert GAIA.encode() not in payload
                 else:
                     assert b"token" not in payload and b"synthetic" not in payload
                     assert upstream.requests == []
@@ -187,7 +202,7 @@ def test_private_renewal_http_contract(key: str, body: bytes, status: int, capsy
 
 @pytest.mark.parametrize("provider_status,account_status", [(401, 1000), (200, 1016)])
 def test_private_renewal_returns_safe_http_error_when_google_rejects(provider_status: int, account_status: int) -> None:
-    with renewal_wire() as upstream, ThreadingHTTPServer(("127.0.0.1", 0), WebHandler) as server:
+    with renewal_wire() as upstream, ThreadingHTTPServer(("127.0.0.1", 0), WebHandler) as server, patch("extension.server.run_credential_operation", side_effect=execute):
         upstream.status = provider_status
         upstream.account_status = account_status
         thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})

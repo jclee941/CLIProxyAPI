@@ -19,6 +19,8 @@ from http.client import HTTPConnection, HTTPException, HTTPSConnection
 from typing import Final, Literal, override
 from urllib.parse import urlencode, urlsplit
 
+from .identity import account_digest, has_signin_marker, is_signin_url
+
 type JsonValue = (
     str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
 )
@@ -74,6 +76,7 @@ class AccountModels:
     available: Literal[True] = True
     source: Literal["GoogleWeb"] = "GoogleWeb"
     estimated: Literal[False] = False
+    account_sha256: str | None = None
 
     def select_model(self, display_name: str) -> ModelCapability:
         matches = tuple(
@@ -246,6 +249,7 @@ class HttpSession:
         self._build: str | None = None
         self._session_id: str | None = None
         self._request_id: int = 100000
+        self._account_sha256: str | None = None
 
     def _request_headers(self) -> dict[str, str]:
         headers = {
@@ -280,6 +284,8 @@ class HttpSession:
                     "GET" if body is None else "POST", path, body, headers
                 )
                 with connection.getresponse() as response:
+                    if 300 <= response.status < 400 and is_signin_url(response.getheader("Location", "")):
+                        raise AccountError("unauthenticated", http_status=response.status)
                     if not 200 <= response.status < 300:
                         raise AccountError(
                             "upstream_status", http_status=response.status
@@ -290,6 +296,7 @@ class HttpSession:
 
     def bootstrap(self) -> None:
         self._xsrf = self._build = self._session_id = None
+        self._account_sha256 = None
         try:
             page = self._request(self._prefix + "/app").decode("utf-8")
         except UnicodeError:
@@ -304,9 +311,12 @@ class HttpSession:
                     case int() | float() | list() | dict() | None:
                         raise AccountError("bootstrap_failed")
         if not values.get("SNlM0e") or not values.get("cfb2h"):
+            if not values.get("SNlM0e") and has_signin_marker(page):
+                raise AccountError("unauthenticated")
             raise AccountError("bootstrap_failed")
         self._xsrf, self._build = values["SNlM0e"], values["cfb2h"]
         self._session_id = values.get("FdrFJe")
+        self._account_sha256 = account_digest(page)
 
     def rpc(self, rpcid: str, args: JsonValue, source_path: str = "/app") -> JsonValue:
         if self._xsrf is None:
@@ -355,7 +365,7 @@ class HttpSession:
         capacity_flags = (
             None if flags is None else tuple(_integer(flag) for flag in _array(flags))
         )
-        return AccountModels(tuple(models), capacity_flags, status_code, time.time())
+        return AccountModels(tuple(models), capacity_flags, status_code, time.time(), account_sha256=self._account_sha256)
 
     def usage(self) -> AccountUsage:
         body = _array(self.rpc("jSf9Qc", [], "/usage"))

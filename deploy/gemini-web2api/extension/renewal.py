@@ -7,9 +7,8 @@ from http.client import HTTPException, HTTPSConnection
 from http.cookies import CookieError, SimpleCookie
 from typing import Final
 
-from .account import AccountError
+from .account import AccountError, HttpSession
 from .credentials import SessionCredential, encode_token
-from .native import NativeSession
 
 _USER_AGENT: Final = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -39,6 +38,8 @@ def renew_session(credential: SessionCredential) -> str:
                 },
             )
             with connection.getresponse() as response:
+                if response.status == 401:
+                    raise AccountError("unauthenticated", http_status=401)
                 if response.status != 200:
                     raise AccountError("upstream_status", http_status=response.status)
                 for header, value in response.getheaders():
@@ -74,5 +75,5 @@ def renew_session(credential: SessionCredential) -> str:
     pairs.extend(f"{name}={value}" for name, value in updates.items() if name not in present)
     cookie = "; ".join(pairs) if updates else credential.cookie
     token = encode_token(cookie, credential.auth_user)
-    _ = NativeSession(cookie, str(credential.auth_user)).account_models()
+    _ = HttpSession(cookie, str(credential.auth_user)).account_models()
     return token

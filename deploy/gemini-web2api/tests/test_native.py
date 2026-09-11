@@ -70,8 +70,10 @@ def test_generation_and_rpc_share_fresh_authentication(
             monkeypatch.setattr("extension.account.time.time", lambda: 1700000000.75 + len(observed))
             session = NativeSession(cookie, account_index)
 
-            assert session.generate_flash("short reply") == "FLASH_TEST_OK"
-            assert session.submit_video("short clip")
+            with patch("extension.credential_worker.subprocess.run") as worker:
+                assert session.generate_flash("short reply") == "FLASH_TEST_OK"
+                assert session.submit_video("short clip")
+                worker.assert_not_called()
 
             assert len(observed) == 5
             for index, (path, headers) in enumerate(observed):

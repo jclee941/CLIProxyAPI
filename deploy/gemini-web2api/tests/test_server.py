@@ -69,7 +69,7 @@ class ServerTests(unittest.TestCase):
                 with closing(HTTPConnection("127.0.0.1", server.server_port)) as client:
                     client.request("GET", "/v1/usage", headers={"x-goog-api-key": encode_token("SID=expired-account")})
                     response = client.getresponse()
-                    self.assertEqual(response.status, 401)
+                    self.assertEqual(response.status, 502)
                     self.assertEqual(json.loads(response.read())["error"]["message"], "bootstrap_failed")
                 with closing(HTTPConnection("127.0.0.1", server.server_port)) as client:
                     client.request("POST", "/v1/chat/completions", json.dumps({"model":"gemini-web-omni"}), {"x-goog-api-key":encode_token("SID=account-a")})

@@ -2,6 +2,12 @@
 
 This deployment runs [Sophomoresty/gemini-web2api](https://github.com/Sophomoresty/gemini-web2api) at revision `2bb988bfcbb82a7fab5d2c99aa5560ff40d64f7e` as a private sidecar. It does not replace CLIProxyAPI.
 
+The Runtime, Web session, and CLIProxy Gemini provider sections retain the
+historical shared-key deployment and its verification evidence. They are not
+the renewal procedure for the native multi-account Gemini Web plugin. Its new
+maintenance implementation must be integrated and validated on the host before
+being described as deployed; see [maintenance operations](../gemini-web-plugin/ops/README.md).
+
 ## Runtime
 
 - Host files: `/opt/gemini-web2api/`
@@ -23,7 +29,7 @@ docker build --tag gemini-web2api:web-http-20260911 /opt/gemini-web2api
 systemctl enable --now gemini-web2api.service
 ```
 
-`systemctl reload gemini-web2api.service` re-injects secrets and recreates only the bridge, since its configuration is loaded at process startup. The unit regenerates the `/run` configuration after reboot.
+`systemctl reload gemini-web2api.service` re-injects the legacy shared-key configuration and recreates only the bridge, since that configuration is loaded at process startup. The unit regenerates the `/run` configuration after reboot. Native plugin account-cookie updates use account tokens per request and do not require routine Docker or service restarts.
 
 ## Web session
 
@@ -75,8 +81,10 @@ uv sync --frozen
 PYTHONPATH=/path/to/pinned/gemini-web2api uv run pytest tests
 ```
 
-The extension image continues to inherit the existing pinned image. The development
-environment does not change the runtime or install browser automation.
+The extension image continues to inherit the existing pinned image. Model
+generation remains pure HTTP. Credential maintenance's separately bounded
+read-only CDP recovery is not browser-driven generation or an interactive login
+workflow, and does not change the legacy shared-key route.
 
 ## Account-Aware HTTP Extension
 
@@ -104,3 +112,38 @@ native CPA plugin uses account-specific opaque tokens and exposes
 The upstream web interface is unofficial and can change. Model names, a 200
 response, or a live browser connection are not proof of account entitlement.
 Account expiration is reported, not replaced with another account's status.
+
+## Native Session Maintenance
+
+One external `.114` systemd timer invokes the authenticated plugin
+`POST http://127.0.0.1:8317/v0/management/plugins/gemini-web/maintain` with `{}`
+every five minutes after the previous invocation finishes. It is not a sidecar
+or plugin background loop, and does not rely on CPA-core 401 handling. The
+runner reads only a runtime-injected management key, makes one request, prints
+state counts only, and neither logs response bodies nor retries failures.
+Dashboard Refresh continues to inspect status/usage without credential renewal.
+
+The plugin owns the AuthID-to-`maintenance_sources` map and the single-writer
+credential lifecycle. See its [configuration schema](../gemini-web-plugin/README.md#configuration-and-runtime-prerequisites)
+for synthetic reference/GUID/Gaia-hash examples; never commit the real five
+bindings. Model requests use HTTP only. Maintenance first attempts HTTP cookie
+rotation for a valid token. Only explicit HTTP authentication failure can invoke
+read-only capture from an existing Gemini page at fixed `.220:9222`, never on
+permission-denied 403, 429, network, or parser errors. No open/login/2FA/clear/switch
+actions are allowed. Configured, browser-observed, and HTTP-verified Gaia hashes
+must agree; missing identity or multiple contexts fails closed. Tab/context IDs
+are not pinned, and physical profile GUIDs do not attest current account identity.
+
+The Python credential worker has a 60-second kill-and-wait budget; Go retains a
+70-second fence after a lost response. Authentication failures cause a 30-minute
+per-reference cooldown, not automatic relogin. Unknown write/submission outcomes
+require operator intervention without automatic retry. `host_sync_pending`
+retains the newer token in 1Password and retries only host synchronization on a
+later cycle, without rollback. Disabled Profile 1 is never automatically enabled.
+
+1Password expected-token comparison is not CAS; stale item versions can overwrite
+newer values. Allow only one active plugin writer. Before 1Password UI, CPA-core,
+or direct reference changes, stop the timer and drain maintenance, Flash, Omni,
+and manual credential writes. Do not disrupt the existing Plus, Manager,
+ChatGPT2API, or legacy `gemini-web-flash` configuration. Installation and
+fresh-process verification are operator steps, not completed deployment claims.

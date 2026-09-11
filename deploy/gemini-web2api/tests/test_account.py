@@ -52,6 +52,7 @@ class WireServer(ThreadingHTTPServer):
         self.html: str = '<script>window.WIZ_global_data={"SNlM0e":"fake-xsrf", "cfb2h":"fake-build", "FdrFJe":"fake-session"};</script>'
         self.payload: bytes = b")]}'\n\n" + frame("otAQ7b", account_body())
         self.http_status: int = 200
+        self.location: str = "http://example.invalid/do-not-follow"
         self.cookie: str = "SID=synthetic-only"
         self.requests: list[tuple[str, dict[str, str], bytes]] = []
 
@@ -78,7 +79,7 @@ class WireHandler(BaseHTTPRequestHandler):
         )
         self.send_response(status)
         self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Location", "http://example.invalid/do-not-follow")
+        self.send_header("Location", self.wire_server.location)
         self.end_headers()
         _ = self.wfile.write(payload)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hmac
 import json
+import re
 import select
 import socket
 from dataclasses import asdict
@@ -17,14 +18,16 @@ from gemini_web2api.server import GeminiHandler
 from gemini_web2api.tools import google_contents_to_prompt, parse_google_function_calls
 
 from .account import AccountError
+from .credential_worker import WorkerError, account_failure, run_credential_operation
 from .credentials import (
+    MAX_TOKEN_LENGTH,
     CredentialError,
     SessionCredential,
+    _decode_json,
     decode_token,
     resolve_credential,
 )
 from .native import NativeSession
-from .renewal import renew_session
 from .video import MODEL, VideoError, generate_video, parse_prompt
 
 FLASH_MODEL = "gemini-3.8-flash"
@@ -38,7 +41,7 @@ class ModelRow(TypedDict):
 
 class WebHandler(GeminiHandler):
     def end_headers(self) -> None:
-        if self.path == "/v1/session/renew":
+        if self.path in {"/v1/session/inspect", "/v1/session/renew"}:
             self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
@@ -75,17 +78,12 @@ class WebHandler(GeminiHandler):
             return True
         return super()._authorized()
 
-    def _failure(self, error: AccountError | CredentialError | VideoError) -> None:
-        if isinstance(error, (CredentialError, VideoError)):
+    def _failure(self, error: AccountError | CredentialError | VideoError | WorkerError) -> None:
+        if isinstance(error, (CredentialError, VideoError, WorkerError)):
             code = error.status
-        elif error.kind in {"unauthenticated", "bootstrap_failed"}:
-            code = 401
-        elif error.kind == "rpc_denied":
-            code = 403
-        elif error.kind == "model_unavailable":
-            code = 404
         else:
-            code = error.http_status if error.http_status in {401, 403, 429} else 502
+            error = account_failure(error)
+            code = error.status
         self.send_json({"error": {"code": code, "message": error.kind}}, code)
 
     def do_GET(self) -> None:
@@ -126,21 +124,38 @@ class WebHandler(GeminiHandler):
 
     def do_POST(self) -> None:
         try:
-            if self.path == "/v1/session/renew":
-                credential = decode_token(self._presented() or "")
-                if self.headers.get_all("Content-Length", []) not in ([], ["0"]) or "Transfer-Encoding" in self.headers:
-                    self.close_connection = True
-                    raise CredentialError("invalid_credential", 400)
-                self.send_json({"token": renew_session(credential)})
+            if self.path in {"/v1/session/inspect", "/v1/session/renew"}:
+                self.close_connection = True
+                token = self._presented() or ""
+                _ = decode_token(token)
+                self._credential_body()
+                operation = "inspect" if self.path == "/v1/session/inspect" else "renew"
+                self.send_json(run_credential_operation(operation, token))
                 return
             if not self._authorized():
                 self.send_json({"error": {"message": "invalid api key"}}, 401)
                 return
             super().do_POST()
-        except (CredentialError, AccountError, VideoError) as error:
+        except (CredentialError, AccountError, VideoError, WorkerError) as error:
             self._failure(error)
         except (BrokenPipeError, ConnectionResetError):
             return
+
+    def _credential_body(self) -> None:
+        lengths = self.headers.get_all("Content-Length", [])
+        if "Transfer-Encoding" in self.headers or len(lengths) > 1:
+            raise CredentialError("invalid_credential", 400)
+        text = lengths[0] if lengths else "0"
+        if not re.fullmatch(r"[0-9]{1,5}", text) or int(text) > MAX_TOKEN_LENGTH:
+            raise CredentialError("invalid_credential", 400)
+        size = int(text)
+        if size:
+            body = self.rfile.read(size)
+            try:
+                if len(body) != size or _decode_json(body) != {}:
+                    raise CredentialError("invalid_credential", 400)
+            except (ValueError, UnicodeError, RecursionError):
+                raise CredentialError("invalid_credential", 400) from None
 
     def _handle_chat(self, body: bytes) -> None:
         request = self._parse_body(body)
