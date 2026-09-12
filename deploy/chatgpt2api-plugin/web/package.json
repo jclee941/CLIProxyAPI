@@ -1,0 +1,21 @@
+{
+  "name": "chatgpt2api-plugin-resource",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "bun --no-env-file build.ts",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "qa": "bun --no-env-file tests/browser.ts",
+    "preview:mock": "bun --no-env-file tests/preview.ts"
+  },
+  "dependencies": {
+    "ky": "1.14.3",
+    "zod": "4.6.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/bun": "1.4.2",
+    "typescript": "5.9.3"
+  }
+}

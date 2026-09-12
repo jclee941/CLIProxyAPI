@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko" data-theme="white">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MOCK Manager resource host</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/mock-tokens.css">
+  <style>
+    :root { --cpamp-plugin-font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr); font: var(--gw-text-small)/var(--gw-line-height) var(--gw-font); background: var(--bg-secondary); color: var(--text-primary); }
+    .mock-banner { padding: var(--gw-space-2) var(--gw-space-4); border-bottom: var(--gw-border) solid var(--border-color); background: var(--surface-subtle); font-weight: 600; }
+    iframe { width: 100%; height: 100%; min-height: 0; border: 0; }
+  </style>
+</head>
+<body>
+  <div class="mock-banner">MOCK · 로컬 합성 데이터 / 실제 서비스 상태 아님</div>
+  <iframe title="ChatGPT2API MOCK resource" referrerpolicy="no-referrer"></iframe>
+  <script>
+    const options = new URLSearchParams(location.search);
+    document.documentElement.dataset.theme = options.get('theme') === 'dark' ? 'dark' : 'white';
+    const state = { apiBase: location.origin, managementKey: 'MOCK_MANAGER_CONTEXT', rememberPassword: true, sessionMode: 'manager_embedded' };
+    const mode = options.get('auth');
+    if (mode === 'missing') delete state.managementKey;
+    if (mode === 'core') state.sessionMode = 'direct';
+    if (mode === 'cross-origin') state.apiBase = 'https://untrusted.invalid';
+    const encoded = new TextEncoder().encode(JSON.stringify({ state, version: 0 }));
+    const key = new TextEncoder().encode(`cli-proxy-api-webui::secure-storage|${location.host}|${navigator.userAgent}`);
+    localStorage.setItem('cli-proxy-auth', `enc::v1::${btoa(Array.from(encoded, (byte, index) => String.fromCharCode(byte ^ key[index % key.length])).join(''))}`);
+    if (mode === 'blocked') Storage.prototype.getItem = () => { throw new DOMException('MOCK blocked storage', 'SecurityError'); };
+    const frame = document.querySelector('iframe');
+    function bridge() {
+      const doc = frame.contentDocument;
+      doc.documentElement.setAttribute('data-cpamp-plugin-host', 'true');
+      doc.documentElement.dataset.theme = document.documentElement.dataset.theme;
+      const computed = getComputedStyle(document.documentElement);
+      const variables = Array.from(computed).filter(name => name.startsWith('--') && !name.startsWith('--gw-'))
+        .map(name => `${name}:${computed.getPropertyValue(name)};`).join('');
+      let style = doc.getElementById('cpamp-plugin-host-style');
+      if (!style) { style = doc.createElement('style'); style.id = 'cpamp-plugin-host-style'; doc.head.prepend(style); }
+      style.textContent = `:where(html[data-cpamp-plugin-host='true']){${variables}color-scheme:${document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'};}`;
+    }
+    frame.addEventListener('load', bridge);
+    frame.src = '/v0/resource/plugins/chatgpt2api/index';
+    new MutationObserver(bridge).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style'] });
+  </script>
+</body>
+</html>
