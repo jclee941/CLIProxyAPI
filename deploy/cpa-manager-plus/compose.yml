@@ -23,7 +23,7 @@ services:
       USAGE_BATCH_SIZE: "100"
       USAGE_POLL_INTERVAL_MS: "500"
       USAGE_QUERY_LIMIT: "50000"
-      USAGE_CORS_ORIGINS: "http://127.0.0.1:18317,http://localhost:18317,http://192.168.50.114:18317"
+      USAGE_CORS_ORIGINS: "http://127.0.0.1:18317,http://localhost:18317,http://192.168.50.114:18317,https://cliproxy.jclee.me"
       USAGE_QUOTA_COOLDOWN_ENABLED: "false"
       USAGE_ACCOUNT_ACTIONS_ENABLED: "false"
       USAGE_ACCOUNT_ACTIONS_AUTO_DISABLE: "false"

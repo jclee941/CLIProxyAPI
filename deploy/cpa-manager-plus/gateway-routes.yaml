@@ -1,0 +1,16 @@
+{
+  "http": {
+    "routers": {
+      "manager": {
+        "rule": "Host(`cliproxy.jclee.me`) && PathRegexp(`^/(management\\.html|health|status|setup|models)/?$|^/(usage-service|v0/management|v0/resource/plugins)(/|$)|^/$`)",
+        "priority": 100,
+        "service": "manager"
+      },
+      "core": {"rule": "PathPrefix(`/`)", "priority": 1, "service": "core"}
+    },
+    "services": {
+      "manager": {"loadBalancer": {"servers": [{"url": "http://127.0.0.1:18317"}], "passHostHeader": true, "responseForwarding": {"flushInterval": "-1ms"}}},
+      "core": {"loadBalancer": {"servers": [{"url": "http://127.0.0.1:18318"}], "passHostHeader": true, "responseForwarding": {"flushInterval": "-1ms"}}}
+    }
+  }
+}

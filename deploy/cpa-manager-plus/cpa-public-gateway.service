@@ -1,0 +1,19 @@
+[Unit]
+Description=Public CPA dashboard routing to Manager Plus
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+ExecStart=/usr/local/bin/traefik --configFile=/opt/cpa-manager-plus/gateway.yaml
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

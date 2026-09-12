@@ -7,6 +7,35 @@ configuration preserved after compatibility fixes. The Gemini Web plugin and
 resource page are loaded; account activation and final integration verification
 remain separate gates. This runbook covers the verified Manager increment.
 
+## Public Dashboard
+
+`https://cliproxy.jclee.me/` serves Manager Plus and redirects to
+`/management.html`. The old CPA control-panel HTML and its automatic asset update
+are disabled; the core management API remains available internally.
+
+The existing Cloudflare Tunnel is remotely configured to use loopback `8317`.
+Its remote configuration overrides the connector's local ingress file. Do not
+assume a successful local `cloudflared ingress validate` changes the public route.
+The separately installed `cpa-public-gateway.service` uses the existing Traefik
+binary to split that loopback traffic:
+
+- Public Host `cliproxy.jclee.me` and Manager paths go to `127.0.0.1:18317`.
+- Model API paths, WebSocket requests and non-public local management requests
+  go to the core's loopback binding, `127.0.0.1:18318`.
+- The core container still listens on `8317`; its LAN binding
+  `192.168.50.114:8317` and Manager's Docker-network upstream remain unchanged.
+
+`gateway.yaml` binds IPv4 loopback only, matching this host's enabled networking.
+`gateway-routes.yaml` preserves full paths and forwarding headers, has no active
+request/read-response deadline, and flushes responses without buffering. No API
+key is embedded in this gateway and it does not expose a Traefik dashboard.
+
+Install the gateway configs beneath `/opt/cpa-manager-plus/` and its unit in
+`/etc/systemd/system/`. Preserve the core's other ports, environment and volumes
+when changing only its loopback mapping from `8317` to `18318`. Verify local Host
+routing before enabling the loopback gateway. Keep the CORS allowlist's existing
+LAN origins and the exact `https://cliproxy.jclee.me` public origin.
+
 ## Deployment
 
 | Resource | Deployed value |
@@ -31,7 +60,8 @@ runtime injection. Preserve CPA, Postgres,
 Telegram containers, storage, settings, and behavior.
 
 LAN access is enabled; this isn't a loopback-only deployment. Public publication
-and reverse-proxy/TLS changes require separate review. The container has a
+uses the reviewed loopback gateway above, with TLS at the existing Cloudflare edge.
+The Manager container has a
 read-only root filesystem, writable `/tmp` tmpfs, and no Docker socket. The
 upstream image runs as root; Docker-root can still read mounted keys.
 
