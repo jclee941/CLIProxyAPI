@@ -34,6 +34,7 @@ type credentialLease struct {
 	guard sync.RWMutex
 	mu    sync.Mutex
 	state credentialState
+	cache credentialCache
 }
 
 func (lease *credentialLease) snapshot() credentialState {
@@ -46,16 +47,24 @@ func (lease *credentialLease) set(state credentialState) {
 	lease.mu.Lock()
 	defer lease.mu.Unlock()
 	lease.state = state
+	if state.state == maintenanceFenced || state.state == maintenanceOperator {
+		lease.clearCacheLocked()
+	}
 }
 
 type credentialLeases struct {
-	mu   sync.Mutex
-	refs map[string]*credentialLease
+	mu    sync.Mutex
+	refs  map[string]*credentialLease
+	epoch uint64
 }
 
 func (leases *credentialLeases) get(reference string) *credentialLease {
 	leases.mu.Lock()
 	defer leases.mu.Unlock()
+	return leases.getLocked(reference)
+}
+
+func (leases *credentialLeases) getLocked(reference string) *credentialLease {
 	if leases.refs == nil {
 		leases.refs = make(map[string]*credentialLease)
 	}
@@ -121,6 +130,29 @@ func (service *service) reconfigureCredentials(config pluginConfig) error {
 			return failure(409, "maintenance_state_requires_reconciliation")
 		}
 	}
+	changed := make(map[string]bool)
+	for id, old := range service.config.MaintenanceSources {
+		if replacement, exists := config.MaintenanceSources[id]; !exists || !reflect.DeepEqual(old, replacement) {
+			changed[old.TokenRef] = true
+			changed[replacement.TokenRef] = true
+		}
+	}
+	for id, source := range config.MaintenanceSources {
+		if _, exists := service.config.MaintenanceSources[id]; !exists {
+			changed[source.TokenRef] = true
+		}
+	}
+	for reference := range changed {
+		if lease := service.leases.refs[reference]; lease != nil {
+			lease.mu.Lock()
+			lease.clearCacheLocked()
+			if lease.state.state == maintenanceReady {
+				lease.state.nextDue = time.Time{}
+			}
+			lease.mu.Unlock()
+		}
+	}
+	service.leases.epoch++
 	return nil
 }
 
