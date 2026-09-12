@@ -1,6 +1,8 @@
 # Gemini Web Native CPA Plugin
 
 Independent C ABI 1 plugin for CPA v7.2.157 (`09a29bd`), using RPC schema 6.
+The credential-cache changes below are locally verified source changes, not a
+claim that the running deployment has been restarted with this build.
 No Go plugin interfaces or core executor changes are required to load the binary.
 The backend has no frontend build step; `web/` and `DESIGN.md` are separately owned.
 The plugin is deployed alongside `structured-output` on the Plus core. The
@@ -226,6 +228,37 @@ write or submission outcomes require `needs_operator`, with no automatic retry.
 on the next cycle; it never rolls credentials back. Routine account-cookie
 updates require no Docker restart. Profile 1 remains disabled and is never
 automatically enabled; deliberate host enablement is a separate operator action.
+
+## Credential Reuse And Vault Availability
+
+The plugin keeps successfully loaded or committed session tokens only in process
+memory, keyed by the complete validated `web-session` reference. A token can be
+reused for at most one hour after its backing read or confirmed write. Cache hits,
+successful model calls, and unchanged-token renewals do not extend that deadline.
+Models and usage are still checked against the sidecar on every request.
+
+Concurrent misses share one backing read, including its failure; credential writes
+are serialized with those reads. Only a successful write publishes a replacement.
+HTTP 401 and unavailable-account responses invalidate the matching token, without
+evicting a newer replacement or enabling a browser-recovery path. A fence or
+`needs_operator` blocks cached reads too. Binding changes and shutdown invalidate
+the affected caches and prevent late loads from republishing credentials.
+Manual registration/reference replacement and pending host reconciliation use
+fresh backing reads. Expected-token comparisons still inspect the live Vault item.
+
+After successful maintenance, a normal `{}` cycle waits 30 minutes before doing
+credential work for that account again. `ready` with `next_due_at` means the prior
+maintenance succeeded and the next run is not due. An explicit `{id}` selection
+bypasses only this normal interval, never cooldowns, disabled state, or fences.
+Omni still performs its required renewal and durable write before submission.
+
+There is no disk cache or stale-on-error fallback. A cold process, expired or
+invalidated token, or changed-token renewal still needs a working Vault. Do not
+restart a running service to populate this cache while Vault access is blocked.
+The external timer still injects its management key with `op run` each cycle.
+This lowers request-path and scheduled credential traffic, but does not guarantee
+staying below a shared account quota: individual CLI commands can consume multiple
+API requests, and writes, manual operations, and other services share that budget.
 
 One active plugin process must own writes to these references. Per-reference
 expected-token comparison is **not CAS**: a real 1Password stale-version test
