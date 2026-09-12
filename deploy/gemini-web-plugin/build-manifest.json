@@ -17,5 +17,5 @@
     "dashboard_path": "/CLIProxyAPI/plugins/gemini-web/index.html",
     "maintenance_sources": {}
   },
-  "production_deployment": true
+  "production_deployment": false
 }
