@@ -60,6 +60,14 @@ monotonic schedule. The regular next cycle is a new due-account evaluation,
 not a replay of a failed request. Do not add cron, a second timer, parallel manual
 runners, another plugin writer, or a plugin background scheduler.
 
+With the cache-aware backend, a successful account has a 30-minute normal
+maintenance interval. Earlier `{}` cycles return its existing `ready` state and
+`next_due_at` without a Vault read or Google renewal. Explicit `--id` selection
+bypasses only this normal interval; all safety states still apply. The runner
+itself has no key cache: every timer invocation still needs `op run`, even when
+all accounts are not yet due. A plugin memory cache therefore cannot recover a
+runner whose management-key injection is blocked by 1Password quota exhaustion.
+
 `TimeoutStartSec=0` deliberately avoids killing a long batch mid-credential-write.
 Five sequential accounts can take approximately 15 minutes plus 1Password writes;
 the backend owns the per-credential 60-second worker budget and 70-second fence.
