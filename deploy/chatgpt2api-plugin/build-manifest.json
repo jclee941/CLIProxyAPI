@@ -1,0 +1,53 @@
+{
+  "plugin_id": "chatgpt2api",
+  "version": "1.0.1",
+  "kind": "native-provider-integration",
+  "native_abi_version": 1,
+  "rpc_schema_version": 6,
+  "capabilities": ["model_router", "management_api"],
+  "contract_source": {
+    "repository": "https://github.com/jc01rho/CLIProxyAPIPlus",
+    "commit": "5b2785617d1e7de84a9f4dee599d275a4ccd8999",
+    "version": "v7.2.158",
+    "verification": "Real v7.2.158 core image tested with synthetic native credentials, alias routing, SSE and removed-model rejection; public production JSON and SSE calls also passed"
+  },
+  "build": {
+    "go_version": "go1.26.5",
+    "goos": "linux",
+    "goarch": "amd64",
+    "goamd64": "v1",
+    "cgo_enabled": true,
+    "libc": "glibc",
+    "command": "CGO_ENABLED=1 go build -buildvcs=false -trimpath -buildmode=c-shared -o chatgpt2api.so .",
+    "sdk_go_abi_imports": false,
+    "test_instrumentation_in_artifact": false
+  },
+  "artifacts": [
+    {
+      "path": "chatgpt2api.so",
+      "sha256": "c3dab45c8c10b256766842e89faaaf3c6a71ab51bda07d680e8db8c28658e15d"
+    },
+    {
+      "path": "chatgpt2api.h",
+      "sha256": "f983de3721e021550ae460cdf2b28ee880b6a333c6126fdfec3b28f8bc1100d8"
+    }
+  ],
+  "verification": {
+    "failing_first": "Routing/management types and C ABI fixture/artifact absent before implementation; red runs observed",
+    "green_commands": [
+      "make check",
+      "make smoke",
+      "go test -race -tags=abismoke -count=1 -coverprofile=coverage.out ."
+    ],
+    "go_statement_coverage_percent": 86.1,
+    "production_so_c_loader": "Passed init/register/route/decline/resource/error/free/shutdown with zero host callbacks",
+    "c_entrypoint_health": "Passed loopback-only fixture with 160 concurrent selected routes and exact status counter",
+    "network_policy": "All health tests use loopback dial injection in test code; no live sidecar or inference requests",
+    "completed_integrator_checks": [
+      "Real host selected openai-compatible-chatgpt2api; both synthetic native keys and alias mapping preserved",
+      "Removed host model selected the provider but returned auth_not_found with zero extra upstream POSTs",
+      "Existing 27-model catalog preserved; 25 unique configured routes, shared IDs remain native; public JSON and SSE HTTP200 with counter0to2"
+    ]
+  },
+  "deployed": true
+}
