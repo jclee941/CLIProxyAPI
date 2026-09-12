@@ -125,11 +125,11 @@ func (service *service) inspectAccount(ctx context.Context, record storageRecord
 	if err != nil {
 		return failedAccount(view, err)
 	}
-	token, err := service.secrets.Resolve(ctx, reference)
+	token, err := service.resolveCredential(ctx, reference, false)
 	if err != nil {
 		return failedAccount(view, err)
 	}
-	account, err := service.accountModels(ctx, token)
+	account, err := service.accountModels(ctx, record.TokenRef, token)
 	if err != nil {
 		return failedAccount(view, err)
 	}
@@ -140,7 +140,7 @@ func (service *service) inspectAccount(ctx context.Context, record storageRecord
 	for _, model := range verifiedModels(account) {
 		view.Models = append(view.Models, accountModelView{model.ID, model.DisplayName})
 	}
-	view.Usage, err = service.usage(ctx, token)
+	view.Usage, err = service.usage(ctx, record.TokenRef, token)
 	if err != nil {
 		return failedAccount(view, err)
 	}
@@ -160,8 +160,8 @@ func failedAccount(view accountView, err error) accountView {
 	return view
 }
 
-func (service *service) usage(ctx context.Context, token sessionToken) (*usageView, error) {
-	response, err := service.sidecar(ctx, sidecarRequest{Method: "GET", Path: "/v1/usage", Token: token})
+func (service *service) usage(ctx context.Context, reference string, token sessionToken) (*usageView, error) {
+	response, err := service.sidecar(ctx, sidecarRequest{Method: "GET", Path: "/v1/usage", Token: token, Reference: reference})
 	if err != nil {
 		return nil, err
 	}

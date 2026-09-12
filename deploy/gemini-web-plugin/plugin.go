@@ -162,7 +162,7 @@ func (service *service) resolve(ctx context.Context, raw []byte, identity string
 	if err != nil {
 		return record, sessionToken{}, err
 	}
-	token, err := service.secrets.Resolve(ctx, reference)
+	token, err := service.resolveCredential(ctx, reference, false)
 	return record, token, err
 }
 
@@ -178,7 +178,7 @@ func (service *service) authOperation(ctx context.Context, method string, raw []
 	if err != nil {
 		return nil, err
 	}
-	account, err := service.accountModels(ctx, token)
+	account, err := service.accountModels(ctx, record.TokenRef, token)
 	if err != nil {
 		return nil, err
 	}

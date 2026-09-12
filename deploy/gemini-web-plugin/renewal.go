@@ -33,7 +33,7 @@ func (service *service) renewForVideo(ctx context.Context, record storageRecord,
 		return sessionToken{}, err
 	}
 	if renewed.value != token.value {
-		err := service.secrets.ReplaceIfExpected(ctx, secretReplacement{Reference: reference, Expected: token, Replacement: renewed})
+		err := service.replaceCredential(ctx, secretReplacement{Reference: reference, Expected: token, Replacement: renewed})
 		if err != nil {
 			service.credentialFailure(record.TokenRef, err)
 			return sessionToken{}, failure(503, "session_renewal_persistence_failed")
@@ -86,7 +86,9 @@ func (*AuthenticationFailure) Unwrap() error { return failure(401, "auth_error")
 func (service *service) credentialHTTP(ctx context.Context, reference string, request sidecarRequest) (httpResponse, error) {
 	credentialContext, cancel := context.WithTimeout(ctx, credentialFenceDuration)
 	defer cancel()
-	response, err := service.sidecar(credentialContext, request)
+	tagged := request
+	tagged.Reference = reference
+	response, err := service.sidecar(credentialContext, tagged)
 	if err != nil {
 		service.credentialFailure(reference, err)
 	}

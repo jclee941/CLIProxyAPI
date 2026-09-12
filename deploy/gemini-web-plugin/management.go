@@ -168,7 +168,7 @@ func (service *service) registerAccount(ctx context.Context, request managementR
 	}
 	var expected sessionToken
 	if existing.value != "" {
-		expected, err = service.secrets.Resolve(ctx, existing)
+		expected, err = service.resolveCredential(ctx, existing, true)
 		if err != nil {
 			return nil, err
 		}
@@ -181,9 +181,10 @@ func (service *service) registerAccount(ctx context.Context, request managementR
 		if reference == existing {
 			token = expected
 		} else {
-			token, err = service.secrets.Resolve(ctx, reference)
+			token, err = service.resolveCredential(ctx, reference, true)
 		}
 	} else {
+		reference = existing
 		token, err = parseToken(body.Token)
 	}
 	if err != nil {
@@ -209,7 +210,7 @@ func (service *service) registerAccount(ctx context.Context, request managementR
 			return nil, failure(409, "binding_mismatch")
 		}
 	}
-	if _, err := service.accountModels(ctx, token); err != nil {
+	if _, err := service.accountModels(ctx, reference.value, token); err != nil {
 		return nil, err
 	}
 	if body.ExistingID != "" {
@@ -228,10 +229,10 @@ func (service *service) registerAccount(ctx context.Context, request managementR
 	}
 	if body.Token != "" {
 		if existing.value == "" {
-			reference, err = service.secrets.Put(ctx, secretWrite{Label: body.Label, Token: token})
+			reference, err = service.putCredential(ctx, secretWrite{Label: body.Label, Token: token})
 		} else {
 			reference = existing
-			err = service.secrets.ReplaceIfExpected(ctx, secretReplacement{Reference: existing, Expected: expected, Replacement: token})
+			err = service.replaceCredential(ctx, secretReplacement{Reference: existing, Expected: expected, Replacement: token})
 		}
 		if err != nil {
 			if existing.value != "" {

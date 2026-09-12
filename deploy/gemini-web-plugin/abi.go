@@ -53,7 +53,10 @@ func cliproxyPluginCall(method *C.char, request *C.uint8_t, length C.size_t, res
 func cliproxyPluginFree(pointer unsafe.Pointer, length C.size_t) { C.free(pointer) }
 
 //export cliproxyPluginShutdown
-func cliproxyPluginShutdown() { pluginService.client.CloseIdleConnections() }
+func cliproxyPluginShutdown() {
+	pluginService.clearCredentials()
+	pluginService.client.CloseIdleConnections()
+}
 
 func callHostABI(method string, raw []byte) ([]byte, error) {
 	cMethod := C.CString(method)

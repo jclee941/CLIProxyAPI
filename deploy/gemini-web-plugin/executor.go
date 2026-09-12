@@ -88,7 +88,7 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	model := omniModel
 	if request.Model == flashModel {
 		model = "gemini-3.8-flash"
-		account, err := service.accountModels(ctx, token)
+		account, err := service.accountModels(ctx, record.TokenRef, token)
 		if err != nil {
 			return nil, err
 		}
@@ -106,7 +106,7 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	if err != nil {
 		return nil, err
 	}
-	response, err := service.sidecar(ctx, sidecarRequest{Method: "POST", Path: "/v1beta/models/" + model + ":generateContent", Token: token, Body: body})
+	response, err := service.sidecar(ctx, sidecarRequest{Method: "POST", Path: "/v1beta/models/" + model + ":generateContent", Token: token, Body: body, Reference: record.TokenRef})
 	if err != nil {
 		if exclusive {
 			switch safeCredentialCode(err) {
@@ -250,18 +250,18 @@ func (service *service) executorHTTP(ctx context.Context, raw []byte) (interface
 	if request.AuthProvider != provider {
 		return nil, failure(400, "auth_identity_mismatch")
 	}
-	_, token, err := service.resolve(ctx, request.StorageJSON, request.AuthID)
+	record, token, err := service.resolve(ctx, request.StorageJSON, request.AuthID)
 	if err != nil {
 		return nil, err
 	}
 	if request.URL == sidecarBase+"/v1/usage" {
-		usage, err := service.usage(ctx, token)
+		usage, err := service.usage(ctx, record.TokenRef, token)
 		if err != nil {
 			return nil, err
 		}
 		return managementJSON(200, usage)
 	}
-	account, err := service.accountModels(ctx, token)
+	account, err := service.accountModels(ctx, record.TokenRef, token)
 	if err != nil {
 		return nil, err
 	}

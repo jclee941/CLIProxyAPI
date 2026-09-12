@@ -18,6 +18,12 @@ type maintenanceResponse struct {
 	Results []maintenanceResult `json:"results"`
 }
 
+type maintenanceTarget struct {
+	callbackID string
+	id         string
+	explicit   bool
+}
+
 func (service *service) maintain(ctx context.Context, request managementRequest) (maintenanceResponse, error) {
 	var body struct {
 		ID *string `json:"id"`
@@ -58,12 +64,13 @@ func (service *service) maintain(ctx context.Context, request managementRequest)
 	sort.Strings(ids)
 	result := maintenanceResponse{Results: make([]maintenanceResult, 0, len(ids))}
 	for _, id := range ids {
-		result.Results = append(result.Results, service.maintainAccount(ctx, request.HostCallbackID, id))
+		result.Results = append(result.Results, service.maintainAccount(ctx, maintenanceTarget{callbackID: request.HostCallbackID, id: id, explicit: selectedID != ""}))
 	}
 	return result, nil
 }
 
-func (service *service) maintainAccount(ctx context.Context, callbackID, id string) maintenanceResult {
+func (service *service) maintainAccount(ctx context.Context, target maintenanceTarget) maintenanceResult {
+	callbackID, id := target.callbackID, target.id
 	binding, exists := service.settings().MaintenanceSources[id]
 	if !exists {
 		return maintenanceResult{ID: id, State: maintenanceSourceRejected, Error: "binding_mismatch"}
@@ -91,15 +98,18 @@ func (service *service) maintainAccount(ctx context.Context, callbackID, id stri
 	if record.TokenRef != binding.TokenRef {
 		return maintenanceResult{ID: id, State: maintenanceSourceRejected, Error: "binding_mismatch"}
 	}
+	state := lease.snapshot()
+	if !target.explicit && state.state == maintenanceReady && service.now().Before(state.nextDue) {
+		return maintenanceStateResult(id, state)
+	}
 	reference, err := parseReference(record.TokenRef, service.settings().Vault)
 	if err != nil {
 		return maintenanceResult{ID: id, State: maintenanceSourceRejected, Error: safeCredentialCode(err)}
 	}
-	token, err := service.secrets.Resolve(ctx, reference)
+	token, err := service.resolveCredential(ctx, reference, state.state == maintenanceHostPending)
 	if err != nil {
 		return maintenanceResult{ID: id, State: maintenanceCredentialError, Error: safeCredentialCode(err)}
 	}
-	state := lease.snapshot()
 	if state.state == maintenanceHostPending && state.tokenHash != tokenFingerprint(token) {
 		lease.set(credentialState{state: maintenanceOperator, errCode: "credential_changed"})
 		return maintenanceStateResult(id, lease.snapshot())
@@ -136,8 +146,8 @@ func (service *service) maintainAccount(ctx context.Context, callbackID, id stri
 		if err := service.syncCredentialHost(callbackID, record); err != nil {
 			return maintenanceResult{ID: id, State: maintenanceHostPending, Error: safeCredentialCode(err)}
 		}
-		lease.set(credentialState{state: maintenanceReady})
-		return maintenanceResult{ID: id, State: maintenanceReady}
+		lease.set(credentialState{state: maintenanceReady, nextDue: service.now().Add(maintenanceReadyInterval)})
+		return maintenanceStateResult(id, lease.snapshot())
 	}
 	if err == nil && (inspection.AccountSHA256 != binding.ExpectedGaiaSHA256 || inspection.AuthUser != authUser) {
 		return service.rejectMaintenance(id, token, failure(409, "credential_identity_mismatch"))
@@ -180,7 +190,7 @@ func (service *service) maintainAccount(ctx context.Context, callbackID, id stri
 		return service.rejectMaintenance(id, token, failure(409, "binding_mismatch"))
 	}
 	if renewed != token {
-		if err := service.secrets.ReplaceIfExpected(ctx, secretReplacement{Reference: reference, Expected: token, Replacement: renewed}); err != nil {
+		if err := service.replaceCredential(ctx, secretReplacement{Reference: reference, Expected: token, Replacement: renewed}); err != nil {
 			service.credentialFailure(record.TokenRef, err)
 			return service.failedMaintenance(id, token, err)
 		}
@@ -191,8 +201,8 @@ func (service *service) maintainAccount(ctx context.Context, callbackID, id stri
 			return maintenanceResult{ID: id, State: maintenanceHostPending, Error: safeCredentialCode(err)}
 		}
 	}
-	lease.set(credentialState{state: maintenanceReady})
-	return maintenanceResult{ID: id, State: maintenanceReady}
+	lease.set(credentialState{state: maintenanceReady, nextDue: service.now().Add(maintenanceReadyInterval)})
+	return maintenanceStateResult(id, lease.snapshot())
 }
 
 func maintenanceStateResult(id string, state credentialState) maintenanceResult {

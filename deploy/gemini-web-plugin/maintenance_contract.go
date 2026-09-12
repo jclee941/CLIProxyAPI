@@ -7,11 +7,12 @@ import (
 )
 
 const (
-	credentialWorkerBudget  = time.Minute
-	credentialFenceDuration = 70 * time.Second
-	maintenanceAuthCooldown = 30 * time.Minute
-	profileCDPOrigin        = "http://192.168.50.220:9222"
-	maintainPath            = "/plugins/gemini-web/maintain"
+	credentialWorkerBudget   = time.Minute
+	credentialFenceDuration  = 70 * time.Second
+	maintenanceAuthCooldown  = 30 * time.Minute
+	maintenanceReadyInterval = 30 * time.Minute
+	profileCDPOrigin         = "http://192.168.50.220:9222"
+	maintainPath             = "/plugins/gemini-web/maintain"
 )
 
 var (

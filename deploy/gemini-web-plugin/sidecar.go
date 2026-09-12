@@ -12,6 +12,7 @@ type sidecarRequest struct {
 	Method, Path string
 	Token        sessionToken
 	Body         []byte
+	Reference    string
 }
 
 func newSidecarClient() *http.Client {
@@ -39,6 +40,9 @@ func (service *service) sidecar(ctx context.Context, request sidecarRequest) (ht
 		return httpResponse{}, failure(502, "sidecar_transport_failed")
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized {
+		service.invalidateCredential(request.Reference, request.Token)
+	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 128*1024*1024+1))
 	if err != nil || len(body) > 128*1024*1024 {
 		return httpResponse{}, failure(502, "sidecar_response_failed")
@@ -96,8 +100,8 @@ type accountModels struct {
 	ObservedAt    float64      `json:"observed_at"`
 }
 
-func (service *service) accountModels(ctx context.Context, token sessionToken) (accountModels, error) {
-	response, err := service.sidecar(ctx, sidecarRequest{Method: "GET", Path: "/v1/account-models", Token: token})
+func (service *service) accountModels(ctx context.Context, reference string, token sessionToken) (accountModels, error) {
+	response, err := service.sidecar(ctx, sidecarRequest{Method: "GET", Path: "/v1/account-models", Token: token, Reference: reference})
 	if err != nil {
 		return accountModels{}, err
 	}
@@ -106,6 +110,7 @@ func (service *service) accountModels(ctx context.Context, token sessionToken) (
 		return account, failure(502, "account_response_invalid")
 	}
 	if !account.Available {
+		service.invalidateCredential(reference, token)
 		return account, failure(401, "account_unavailable")
 	}
 	return account, nil
