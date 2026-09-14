@@ -127,6 +127,13 @@ func (s *Server) setupRoutes() {
 		v1beta.GET("/models/*action", s.geminiGetHandler(geminiHandlers))
 	}
 
+	apiSync := s.engine.Group("/api/config-sync")
+	apiSync.Use(AuthMiddleware(s.accessManager))
+	{
+		apiSync.GET("/version", managementHandlers.ConfigSyncVersion)
+		apiSync.GET("/bundle", managementHandlers.ConfigSyncBundle)
+	}
+
 	// Root endpoint
 	s.engine.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
