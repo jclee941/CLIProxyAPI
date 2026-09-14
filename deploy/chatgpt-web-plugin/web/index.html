@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>ChatGPT Web</title>
+<style>
+  :root { color-scheme: light dark; --line: #d7dbe0; --muted: #6b7280; --ok: #1a7f37; --warn: #9a6700; --bad: #b42318; }
+  body { margin: 0; padding: 24px; font: 14px/1.5 -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .muted { color: var(--muted); }
+  .bar { display: flex; gap: 8px; align-items: center; margin: 16px 0; flex-wrap: wrap; }
+  button { font: inherit; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: transparent; cursor: pointer; }
+  input { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; min-width: 260px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+  .card h2 { font-size: 15px; margin: 0 0 2px; }
+  .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); margin-left: 6px; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .group { margin-top: 10px; }
+  .group h3 { font-size: 13px; margin: 0 0 4px; letter-spacing: .02em; }
+  table { border-collapse: collapse; width: 100%; }
+  td { padding: 3px 8px 3px 0; vertical-align: top; }
+  td.num { text-align: right; white-space: nowrap; width: 72px; }
+  .track { height: 6px; border-radius: 3px; background: #e5e7eb; overflow: hidden; min-width: 120px; }
+  .fill { height: 100%; background: currentColor; }
+</style>
+</head>
+<body>
+<h1>ChatGPT Web</h1>
+<p class="muted">자격증명별 ChatGPT Web 한도와 Codex 사용량을 따로 보여줍니다. 조회만 하며 생성이나 토큰 갱신은 하지 않습니다.</p>
+<p class="muted">이 플러그인은 모델을 제공하지 않으므로 여기로 보내는 요청은 없습니다. CPA로 보낸 호출은 Codex 사용량에 쌓이고, ChatGPT Web 한도는 브라우저 세션 쪽 한도입니다.</p>
+<div class="bar">
+  <button id="refresh">새로고침</button>
+  <span id="state" class="muted"></span>
+</div>
+<div id="auth" class="bar" hidden>
+  <input id="key" type="password" placeholder="Manager Admin Key" autocomplete="off" spellcheck="false" aria-label="Manager Admin Key">
+  <button id="connect">키로 연결</button>
+</div>
+<div id="list"></div>
+<script>
+(function () {
+  var OPERATOR_KEY = 'chatgpt-web-operator-key';
+  var listNode = document.getElementById('list');
+  var stateNode = document.getElementById('state');
+  var authNode = document.getElementById('auth');
+  var keyNode = document.getElementById('key');
+
+  function storedManagementKey() {
+    try {
+      const host = window.parent;
+      if (host.location.origin !== window.location.origin) return '';
+      const raw = host.localStorage.getItem('cli-proxy-auth');
+      if (!raw) return '';
+      let decoded = raw;
+      if (raw.indexOf('enc::v1::') === 0) {
+        const binary = atob(raw.slice(9));
+        const salt = new TextEncoder().encode('cli-proxy-api-webui::secure-storage|' + host.location.host + '|' + host.navigator.userAgent);
+        const bytes = Uint8Array.from(binary, function (ch, i) { return ch.charCodeAt(0) ^ salt[i % salt.length]; });
+        decoded = new TextDecoder().decode(bytes);
+      }
+      const parsed = JSON.parse(decoded);
+      return (parsed && parsed.state && parsed.state.managementKey) || '';
+    } catch (error) { return ''; }
+  }
+
+  function operatorKey() {
+    try { return window.sessionStorage.getItem(OPERATOR_KEY) || ''; } catch (error) { return ''; }
+  }
+
+  function activeKey() { return storedManagementKey() || operatorKey(); }
+
+  function text(tag, className, value) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (value !== undefined) node.textContent = value;
+    return node;
+  }
+
+  function bucketRow(bucket) {
+    var row = document.createElement('tr');
+    row.appendChild(text('td', '', bucket.description || bucket.window || ''));
+    var fraction = typeof bucket.remainingFraction === 'number' ? bucket.remainingFraction : 0;
+    var meter = document.createElement('td');
+    var track = text('div', 'track');
+    var fill = text('div', 'fill');
+    fill.style.width = Math.round(fraction * 100) + '%';
+    track.className = 'track ' + (fraction === 0 ? 'bad' : fraction < 0.2 ? 'warn' : 'ok');
+    track.appendChild(fill);
+    meter.appendChild(track);
+    row.appendChild(meter);
+    row.appendChild(text('td', 'num muted', Math.round(fraction * 100) + '%'));
+    row.appendChild(text('td', 'muted', bucket.window || ''));
+    row.appendChild(text('td', 'muted', bucket.resetTime ? new Date(bucket.resetTime).toLocaleString() : ''));
+    return row;
+  }
+
+  function accountCard(account) {
+    var card = text('div', 'card');
+    var heading = text('h2', '', account.label || account.id);
+    var status = text('span', 'tag ' + (account.status === 'ready' ? 'ok' : account.status === 'expired' ? 'warn' : 'bad'),
+      account.status === 'ready' ? '조회 가능' : account.status === 'expired' ? '인증 만료' : '오류');
+    heading.appendChild(status);
+    if (account.plan) heading.appendChild(text('span', 'tag', account.plan));
+    card.appendChild(heading);
+    card.appendChild(text('p', 'muted', account.id));
+    if (account.error) card.appendChild(text('p', 'bad', account.error));
+    (account.groups || []).forEach(function (group) {
+      var section = text('div', 'group');
+      section.appendChild(text('h3', '', group.displayName || ''));
+      var table = document.createElement('table');
+      (group.buckets || []).forEach(function (bucket) { table.appendChild(bucketRow(bucket)); });
+      section.appendChild(table);
+      card.appendChild(section);
+    });
+    return card;
+  }
+
+  function render(accounts) {
+    listNode.replaceChildren.apply(listNode, accounts.map(accountCard));
+  }
+
+  function load() {
+    var key = activeKey();
+    if (!key) {
+      authNode.hidden = false;
+      stateNode.textContent = 'Manager 로그인 정보를 읽을 수 없습니다. Admin Key를 입력하면 이 탭에서만 사용합니다.';
+      listNode.replaceChildren();
+      return;
+    }
+    authNode.hidden = true;
+    stateNode.textContent = '불러오는 중…';
+    fetch('/v0/management/plugins/chatgpt-web/accounts', {
+      credentials: 'same-origin',
+      headers: { Authorization: 'Bearer ' + key, Accept: 'application/json' }
+    }).then(function (response) {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.json();
+    }).then(function (payload) {
+      var accounts = (payload && payload.accounts) || [];
+      stateNode.textContent = accounts.length + '개 자격증명';
+      render(accounts);
+    }).catch(function (error) {
+      stateNode.textContent = '조회 실패: ' + error.message;
+      listNode.replaceChildren();
+      authNode.hidden = false;
+    });
+  }
+
+  document.getElementById('refresh').addEventListener('click', load);
+  document.getElementById('connect').addEventListener('click', function () {
+    var value = keyNode.value.trim();
+    if (!value) return;
+    try { window.sessionStorage.setItem(OPERATOR_KEY, value); } catch (error) { /* session storage unavailable */ }
+    keyNode.value = '';
+    load();
+  });
+  load();
+})();
+</script>
+</body>
+</html>
