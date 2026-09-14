@@ -32,7 +32,7 @@ type LogFormatter struct{}
 
 // logFieldOrder defines the display order for common log fields.
 var logFieldOrder = []string{
-	"provider", "model",
+	"provider", "model", "status",
 	"plugin_id", "plugin_name", "source_id",
 	"version", "active_version", "retired_version", "overwritten",
 	"mode", "budget", "level", "original_mode", "original_value", "min", "max", "clamped_to", "error",
@@ -125,6 +125,7 @@ func SetupBaseLogger() {
 		log.SetOutput(os.Stdout)
 		log.SetReportCaller(true)
 		log.SetFormatter(&LogFormatter{})
+		log.AddHook(globalTelegramHook)
 
 		ginInfoWriter = log.StandardLogger().Writer()
 		gin.DefaultWriter = ginInfoWriter
@@ -185,9 +186,15 @@ func ResolveLogDirectory(cfg *config.Config) string {
 // until the total size is within the limit.
 func ConfigureLogOutput(cfg *config.Config) error {
 	SetupBaseLogger()
+	globalTelegramHook.Configure(cfg.Telegram)
+	formatter, errFormatter := newLogFormatter(cfg.LogFormat)
+	if errFormatter != nil {
+		return errFormatter
+	}
 
 	writerMu.Lock()
 	defer writerMu.Unlock()
+	log.SetFormatter(formatter)
 
 	logDir := ResolveLogDirectory(cfg)
 
@@ -221,6 +228,8 @@ func ConfigureLogOutput(cfg *config.Config) error {
 }
 
 func closeLogOutputs() {
+	globalTelegramHook.Close()
+
 	writerMu.Lock()
 	defer writerMu.Unlock()
 
