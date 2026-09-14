@@ -25,12 +25,16 @@
   },
   "base_url": "",
   "global_system_prompt": "",
-  "default_upstream_model_name": "gpt-6-pro",
-  "default_thinking_effort": "extended",
+  "default_upstream_model_name": "auto",
+  "default_thinking_effort": "auto",
   "backup": {
     "enabled": false
   },
-  "image_remove_conversation_always": true,
+  "image_remove_conversation_always": false,
+  "image_remove_conversation_after_result": true,
+  "image_poll_timeout_secs": 300,
+  "image_account_concurrency": 1,
+  "image_parallel_generation": false,
   "image_storage": {
     "enabled": false
   },

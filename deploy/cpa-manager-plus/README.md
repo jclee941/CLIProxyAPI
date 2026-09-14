@@ -7,6 +7,9 @@ configuration preserved after compatibility fixes. The Gemini Web plugin and
 resource page are loaded; account activation and final integration verification
 remain separate gates. This runbook covers the verified Manager increment.
 
+The separately maintained [GeminiWeb UI patch build](PATCH-BUILD.md) is available
+for local review. It does not change the deployed image described below.
+
 ## Public Dashboard
 
 `https://cliproxy.jclee.me/` serves Manager Plus and redirects to

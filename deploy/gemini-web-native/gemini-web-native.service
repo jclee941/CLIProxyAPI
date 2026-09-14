@@ -1,0 +1,15 @@
+[Unit]
+Description=Authenticated Gemini web video bridge
+Requires=docker.service
+After=docker.service network-online.target cliproxy-compose.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh /opt/gemini-web-native/start.sh
+ExecReload=/bin/sh /opt/gemini-web-native/start.sh
+ExecStop=/usr/bin/docker compose -f /opt/gemini-web-native/docker-compose.yml stop
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

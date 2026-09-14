@@ -1,0 +1,10 @@
+[Unit]
+Description=Repair authentication for migrated local Gemini accounts
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=10min
+Unit=gemini-web-local-reauth.service
+
+[Install]
+WantedBy=timers.target

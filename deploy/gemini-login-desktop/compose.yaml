@@ -1,0 +1,39 @@
+name: gemini-login-desktop
+
+services:
+  desktop:
+    build: .
+    image: gemini-login-desktop:chrome153
+    container_name: gemini-login-desktop
+    hostname: gemini-login-desktop
+    init: true
+    restart: unless-stopped
+    user: "1000:1000"
+    ports:
+      - "127.0.0.1:16080:6080"
+    volumes:
+      - /var/lib/gemini-login-desktop/home:/home/desktop
+      - /var/lib/gemini-login-desktop/vnc-password:/run/secrets/vnc-password:ro
+      - /opt/gemini-login-desktop-chrome153/start-desktop.sh:/usr/local/bin/start-desktop:ro
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    shm_size: 512m
+    mem_limit: 1536m
+    cpus: 2
+    pids_limit: 512
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "xdpyinfo >/dev/null 2>&1 && bash -c 'exec 3<>/dev/tcp/127.0.0.1/6080'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

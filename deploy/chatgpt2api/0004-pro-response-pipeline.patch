@@ -1,0 +1,523 @@
+diff --git a/services/protocol/conversation.py b/services/protocol/conversation.py
+index 1cd3210..e403cc5 100644
+--- a/services/protocol/conversation.py
++++ b/services/protocol/conversation.py
+@@ -15,6 +15,7 @@ from services.account_service import account_service
+ from services.config import config
+ from services.image_storage_service import image_storage_service
+ from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, OpenAIBackendAPI
++from services.protocol.text_stream import JSONValue, MessagePatchState, TextResponseError
+ from utils.helper import (
+     IMAGE_MODELS,
+     extract_image_from_message_content,
+@@ -315,6 +316,8 @@ class ConversationRequest:
+ class ConversationState:
+     text: str = ""
+     raw_text: str = ""
++    text_terminal: bool = False
++    text_failed: bool = False
+     conversation_id: str = ""
+     file_ids: list[str] = field(default_factory=list)
+     sediment_ids: list[str] = field(default_factory=list)
+@@ -634,6 +637,8 @@ def conversation_base_event(event_type: str, state: ConversationState, **extra:
+     return {
+         "type": event_type,
+         "text": state.text,
++        "text_terminal": state.text_terminal,
++        "text_failed": state.text_failed,
+         "conversation_id": state.conversation_id,
+         "file_ids": list(state.file_ids),
+         "sediment_ids": list(state.sediment_ids),
+@@ -645,8 +650,10 @@ def conversation_base_event(event_type: str, state: ConversationState, **extra:
+ 
+ 
+ def iter_conversation_payloads(payloads: Iterator[str], history_text: str = "",
+-                               history_messages: list[str] | None = None) -> Iterator[dict[str, Any]]:
++                               history_messages: list[str] | None = None,
++                               reconstruct_messages: bool = False) -> Iterator[dict[str, Any]]:
+     state = ConversationState()
++    message_state = MessagePatchState()
+     history_messages = history_messages or []
+     history_index = 0
+     for payload in payloads:
+@@ -657,15 +664,26 @@ def iter_conversation_payloads(payloads: Iterator[str], history_text: str = "",
+             yield conversation_base_event("conversation.done", state, done=True)
+             break
+         try:
+-            event = json.loads(payload)
++            event: JSONValue = json.loads(payload)
+         except json.JSONDecodeError:
+             update_conversation_state(state, payload)
+             yield conversation_base_event("conversation.raw", state, payload=payload)
+             continue
++        if reconstruct_messages and isinstance(event, str) and message_state.path:
++            event = {"v": event}
+         if not isinstance(event, dict):
+             yield conversation_base_event("conversation.event", state, raw=event)
+             continue
+         update_conversation_state(state, payload, event)
++        if reconstruct_messages:
++            state.text_failed = state.text_failed or bool(event.get("error"))
++            event = message_state.normalize(event)
++            visible = is_visible_assistant_message(message_state.message)
++            state.text_terminal = visible and message_state.terminal and bool(assistant_message_text(message_state.message))
++            state.text_failed = state.text_failed or (visible and message_state.failed)
++            if message_state.new_message and visible:
++                state.raw_text = ""
++                state.text = ""
+         if history_index < len(history_messages) and event_assistant_text(event, history_text) == history_messages[history_index]:
+             history_index += 1
+             state.raw_text = ""
+@@ -705,7 +723,7 @@ def conversation_events(
+         system_hints=["picture_v2"] if image_model else None,
+         thinking_effort=thinking_effort if not image_model else "",
+     )
+-    yield from iter_conversation_payloads(payloads, history_text, history_messages)
++    yield from iter_conversation_payloads(payloads, history_text, history_messages, reconstruct_messages=not image_model)
+ 
+ 
+ def text_backend(model: str = "auto") -> OpenAIBackendAPI:
+@@ -716,6 +734,7 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest)
+     attempted_tokens: set[str] = set()
+     token = getattr(backend, "access_token", "")
+     emitted = False
++    terminal = False
+     while True:
+         if token and token in attempted_tokens:
+             raise RuntimeError("no available text account")
+@@ -731,14 +750,21 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest)
+                 prompt=request.prompt,
+                 thinking_effort=request.thinking_effort,
+             ):
++                if event.get("text_failed"):
++                    raise TextResponseError()
++                terminal = bool(event.get("text_terminal"))
+                 if event.get("type") != "conversation.delta":
+                     continue
+                 delta = str(event.get("delta") or "")
+                 if delta:
+                     emitted = True
+                     yield delta
++            if not emitted or not terminal:
++                raise TextResponseError()
+             account_service.mark_text_used(token)
+             return
++        except TextResponseError:
++            raise
+         except Exception as exc:
+             error_message = str(exc)
+             if token and not emitted and is_token_invalid_error(error_message):
+diff --git a/services/protocol/text_stream.py b/services/protocol/text_stream.py
+new file mode 100644
+index 0000000..2a5ed33
+--- /dev/null
++++ b/services/protocol/text_stream.py
+@@ -0,0 +1,104 @@
++from __future__ import annotations
++
++import copy
++from dataclasses import dataclass, field
++from typing import TypeAlias
++
++from fastapi import HTTPException
++
++JSONValue: TypeAlias = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
++JSONObject: TypeAlias = dict[str, JSONValue]
++
++
++class TextResponseError(HTTPException):
++    def __init__(self) -> None:
++        self.error: JSONObject = {"error": {
++            "message": "The upstream text turn ended without a valid terminal answer. Do not automatically resubmit this request.",
++            "type": "server_error", "code": "incomplete_upstream_response", "param": None,
++        }}
++        super().__init__(status_code=502, detail=self.error)
++
++    def to_openai_error(self) -> JSONObject:
++        return self.error
++
++
++@dataclass
++class MessagePatchState:
++    message: JSONObject = field(default_factory=dict)
++    path: str = ""
++    operation: str = ""
++    new_message: bool = False
++
++    def normalize(self, event: JSONObject) -> JSONObject:
++        self.new_message = False
++        if self._apply(event):
++            return {"message": copy.deepcopy(self.message)}
++        return event
++
++    def _apply(self, event: JSONObject) -> bool:
++        value = event.get("v")
++        candidate = event.get("message")
++        if candidate is None and isinstance(value, dict):
++            candidate = value.get("message")
++        if isinstance(candidate, dict):
++            self.new_message = candidate.get("id") != self.message.get("id") or event.get("o") == "add" or not self.message
++            self.message = copy.deepcopy(candidate)
++            self.path = "/message/content/parts/0"
++            self.operation = "append"
++            return True
++        if event.get("o") == "patch" and isinstance(value, list):
++            changed = False
++            for operation in value:
++                if isinstance(operation, dict):
++                    changed = self._apply(operation) or changed
++            return changed
++
++        path = event.get("p", self.path)
++        operation = event.get("o", self.operation)
++        if not isinstance(path, str) or not path.startswith("/message/"):
++            return False
++        if operation not in ("add", "replace", "append"):
++            return False
++        self.path = path
++        self.operation = str(operation)
++        if not self.message:
++            self.message = {"author": {"role": "assistant"}, "content": {"parts": [""]}}
++        segments = path.removeprefix("/message/").split("/")
++        target: JSONValue = self.message
++        for segment in segments[:-1]:
++            if isinstance(target, dict):
++                target = target.get(segment)
++            elif isinstance(target, list) and segment.isdigit() and int(segment) < len(target):
++                target = target[int(segment)]
++            else:
++                return False
++        key = segments[-1]
++        if isinstance(target, dict):
++            previous = target.get(key)
++            if operation == "append":
++                if not isinstance(previous, str) or not isinstance(value, str):
++                    return False
++                value = previous + value
++            target[key] = copy.deepcopy(value)
++            return True
++        if isinstance(target, list) and key.isdigit() and int(key) < len(target):
++            index = int(key)
++            previous = target[index]
++            if operation == "append":
++                if not isinstance(previous, str) or not isinstance(value, str):
++                    return False
++                value = previous + value
++            target[index] = copy.deepcopy(value)
++            return True
++        return False
++
++    @property
++    def terminal(self) -> bool:
++        return self.message.get("status") == "finished_successfully" and self.message.get("end_turn") is True
++
++    @property
++    def failed(self) -> bool:
++        metadata = self.message.get("metadata")
++        return self.message.get("status") in ("failed", "error", "cancelled") or (
++            isinstance(metadata, dict) and metadata.get("is_error") is True
++        )
+diff --git a/test/run_pro_pipeline_offline.py b/test/run_pro_pipeline_offline.py
+new file mode 100644
+index 0000000..2a3ab0e
+--- /dev/null
++++ b/test/run_pro_pipeline_offline.py
+@@ -0,0 +1,48 @@
++from __future__ import annotations
++
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import sys
++import tempfile
++
++
++def main() -> int:
++    root = Path(__file__).resolve().parents[1]
++    with tempfile.TemporaryDirectory(prefix="pro-pipeline-offline-", dir=root.parent) as directory:
++        sandbox = Path(directory)
++        for name in ("api", "services", "utils", "test"):
++            for source in (root / name).rglob("*.py"):
++                target = sandbox / source.relative_to(root)
++                target.parent.mkdir(parents=True, exist_ok=True)
++                _ = shutil.copyfile(source, target)
++        command = """
++import socket
++import unittest
++from unittest import mock
++from curl_cffi import requests
++with (
++    mock.patch.object(socket.socket, 'connect', side_effect=AssertionError('offline network forbidden')),
++    mock.patch.object(requests.Session, 'request', side_effect=AssertionError('offline HTTP forbidden')),
++):
++    suite = unittest.defaultTestLoader.loadTestsFromNames([
++        'test.test_pro_response_pipeline',
++        'test.test_chat_completion_cache',
++        'test.test_text_model_routing',
++        'test.test_model_catalog_service',
++    ])
++    result = unittest.TextTestRunner(verbosity=1).run(suite)
++    raise SystemExit(not result.wasSuccessful())
++"""
++        result = subprocess.run(
++            [sys.executable, "-B", "-c", command], cwd=sandbox,
++            env={"PATH": os.defpath, "STORAGE_BACKEND": "json", "PYTHONDONTWRITEBYTECODE": "1",
++                 "CHATGPT2API_AUTH_KEY": "offline-test-only"},
++            check=False,
++        )
++        return result.returncode
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/test/test_pro_response_pipeline.py b/test/test_pro_response_pipeline.py
+new file mode 100644
+index 0000000..4270b9a
+--- /dev/null
++++ b/test/test_pro_response_pipeline.py
+@@ -0,0 +1,232 @@
++from __future__ import annotations
++
++import json
++import unittest
++from typing import override
++from unittest import mock
++
++from fastapi import FastAPI, HTTPException
++from fastapi.testclient import TestClient
++
++from api.ai import create_router
++from api.errors import install_exception_handlers
++from services.protocol import conversation, openai_v1_chat_complete
++from services.protocol.chat_completion_cache import ChatCompletionCache
++
++
++def message_frame(text: str = "", channel: str = "final") -> str:
++    return json.dumps({"p": "", "o": "add", "v": {"message": {
++        "id": channel, "author": {"role": "assistant"}, "channel": channel,
++        "recipient": "all", "content": {"content_type": "text", "parts": [text]},
++        "status": "in_progress", "end_turn": False,
++    }}})
++
++
++def terminal_frame(status: str = "finished_successfully") -> str:
++    return json.dumps({"p": "", "o": "patch", "v": [
++        {"p": "/message/status", "o": "replace", "v": status},
++        {"p": "/message/end_turn", "o": "replace", "v": True},
++    ]})
++
++
++def compressed_frames() -> list[str]:
++    return [message_frame(),
++            '{"p":"/message/content/parts/0","o":"append","v":""}',
++            '{"v":"OK"}', terminal_frame(), "[DONE]"]
++
++
++class ProResponsePipelineTests(unittest.TestCase):
++    def __init__(self, methodName: str = "runTest") -> None:
++        super().__init__(methodName)
++        self.backend: mock.Mock = mock.Mock()
++        self.accounts: mock.Mock = mock.Mock()
++        self.cache: ChatCompletionCache = ChatCompletionCache()
++
++    @override
++    def setUp(self) -> None:
++        self.backend = mock.Mock(access_token="offline-fixture")
++        _ = self.enterContext(mock.patch.object(
++            conversation, "OpenAIBackendAPI", return_value=self.backend))
++        self.accounts = self.enterContext(mock.patch.object(conversation, "account_service"))
++        self.enterContext(mock.patch.object(conversation, "count_text_tokens", return_value=1))
++        self.enterContext(mock.patch.object(openai_v1_chat_complete, "count_text_tokens", return_value=1))
++        self.enterContext(mock.patch.object(openai_v1_chat_complete, "count_message_text_tokens", return_value=1))
++        self.enterContext(mock.patch.object(openai_v1_chat_complete, "count_message_image_tokens", return_value=0))
++        self.cache = ChatCompletionCache()
++        self.enterContext(mock.patch.object(self.cache, "_settings", return_value={
++            "enabled": True, "ttl_seconds": 60, "max_entries": 10,
++            "stream_cache": True, "dedupe_inflight": True,
++        }))
++        self.enterContext(mock.patch.object(openai_v1_chat_complete, "chat_completion_cache", self.cache))
++
++    def test_final_answer_when_first_nonempty_patch_omits_path(self) -> None:
++        self.backend.stream_conversation.return_value = iter(compressed_frames())
++        result = conversation.collect_text(self.backend, conversation.ConversationRequest(model="gpt-6-pro"))
++        self.assertEqual(result, "OK")
++
++    def test_private_patches_when_reasoning_precedes_final(self) -> None:
++        frames = [message_frame("", "analysis"),
++                  '{"p":"/message/content/parts/0","o":"append","v":"private"}',
++                  *compressed_frames()]
++        self.backend.stream_conversation.return_value = iter(frames)
++        result = conversation.collect_text(self.backend, conversation.ConversationRequest(model="gpt-6-pro"))
++        self.assertEqual(result, "OK")
++
++    def test_terminal_errors_when_answer_is_missing_failed_or_truncated(self) -> None:
++        cases = [[], ["[DONE]"], [message_frame(), terminal_frame(), "[DONE]"],
++                 [message_frame("partial"), "[DONE]"],
++                 [message_frame("partial"), terminal_frame("failed"), "[DONE]"]]
++        for frames in cases:
++            with self.subTest(frames=len(frames)):
++                self.backend.stream_conversation.return_value = iter(frames)
++                with self.assertRaises(HTTPException) as raised:
++                    conversation.collect_text(self.backend, conversation.ConversationRequest(model="gpt-6-pro"))
++                self.assertEqual(raised.exception.status_code, 502)
++        self.accounts.mark_text_used.assert_not_called()
++        self.accounts.refresh_access_token.assert_not_called()
++
++    def test_invalid_success_is_not_cached_when_requests_repeat(self) -> None:
++        self.backend.stream_conversation.side_effect = lambda **kwargs: iter(["[DONE]"])
++        body = {"model": "gpt-6-pro", "messages": [{"role": "user", "content": "fixture"}]}
++        for stream in (False, True):
++            with self.subTest(stream=stream):
++                for _attempt in range(2):
++                    with self.assertRaises(HTTPException):
++                        result = openai_v1_chat_complete.handle({**body, "stream": stream})
++                        if stream:
++                            list(result)
++        self.assertEqual(self.backend.stream_conversation.call_count, 4)
++
++    def test_valid_answer_remains_cached_when_requests_repeat(self) -> None:
++        self.backend.stream_conversation.side_effect = lambda **kwargs: iter(compressed_frames())
++        body = {"model": "gpt-6-pro", "messages": [{"role": "user", "content": "fixture"}]}
++        for stream in (False, True):
++            with self.subTest(stream=stream):
++                for _attempt in range(2):
++                    result = openai_v1_chat_complete.handle({**body, "stream": stream})
++                    content = result["choices"][0]["message"]["content"] if isinstance(result, dict) else openai_v1_chat_complete.collect_chat_content(result)
++                    self.assertEqual(content, "OK")
++        self.assertEqual(self.backend.stream_conversation.call_count, 2)
++
++    def test_final_answer_when_text_is_a_json_string_payload(self) -> None:
++        frames = [message_frame(),
++                  '{"p":"/message/content/parts/0","o":"append","v":""}',
++                  '"OK"', terminal_frame(), "[DONE]"]
++        self.backend.stream_conversation.return_value = iter(frames)
++        result = conversation.collect_text(self.backend, conversation.ConversationRequest(model="gpt-6-pro"))
++        self.assertEqual(result, "OK")
++
++    def test_tool_patches_stay_private_when_final_answer_follows(self) -> None:
++        frames = [json.dumps({"message": {
++            "author": {"role": "assistant"}, "recipient": "web", "channel": "analysis",
++            "content": {"content_type": "code", "text": ""},
++        }}), '{"p":"/message/content/text","o":"append","v":"private-tool"}',
++                  *compressed_frames()]
++        self.backend.stream_conversation.return_value = iter(frames)
++        result = conversation.collect_text(self.backend, conversation.ConversationRequest(model="gpt-6-pro"))
++        self.assertEqual(result, "OK")
++
++    def test_tool_failure_does_not_discard_a_later_valid_final_answer(self) -> None:
++        frames = [json.dumps({"message": {
++            "author": {"role": "tool"}, "recipient": "all", "status": "failed",
++            "metadata": {"is_error": True},
++            "content": {"content_type": "text", "parts": ["tool-fixture-error"]},
++        }}), *compressed_frames()]
++        self.backend.stream_conversation.return_value = iter(frames)
++        result = conversation.collect_text(self.backend, conversation.ConversationRequest(model="gpt-6-pro"))
++        self.assertEqual(result, "OK")
++
++    def test_refusal_text_is_preserved_when_moderation_is_blocked(self) -> None:
++        frames = ['{"type":"moderation","moderation_response":{"blocked":true}}',
++                  message_frame("I cannot assist with that request."), terminal_frame(), "[DONE]"]
++        self.backend.stream_conversation.return_value = iter(frames)
++        result = conversation.collect_text(self.backend, conversation.ConversationRequest(model="gpt-6-pro"))
++        self.assertEqual(result, "I cannot assist with that request.")
++
++    def test_full_message_answers_when_other_models_complete(self) -> None:
++        for model in ("auto", "gpt-5-3-mini", "o3-pro", "gpt-6-pro"):
++            with self.subTest(model=model):
++                frames = [json.dumps({"message": {
++                    "author": {"role": "assistant"}, "recipient": "all",
++                    "content": {"content_type": "text", "parts": ["OK"]},
++                    "status": "finished_successfully", "end_turn": True,
++                }}), "[DONE]"]
++                self.backend.stream_conversation.return_value = iter(frames)
++                result = conversation.collect_text(self.backend, conversation.ConversationRequest(model=model))
++                self.assertEqual(result, "OK")
++
++    def test_partial_stream_emits_error_without_success_stop_when_terminal_is_missing(self) -> None:
++        from utils.helper import sse_json_stream
++
++        self.backend.stream_conversation.return_value = iter([message_frame("partial"), "[DONE]"])
++        chunks = openai_v1_chat_complete.stream_text_chat_completion(self.backend, [], "gpt-6-pro")
++        wire = "".join(sse_json_stream(chunks))
++        events = [json.loads(line[6:]) for line in wire.splitlines() if line.startswith("data: {")]
++        self.assertEqual(events[-1]["error"]["code"], "incomplete_upstream_response")
++        self.assertFalse(any(choice.get("finish_reason") == "stop" for event in events for choice in event.get("choices", [])))
++
++    def test_status_without_end_turn_does_not_finish_when_explicitly_false(self) -> None:
++        frames = [message_frame("partial"), '{"p":"/message/status","o":"replace","v":"finished_successfully"}', "[DONE]"]
++        self.backend.stream_conversation.return_value = iter(frames)
++        with self.assertRaises(HTTPException):
++            _ = conversation.collect_text(self.backend, conversation.ConversationRequest(model="gpt-6-pro"))
++
++    def test_success_status_does_not_finish_when_turn_marker_is_absent(self) -> None:
++        frames = [json.dumps({"message": {
++            "author": {"role": "assistant"}, "channel": "final",
++            "content": {"content_type": "text", "parts": ["partial"]},
++            "status": "finished_successfully",
++        }}), "[DONE]"]
++        self.backend.stream_conversation.return_value = iter(frames)
++        with self.assertRaises(HTTPException):
++            _ = conversation.collect_text(self.backend, conversation.ConversationRequest(model="gpt-6-pro"))
++
++    def http_client(self) -> TestClient:
++        _ = self.enterContext(mock.patch("api.ai.require_identity", return_value={"id": "offline", "role": "admin"}))
++        _ = self.enterContext(mock.patch("services.log_service.LoggedCall.log"))
++        app = FastAPI()
++        install_exception_handlers(app)
++        app.include_router(create_router())
++        return self.enterContext(TestClient(app))
++
++    def test_http_contract_when_final_answer_is_reconstructed(self) -> None:
++        self.backend.stream_conversation.side_effect = lambda **kwargs: iter(compressed_frames())
++        client = self.http_client()
++        for stream in (False, True):
++            with self.subTest(stream=stream):
++                response = client.post("/v1/chat/completions", json={
++                    "model": "gpt-6-pro", "stream": stream,
++                    "messages": [{"role": "user", "content": "fixture"}],
++                })
++                self.assertEqual(response.status_code, 200)
++                if stream:
++                    events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: {")]
++                    self.assertEqual(openai_v1_chat_complete.collect_chat_content(events), "OK")
++                    self.assertEqual(events[-1]["choices"][0]["finish_reason"], "stop")
++                else:
++                    self.assertEqual(response.json()["choices"][0]["message"]["content"], "OK")
++
++    def test_http_contract_when_no_terminal_answer_exists(self) -> None:
++        self.backend.stream_conversation.side_effect = lambda **kwargs: iter(["[DONE]"])
++        client = self.http_client()
++        for stream in (False, True):
++            with self.subTest(stream=stream):
++                response = client.post("/v1/chat/completions", json={
++                    "model": "gpt-6-pro", "stream": stream,
++                    "messages": [{"role": "user", "content": "fixture"}],
++                })
++                self.assertEqual(response.status_code, 502)
++                self.assertEqual(response.json()["error"]["code"], "incomplete_upstream_response")
++                self.assertNotIn("choices", response.json())
++
++    def test_part_replacement_when_answer_arrives_as_content_snapshot(self) -> None:
++        frames = [message_frame(), json.dumps({"p": "/message/content", "o": "replace", "v": {
++            "content_type": "text", "parts": ["OK"],
++        }}), terminal_frame(), "[DONE]"]
++        self.backend.stream_conversation.return_value = iter(frames)
++        result = conversation.collect_text(self.backend, conversation.ConversationRequest(model="gpt-6-pro"))
++        self.assertEqual(result, "OK")
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/test/test_text_model_routing.py b/test/test_text_model_routing.py
+index 4ea3659..aa0b2d5 100644
+--- a/test/test_text_model_routing.py
++++ b/test/test_text_model_routing.py
+@@ -143,6 +143,7 @@ class TextProtocolRoutingTests(unittest.TestCase):
+             if backend.access_token == "bad":
+                 raise RuntimeError("token_invalidated")
+             yield {"type": "conversation.delta", "delta": "ok"}
++            yield {"type": "conversation.done", "text_terminal": True}
+ 
+         with (
+             mock.patch.object(conversation, "OpenAIBackendAPI", side_effect=lambda access_token: SimpleNamespace(

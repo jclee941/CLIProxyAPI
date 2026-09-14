@@ -2,8 +2,9 @@
 
 Deployment artifacts only for `jc01rho/CLIProxyAPIPlus` at
 `7f75ba94917647164807028fdd6d988d5aebd744` (`v7.2.157-4`).
-These artifacts reproduce the deployed `v7.2.157-4-webplugins.1` core. They do not
-modify the main source tree or automatically replace production. `compose.yml`
+These artifacts reproduce the `v7.2.157-4-webplugins.2` image-response-wait fix
+and deployment target. Production remains on `.1` until a separately authorized
+cutover. They do not modify the main source tree or automatically replace production. `compose.yml`
 is included by the existing operator wrapper alongside its original service and
 Gemini plugin overrides; it changes only the Core image.
 
@@ -17,13 +18,19 @@ Gemini plugin overrides; it changes only the Core image.
   Antigravity tool-call translation, Kiro role/merge ordering, and reviewed private
   buffer writes; includes the new
   `internal/runtime/executor/claude_executor_legacy_override_test.go`.
+- `image-response-wait.patch`: image-only response waiting in the OpenAI-compatible
+  executor, with a separate HTTP client/connection pool and three regression test files.
 - `Dockerfile`: replace only `/CLIProxyAPI/CLIProxyAPI` in the original runtime.
-- `compose.yml`: the verified deployed image override, without replacing mounts,
+- `compose.yml`: the `.2` deployment-target image override, without replacing mounts,
   provider settings, account storage, or adjacent services.
-- `SHA256SUMS`: integrity checks for the packaging files and both patches.
+- `SHA256SUMS`: integrity checks for the packaging files and all three patches.
 
-The two patches reproduce the isolated candidate's ten source/test files (eight
-modified, two new). Inspection probes, temporary evidence Go files, binaries,
+The three patches reproduce the isolated candidate's fifteen source/test files
+(nine modified, six new). The first two patches are unchanged. The third modifies
+only the two image client call sites in `openai_compat_executor.go` and adds
+`helps/proxy_image_helpers.go`, `helps/proxy_image_helpers_test.go`,
+`helps/proxy_image_http_test.go`, and `openai_compat_images_timeout_test.go` under
+`internal/runtime/executor/`. Inspection probes, temporary evidence Go files, binaries,
 credentials, and ABI shim changes are excluded. Native C ABI **1** and RPC schema
 **6** remain unchanged. `CGO_ENABLED=1` is required for native plugin loading.
 
@@ -31,6 +38,30 @@ The unpatched candidate had 12 suite failures; the combined isolated candidate
 was reported passing `go test -count=1 ./...` before packaging. Packaging checks
 reapply these exact patches to the pinned clean source; they do not replace the
 full tests or runtime preflight below.
+
+## Image-Only Response-Wait Contract
+
+Only image generation/edit execution, both streaming and non-streaming, uses
+`NewProxyAwareImageHTTPClient`. Its separate cached transports add no active
+response-header or body-read timeout and no total client timeout. Requests still
+honor caller cancellation. Default, direct, proxy, and context-provided transport
+selection, connection setup settings, and TCP pool reuse are preserved; caller
+transports and the ordinary client cache are not mutated. Unknown middleware is
+retained rather than bypassed.
+
+The generic `proxy_helpers.go` and its tests remain byte-for-byte identical to
+the pinned source. Ordinary HTTP behavior retains its **45-second** response-header
+timeout and **five-minute** body-read idle timeout. No global timeout increase,
+retry configuration change, plugin change, or provider/configuration change is
+part of this patch.
+
+The final isolated source was reported passing Go 1.26.6 `go test -count=1 ./...`
+and a CGO-enabled build. The operator's local HTTP fixture comparison recorded
+the old image request failing at 45.029 seconds with HTTP 504, the fixed image
+request returning PNG/HTTP 200 at 50.012 seconds, ordinary chat still failing at
+45.013 seconds with HTTP 504, and a fast image returning HTTP 200 at 0.003 seconds.
+Each case reached the fixture upstream once; no real Google image generation was
+used. These are isolated candidate results, not a `.2` production deployment claim.
 
 ## Rebuild from Clean Source
 
@@ -53,7 +84,7 @@ git clone --no-checkout "$SOURCE_REPOSITORY" "$WORK/source"
 git -C "$WORK/source" checkout --detach "$SOURCE_COMMIT"
 test "$(git -C "$WORK/source" rev-parse HEAD)" = "$SOURCE_COMMIT"
 test "$(git -C "$WORK/source" rev-list -n 1 "$SOURCE_TAG")" = "$SOURCE_COMMIT"
-for PATCH in "$PATCH_1" "$PATCH_2"; do
+for PATCH in "$PATCH_1" "$PATCH_2" "$PATCH_3"; do
   git -C "$WORK/source" apply -p1 --check "$ARTIFACTS/$PATCH"
   git -C "$WORK/source" apply -p1 "$ARTIFACTS/$PATCH"
 done
@@ -118,7 +149,7 @@ volumes, and databases. Do not run `down -v`, prune rollback images, delete a
 database, or reset data. No production deployment or rollback is executed by
 this package.
 
-The deployed core passed the combined full suite after the compatibility fixes.
+The earlier `.1` deployed core passed the combined full suite after the first two compatibility patches.
 Real preflight loaded both the original `structured-output.so` and the independent
 `gemini-web.so`. The immediate pre-cutover runtime config was backed up encrypted
 in 1Password; all its existing settings and 11 auth records survived. Plus adds
