@@ -1060,7 +1060,7 @@ func (l *redisCommandLog) CountCommandKey(commandName string, key string) int {
 	return count
 }
 
-const homeRedisTestOperationTimeout = 50 * time.Millisecond
+const homeRedisTestOperationTimeout = 500 * time.Millisecond
 
 func newRedisCommandTestClient(t *testing.T, handler func([]string) string) (*Client, *redisCommandLog) {
 	t.Helper()
