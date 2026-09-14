@@ -46,7 +46,7 @@ func routeImages(raw []byte) (interface{}, error) {
 	if json.Unmarshal(raw, &request) != nil {
 		return nil, failure(400, "invalid_route_request")
 	}
-	if !claimsImageModel(request.RequestedModel) {
+	if !claimsImageModel(request.RequestedModel) && !claimsWebImageModel(request.RequestedModel) {
 		return modelRouteResponse{Handled: false}, nil
 	}
 	return modelRouteResponse{Handled: true, TargetKind: "self", Reason: "chatgpt_web_image_generation"}, nil
@@ -81,7 +81,7 @@ func (service *service) executeImages(ctx context.Context, raw []byte) (interfac
 	if json.Unmarshal(raw, &request) != nil {
 		return nil, failure(400, "invalid_execution_request")
 	}
-	if !claimsImageModel(request.Model) {
+	if !claimsImageModel(request.Model) && !claimsWebImageModel(request.Model) {
 		return nil, failure(400, "unsupported_model")
 	}
 	payload := request.Payload
@@ -99,7 +99,13 @@ func (service *service) executeImages(ctx context.Context, raw []byte) (interfac
 	if images.N > 1 {
 		return nil, failure(400, "single_image_per_request")
 	}
-	body, err := service.generateImage(ctx, request.HostCallbackID, images, imagesToolModelFor(request.Model))
+	var body []byte
+	var err error
+	if claimsWebImageModel(request.Model) {
+		body, err = service.generateWebImage(ctx, request.HostCallbackID, images)
+	} else {
+		body, err = service.generateImage(ctx, request.HostCallbackID, images, imagesToolModelFor(request.Model))
+	}
 	if err != nil {
 		return nil, err
 	}

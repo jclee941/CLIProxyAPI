@@ -87,7 +87,7 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 			Identifier string `json:"identifier"`
 		}{provider}, nil
 	case "model.static":
-		return modelResponse{Provider: provider, Models: imagesModels()}, nil
+		return modelResponse{Provider: provider, Models: append(imagesModels(), webImageModels()...)}, nil
 	case "model.route":
 		return routeImages(raw)
 	case "executor.execute":
