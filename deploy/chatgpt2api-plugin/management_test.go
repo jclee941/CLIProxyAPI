@@ -19,7 +19,7 @@ func TestManagementRegistration_whenCalled_separatesProtectedStatusFromStaticRes
 	if err := json.Unmarshal(response.Result, &result); err != nil {
 		t.Fatal(err)
 	}
-	if !response.OK || len(result.Routes) != 1 || result.Routes[0].Method != "GET" || result.Routes[0].Path != "/plugins/chatgpt2api/status" || len(result.Resources) != 1 || result.Resources[0].Path != "/index" || result.Resources[0].Menu != "ChatGPT2API" {
+	if !response.OK || len(result.Routes) != 6 || result.Routes[0].Method != "GET" || result.Routes[0].Path != "/plugins/chatgpt2api/status" || len(result.Resources) != 1 || result.Resources[0].Path != "/index" || result.Resources[0].Menu != "ChatGPT2API" {
 		t.Fatalf("wrong routes: %+v", result)
 	}
 }

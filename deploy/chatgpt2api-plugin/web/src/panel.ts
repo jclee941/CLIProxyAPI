@@ -3,7 +3,7 @@ import type { PluginStatus } from './contract.ts';
 
 const number = new Intl.NumberFormat('ko-KR');
 
-function detail(label: string, value: string, id?: string): HTMLElement {
+export function detail(label: string, value: string, id?: string): HTMLElement {
   const row = element('div', 'detail-row');
   const content = element('dd', '', value);
   if (id) content.id = id;
@@ -44,7 +44,7 @@ export function statusPanel(status: PluginStatus): HTMLElement {
   if (status.upstream.version != null) observations.append(detail('업스트림 버전', status.upstream.version));
   if (status.upstream.accounts?.active != null) observations.append(detail('활성 계정', number.format(status.upstream.accounts.active), 'active-accounts'));
   if (status.upstream.accounts?.total != null) observations.append(detail('전체 계정', number.format(status.upstream.accounts.total), 'total-accounts'));
-  upstream.append(observations, element('p', 'caption', '실제 ChatGPT Web 계정 풀은 기존 서비스에서 관리합니다. 이 페이지에서는 계정을 추가하거나 삭제하지 않습니다.'));
+  upstream.append(observations, element('p', 'caption', '실제 ChatGPT Web 계정 풀은 기존 서비스가 관리합니다. 아래에서 안전한 목록 조회와 선택한 Web 대상 작업만 수행합니다.'));
   card.append(routing, models, upstream);
   return card;
 }

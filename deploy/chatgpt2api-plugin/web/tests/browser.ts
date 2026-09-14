@@ -1,10 +1,11 @@
 import { chromium, expect, type FrameLocator, type Page } from '@playwright/test';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, mkdtemp } from 'node:fs/promises';
 import { MOCK_KEY, mockStatus, PRIVATE_SENTINEL } from './fixtures.ts';
 import { startMockServer } from './mock-server.ts';
 
-const evidence = `${import.meta.dir}/../evidence`;
-await mkdir(evidence, { recursive: true });
+const evidenceRoot = `${import.meta.dir}/../evidence`;
+await mkdir(evidenceRoot, { recursive: true });
+const evidence = await mkdtemp(`${evidenceRoot}/status-`);
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const screenshots: string[] = [];
 const results: { readonly name: string; readonly passed: boolean; readonly error?: string }[] = [];
@@ -87,6 +88,8 @@ try {
             await expect(frame.locator('#model-list li')).toHaveCount(2);
             await expect(frame.locator('#active-accounts')).toHaveText('3');
             await frame.locator('#refresh').focus();
+            await page.keyboard.press('Tab');
+            await expect(frame.locator('#reload-accounts')).toBeFocused();
             await page.keyboard.press('Tab');
             await expect(link).toBeFocused();
             await expect(link).toHaveCSS('outline-style', 'solid');

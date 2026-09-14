@@ -1,0 +1,171 @@
+diff --git a/sdk/api/handlers/handlers_errors.go b/sdk/api/handlers/handlers_errors.go
+--- a/sdk/api/handlers/handlers_errors.go
++++ b/sdk/api/handlers/handlers_errors.go
+@@ -136,6 +136,13 @@
+ 		}
+ 	}
+ 
++	if msg != nil {
++		var stopped interface{ IsRequestStop() bool }
++		if errors.As(msg.Error, &stopped) && stopped.IsRequestStop() {
++			c.Writer.Header().Set("X-Should-Retry", "false")
++		}
++	}
++
+ 	errText := http.StatusText(status)
+ 	if msg != nil && msg.Error != nil {
+ 		if v := strings.TrimSpace(msg.Error.Error()); v != "" {
+diff --git a/sdk/cliproxy/auth/conductor_execution.go b/sdk/cliproxy/auth/conductor_execution.go
+--- a/sdk/cliproxy/auth/conductor_execution.go
++++ b/sdk/cliproxy/auth/conductor_execution.go
+@@ -21,6 +21,7 @@
+ 	coreusage "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/usage"
+ 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
+ 	log "github.com/sirupsen/logrus"
++	"github.com/tidwall/gjson"
+ )
+ 
+ func newUpstreamAttemptContext(ctx context.Context) context.Context {
+@@ -90,6 +91,10 @@
+ }
+ 
+ func unwrapExecutionBoundaryError(err error) error {
++	if isRequestStopError(err) && statusCodeFromError(err) == http.StatusBadGateway &&
++		gjson.Get(extractErrorBody(err), "error.code").String() == "incomplete_upstream_response" {
++		return wrapRequestStopError(unwrapUpstreamExecutionAttempt(unwrapRequestStopError(err)))
++	}
+ 	err = unwrapRequestStopError(err)
+ 	return unwrapUpstreamExecutionAttempt(err)
+ }
+diff --git a/sdk/cliproxy/auth/conductor_request_scoped_errors.go b/sdk/cliproxy/auth/conductor_request_scoped_errors.go
+--- a/sdk/cliproxy/auth/conductor_request_scoped_errors.go
++++ b/sdk/cliproxy/auth/conductor_request_scoped_errors.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"encoding/json"
+ 	"errors"
++	"net/http"
+ 	"regexp"
+ 	"strconv"
+ 	"strings"
+@@ -30,6 +31,18 @@
+ 	return true
+ }
+ 
++func (e requestStopError) Headers() http.Header {
++	headers := make(http.Header)
++	var upstream interface{ Headers() http.Header }
++	if errors.As(e.error, &upstream) {
++		for key, values := range upstream.Headers() {
++			headers[key] = append([]string(nil), values...)
++		}
++	}
++	headers.Set("X-Should-Retry", "false")
++	return headers
++}
++
+ func isRequestStopError(err error) bool {
+ 	if err == nil {
+ 		return false
+diff --git a/sdk/cliproxy/auth/conductor_stop_boundary_test.go b/sdk/cliproxy/auth/conductor_stop_boundary_test.go
+new file mode 100644
+--- /dev/null
++++ b/sdk/cliproxy/auth/conductor_stop_boundary_test.go
+@@ -0,0 +1,44 @@
++package auth
++
++import (
++	"errors"
++	"net/http"
++	"testing"
++)
++
++type stopBoundaryFixtureError struct {
++	headers http.Header
++}
++
++func (err *stopBoundaryFixtureError) Error() string {
++	return `{"error":{"code":"incomplete_upstream_response","type":"server_error","message":"synthetic"}}`
++}
++func (err *stopBoundaryFixtureError) StatusCode() int      { return http.StatusBadGateway }
++func (err *stopBoundaryFixtureError) Headers() http.Header { return err.headers }
++
++func TestStopBoundaryPreservesTerminalMarker(t *testing.T) {
++	cause := &stopBoundaryFixtureError{headers: http.Header{"Retry-After": {"9"}, "X-Should-Retry": {"true"}}}
++	wrapped := wrapRequestStopError(markUpstreamExecutionAttempt(cause))
++	boundary := unwrapExecutionBoundaryError(wrapped)
++	if !isRequestStopError(boundary) || !errors.Is(boundary, cause) {
++		t.Fatalf("boundary lost stop or cause: %T", boundary)
++	}
++	if statusCodeFromError(boundary) != http.StatusBadGateway {
++		t.Fatal("boundary changed HTTP status")
++	}
++	headers, ok := boundary.(interface{ Headers() http.Header })
++	if !ok || headers.Headers().Get("X-Should-Retry") != "false" || headers.Headers().Get("Retry-After") != "9" {
++		t.Fatal("boundary lost safe stop or original headers")
++	}
++	headers.Headers().Set("Retry-After", "1")
++	if cause.headers.Get("Retry-After") != "9" || cause.headers.Get("X-Should-Retry") != "true" {
++		t.Fatal("boundary mutated original headers")
++	}
++}
++
++func TestStopBoundaryLeavesOrdinaryErrorUnwrapped(t *testing.T) {
++	cause := &stopBoundaryFixtureError{}
++	if got := unwrapExecutionBoundaryError(markUpstreamExecutionAttempt(cause)); got != cause {
++		t.Fatalf("ordinary error changed: %T", got)
++	}
++}
+diff --git a/sdk/api/handlers/handlers_stop_test.go b/sdk/api/handlers/handlers_stop_test.go
+new file mode 100644
+--- /dev/null
++++ b/sdk/api/handlers/handlers_stop_test.go
+@@ -0,0 +1,48 @@
++package handlers
++
++import (
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++
++	"github.com/gin-gonic/gin"
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
++)
++
++type stopHeaderFixtureError struct{ stopped bool }
++
++func (err stopHeaderFixtureError) Error() string {
++	return `{"error":{"code":"incomplete_upstream_response","type":"server_error","message":"synthetic"}}`
++}
++func (err stopHeaderFixtureError) StatusCode() int     { return http.StatusBadGateway }
++func (err stopHeaderFixtureError) IsRequestStop() bool { return err.stopped }
++func (err stopHeaderFixtureError) Headers() http.Header {
++	return http.Header{"X-Should-Retry": {"true"}}
++}
++
++func TestStopHeaderOverridesPassthrough(t *testing.T) {
++	for _, passthrough := range []bool{false, true} {
++		for _, stopped := range []bool{false, true} {
++			t.Run(fmt.Sprintf("passthrough=%t/stop=%t", passthrough, stopped), func(t *testing.T) {
++				recorder := httptest.NewRecorder()
++				ctx, _ := gin.CreateTestContext(recorder)
++				handler := &BaseAPIHandler{Cfg: &config.SDKConfig{PassthroughHeaders: passthrough}}
++				handler.WriteErrorResponse(ctx, executionErrorMessage(stopHeaderFixtureError{stopped: stopped}))
++				want := ""
++				if passthrough {
++					want = "true"
++				}
++				if stopped {
++					want = "false"
++				}
++				if got := recorder.Header().Get("X-Should-Retry"); got != want {
++					t.Fatalf("retry header = %q, want %q", got, want)
++				}
++				if recorder.Code != http.StatusBadGateway {
++					t.Fatalf("status = %d", recorder.Code)
++				}
++			})
++		}
++	}
++}

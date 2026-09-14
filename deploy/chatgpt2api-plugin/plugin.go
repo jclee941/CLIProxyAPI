@@ -8,17 +8,21 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type service struct {
-	mu         sync.RWMutex
-	config     pluginConfig
-	routeCount atomic.Uint64
-	client     *http.Client
+	mu            sync.RWMutex
+	config        pluginConfig
+	routeCount    atomic.Uint64
+	client        *http.Client
+	accountClient *http.Client
+	host          hostCaller
+	now           func() time.Time
 }
 
 func newService() *service {
-	return &service{config: pluginConfig{ModelNames: modelNames{}, DashboardPath: defaultDashboardPath}, client: newHealthClient()}
+	return &service{config: pluginConfig{ModelNames: modelNames{}, DashboardPath: defaultDashboardPath, APIBaseURL: defaultAPIBaseURL}, client: newHealthClient(), accountClient: newHealthClient(), now: time.Now}
 }
 
 func (plugin *service) settings() pluginConfig {
@@ -47,7 +51,7 @@ func (plugin *service) dispatch(ctx context.Context, method string, raw []byte) 
 		}
 		return encode(plugin.route(request))
 	case "management.register":
-		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/chatgpt2api/status"}],"resources":[{"Path":"/index","Menu":"ChatGPT2API","Description":"Native-provider routing and safe sidecar health"}]}`), nil
+		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/chatgpt2api/status"},{"Method":"GET","Path":"/plugins/chatgpt2api/codex-sources"},{"Method":"GET","Path":"/plugins/chatgpt2api/webaccounts"},{"Method":"POST","Path":"/plugins/chatgpt2api/import-codex"},{"Method":"POST","Path":"/plugins/chatgpt2api/refresh-web"},{"Method":"POST","Path":"/plugins/chatgpt2api/set-web-enabled"}],"resources":[{"Path":"/index","Menu":"ChatGPT2API","Description":"Native-provider routing and safe sidecar health"}]}`), nil
 	case "management.handle":
 		return plugin.management(ctx, raw)
 	default:

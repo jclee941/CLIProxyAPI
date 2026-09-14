@@ -27,6 +27,9 @@ func (plugin *service) management(ctx context.Context, raw []byte) (json.RawMess
 	if json.Unmarshal(raw, &request) != nil || request.Method == "" || request.Path == "" {
 		return httpFailure(400, "invalid_management_request")
 	}
+	if accountRouteMethod(request.Path) != "" {
+		return plugin.accountManagement(ctx, request, raw)
+	}
 	if request.Path != statusPath && request.Path != resourcePath {
 		return httpFailure(404, "not_found")
 	}

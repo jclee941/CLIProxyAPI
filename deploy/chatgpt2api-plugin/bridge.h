@@ -26,4 +26,10 @@ extern int cliproxyPluginCall(char *, uint8_t *, size_t, cliproxy_buffer *);
 extern void cliproxyPluginFree(void *, size_t);
 extern void cliproxyPluginShutdown(void);
 int valid_host_api(const cliproxy_host_api *);
+static inline int invoke_host_call(const cliproxy_host_api *host, const char *method, const uint8_t *request, size_t length, cliproxy_buffer *response) {
+    return host->call(host->host_ctx, method, request, length, response);
+}
+static inline void release_host_buffer(const cliproxy_host_api *host, void *pointer, size_t length) {
+    host->free_buffer(pointer, length);
+}
 #endif

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { decodeStoredAuth, HostAuthError } from '../src/host-auth.ts';
+import { decodeStoredAuth, HostAuthError, resolveHostAuth } from '../src/host-auth.ts';
 import { MOCK_KEY } from './fixtures.ts';
 
 const environment = { origin: 'http://localhost:8123', host: 'localhost:8123', userAgent: 'MOCK browser' };
@@ -34,3 +34,19 @@ test('fails closed when host or browser identity differs', () => {
   const read = () => decodeStoredAuth(obfuscated, { ...environment, userAgent: 'Other MOCK browser' });
   assert.throws(read, HostAuthError);
 });
+
+const withoutManagementKey = JSON.stringify({ state: { apiBase: environment.origin, rememberPassword: true }, version: 0 });
+
+test('prefers the Manager stored management key over an operator key', () => {
+  assert.deepEqual(resolveHostAuth(plaintext, 'OPERATOR_KEY', environment), { managementKey: MOCK_KEY });
+});
+
+test('falls back to the operator key when the Manager stores none', () => {
+  assert.deepEqual(resolveHostAuth(withoutManagementKey, '  OPERATOR_KEY  ', environment), { managementKey: 'OPERATOR_KEY' });
+});
+
+for (const candidate of [null, '', '   ', 'bad\r\nkey']) {
+  test(`rejects an unusable operator key ${JSON.stringify(candidate)}`, () => {
+    assert.throws(() => resolveHostAuth(withoutManagementKey, candidate, environment), HostAuthError);
+  });
+}

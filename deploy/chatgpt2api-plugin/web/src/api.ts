@@ -1,6 +1,7 @@
 import ky from 'ky';
 import { parseStatus, StatusFormatError, type PluginStatus } from './contract.ts';
 import { HostAuthError, readHostAuth } from './host-auth.ts';
+import { hostResponse, readHostRequest } from './host-request.ts';
 
 export class StatusRequestError extends Error {
   readonly requiresHostLogin: boolean;
@@ -24,17 +25,18 @@ const http = ky.create({
 });
 
 export async function loadStatus(signal: AbortSignal): Promise<PluginStatus> {
-  const auth = readHostAuth();
+  const transport = readHostRequest();
   try {
-    const response = await http.get('/v0/management/plugins/chatgpt2api/status', {
-      signal, headers: { Authorization: `Bearer ${auth.managementKey}`, Accept: 'application/json' },
+    const path = '/v0/management/plugins/chatgpt2api/status';
+    const response = transport ? await hostResponse(transport, { path, method: 'GET' }) : await http.get(path, {
+      signal, headers: { Authorization: `Bearer ${readHostAuth().managementKey}`, Accept: 'application/json' },
     });
     if (!response.ok) throw new StatusRequestError(response.status);
     const payload: unknown = await response.json();
     return parseStatus(payload);
   } catch (error) {
     if (signal.aborted) throw error;
-    if (error instanceof StatusRequestError || error instanceof StatusFormatError) throw error;
+    if (error instanceof HostAuthError || error instanceof StatusRequestError || error instanceof StatusFormatError) throw error;
     if (error instanceof SyntaxError) throw new StatusFormatError();
     if (error instanceof Error) throw new StatusRequestError(0);
     throw error;

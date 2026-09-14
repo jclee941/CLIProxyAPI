@@ -53,16 +53,50 @@ export function decodeStoredAuth(raw: string | null, environment: HostEnvironmen
   }
 }
 
+export const operatorKeyStorageKey = 'chatgpt2api-operator-key';
+
+export function resolveHostAuth(raw: string | null, operatorKey: string | null, environment: HostEnvironment): HostAuth {
+  try {
+    return decodeStoredAuth(raw, environment);
+  } catch (error) {
+    if (!(error instanceof HostAuthError)) throw error;
+  }
+  const candidate = (operatorKey ?? '').trim();
+  if (!candidate || !/^[^\r\n]+$/.test(candidate)) throw new HostAuthError();
+  return { managementKey: candidate };
+}
+
+export function readOperatorKey(): string | null {
+  try {
+    return window.sessionStorage.getItem(operatorKeyStorageKey);
+  } catch {
+    return null;
+  }
+}
+
+export function saveOperatorKey(value: string): void {
+  window.sessionStorage.setItem(operatorKeyStorageKey, value.trim());
+}
+
 export function readHostAuth(): HostAuth {
+  let stored: string | null = null;
+  let environment: HostEnvironment = {
+    origin: window.location.origin,
+    host: window.location.host,
+    userAgent: window.navigator.userAgent,
+  };
   try {
     const host = window.parent;
-    if (host.location.origin !== window.location.origin) throw new HostAuthError();
-    return decodeStoredAuth(host.localStorage.getItem('cli-proxy-auth'), {
-      origin: window.location.origin,
-      host: host.location.host,
-      userAgent: host.navigator.userAgent,
-    });
-  } catch (error) {
-    throw error instanceof HostAuthError ? error : new HostAuthError();
+    if (host.location.origin === window.location.origin) {
+      stored = host.localStorage.getItem('cli-proxy-auth');
+      environment = {
+        origin: window.location.origin,
+        host: host.location.host,
+        userAgent: host.navigator.userAgent,
+      };
+    }
+  } catch {
+    stored = null;
   }
+  return resolveHostAuth(stored, readOperatorKey(), environment);
 }

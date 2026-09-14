@@ -1,0 +1,8 @@
+# Merge this field into the EXISTING openai-compatibility entry named chatgpt2api.
+# Prepend this rule to that entry's existing rules. Do not replace other fields.
+# This is a provider-entry fragment, NOT a complete CPA configuration.
+request-scoped-errors:
+  - status: 502
+    match-regexr:
+      - '"error"\s*:\s*\{[^{}]*"code"\s*:\s*"incomplete_upstream_response"\s*[,}]'
+    action: stop
