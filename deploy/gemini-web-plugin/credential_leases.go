@@ -31,10 +31,11 @@ type credentialState struct {
 }
 
 type credentialLease struct {
-	guard sync.RWMutex
-	mu    sync.Mutex
-	state credentialState
-	cache credentialCache
+	guard   sync.RWMutex
+	mu      sync.Mutex
+	state   credentialState
+	cache   credentialCache
+	retired map[string]bool
 }
 
 func (lease *credentialLease) snapshot() credentialState {
@@ -115,12 +116,17 @@ func (service *service) reconfigureCredentials(config pluginConfig) error {
 	service.leases.mu.Lock()
 	defer service.leases.mu.Unlock()
 	locked := make([]*credentialLease, 0, len(service.leases.refs))
+	seen := make(map[*credentialLease]bool)
 	defer func() {
 		for _, lease := range locked {
 			lease.guard.Unlock()
 		}
 	}()
 	for _, lease := range service.leases.refs {
+		if seen[lease] {
+			continue
+		}
+		seen[lease] = true
 		if !lease.guard.TryLock() {
 			return failure(409, "session_busy")
 		}

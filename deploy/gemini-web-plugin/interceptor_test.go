@@ -110,6 +110,51 @@ func TestOmniInterceptorReusesPayloadValidation_whenGeminiRoute(t *testing.T) {
 	}
 }
 
+func TestOmniInterceptorAdmitsOpenAIChatRoute_whenSingleUserTurnText(t *testing.T) {
+	for _, scenario := range []struct {
+		name, body        string
+		stream, terminate bool
+	}{
+		{"plain_text", `{"model":"gemini-web-omni","messages":[{"role":"user","content":"a balloon"}]}`, false, false},
+		{"text_parts", `{"messages":[{"role":"user","content":[{"type":"text","text":"a balloon"}]}]}`, false, false},
+		{"route_streams", `{"messages":[{"role":"user","content":"a balloon"}]}`, true, true},
+		{"body_streams", `{"messages":[{"role":"user","content":"a balloon"}],"stream":true}`, false, true},
+		{"extra_turn", `{"messages":[{"role":"system","content":"s"},{"role":"user","content":"a balloon"}]}`, false, true},
+		{"assistant_turn", `{"messages":[{"role":"assistant","content":"a balloon"}]}`, false, true},
+		{"blank_prompt", `{"messages":[{"role":"user","content":"   "}]}`, false, true},
+		{"other_model", `{"model":"gpt-5","messages":[{"role":"user","content":"a balloon"}]}`, false, true},
+		{"image_part", `{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/a.png"}}]}]}`, false, true},
+		{"gemini_body", `{"contents":[{"role":"user","parts":[{"text":"a balloon"}]}]}`, false, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			service := newService(func(string, []byte) ([]byte, error) { t.Fatal("interceptor called host"); return nil, nil })
+			store := &memorySecrets{}
+			service.secrets = store
+			request := struct {
+				SourceFormat, RequestedModel, Model string
+				Stream                              bool
+				Body                                []byte
+			}{"openai", omniModel, omniModel, scenario.stream, []byte(scenario.body)}
+
+			result := invoke(t, service, "request.intercept_before", request)
+
+			if !result.OK {
+				t.Fatalf("interceptor RPC failed: %+v", result.Error)
+			}
+			var response struct{ Terminate bool }
+			if err := json.Unmarshal(result.Result, &response); err != nil {
+				t.Fatal(err)
+			}
+			if response.Terminate != scenario.terminate {
+				t.Fatalf("wrong openai omni decision: %s", result.Result)
+			}
+			if len(store.reads) != 0 || store.writes != 0 {
+				t.Fatal("preflight resolved a secret")
+			}
+		})
+	}
+}
+
 func TestInterceptorPreservesStructuredOutputChanges_whenOrderedBeforeOrAfter(t *testing.T) {
 	for _, method := range []string{"request.intercept_before", "request.intercept_after"} {
 		for _, model := range []string{flashModel, "gemini-web-flash", "claude-sonnet", "gpt-5", ""} {

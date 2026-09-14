@@ -37,12 +37,27 @@ func (lease *credentialLease) clearCacheLocked() {
 }
 
 func (service *service) resolveCredential(ctx context.Context, reference secretReference, fresh bool) (sessionToken, error) {
+	if localReferencePattern.MatchString(reference.value) {
+		store := service.localStore()
+		if store == nil {
+			return sessionToken{}, failure(503, loginConfigurationError)
+		}
+		local, err := store.read(reference.value)
+		if err != nil {
+			return sessionToken{}, err
+		}
+		return service.resolveLocal(local.Target)
+	}
 	lease := service.leases.get(reference.value)
 	for {
 		if err := ctx.Err(); err != nil {
 			return sessionToken{}, err
 		}
 		lease.mu.Lock()
+		if lease.retired[reference.value] {
+			lease.mu.Unlock()
+			return sessionToken{}, failure(409, "credential_changed")
+		}
 		if err := lease.credentialErrorLocked(service.now()); err != nil {
 			lease.mu.Unlock()
 			return sessionToken{}, err
@@ -61,7 +76,7 @@ func (service *service) resolveCredential(ctx context.Context, reference secretR
 			}
 			lease.mu.Lock()
 			err := lease.credentialErrorLocked(service.now())
-			if err == nil && lease.cache.epoch != flight.epoch {
+			if err == nil && (lease.cache.epoch != flight.epoch || lease.retired[reference.value]) {
 				err = failure(409, "credential_changed")
 			}
 			lease.mu.Unlock()
@@ -83,7 +98,7 @@ func (service *service) resolveCredential(ctx context.Context, reference secretR
 		token, err := service.secrets.Resolve(ctx, reference)
 
 		lease.mu.Lock()
-		if lease.cache.epoch != flight.epoch {
+		if lease.cache.epoch != flight.epoch || lease.retired[reference.value] {
 			token, err = sessionToken{}, failure(409, "credential_changed")
 		}
 		if blocked := lease.credentialErrorLocked(service.now()); blocked != nil {

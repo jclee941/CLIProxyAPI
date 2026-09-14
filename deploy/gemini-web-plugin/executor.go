@@ -25,17 +25,24 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	}
 	stream := request.Stream || method == "executor.execute_stream"
 	if request.Model == omniModel {
-		if stream || request.SourceFormat != "gemini" {
+		if stream {
 			return nil, failure(400, "omni_native_nonstreaming_only")
 		}
-		if err := validateOmni(request.Payload); err != nil {
-			return nil, err
+		prompt, promptErr := omniPrompt(request.Payload)
+		if promptErr != nil {
+			return nil, promptErr
 		}
-		if len(request.OriginalRequest) > 0 {
-			if err := validateOmni(request.OriginalRequest); err != nil {
-				return nil, err
-			}
+		if len(request.OriginalRequest) > 0 && !omniOriginalAccepted(request.OriginalRequest) {
+			return nil, failure(400, "unsupported_omni_request")
 		}
+		// The upstream body is rebuilt from the validated prompt, so nothing a
+		// caller or a front-end format translation added can reach the
+		// generation call.
+		payload, payloadErr := omniGeminiPayload(prompt)
+		if payloadErr != nil {
+			return nil, payloadErr
+		}
+		request.Payload = payload
 		if !hasOmniStopRules(request.AuthMetadata.RequestScopedErrors) {
 			return nil, failure(400, "omni_requires_host_request_stop_policy")
 		}
@@ -54,6 +61,9 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 		return nil, executionFailure(request.Model, failure(409, "account_disabled"))
 	}
 	exclusive := request.Model == omniModel
+	if _, err := service.accountLease(record); err != nil {
+		return nil, executionFailure(request.Model, err)
+	}
 	lease, err := service.acquireCredential(record.TokenRef, exclusive)
 	if err != nil {
 		return nil, executionFailure(request.Model, err)
@@ -63,7 +73,8 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	} else {
 		defer lease.guard.RUnlock()
 	}
-	if binding, bound := service.settings().MaintenanceSources[record.ID]; bound && binding.TokenRef != record.TokenRef {
+	local := localReferencePattern.MatchString(record.TokenRef)
+	if binding, bound := service.settings().MaintenanceSources[record.ID]; bound && binding.TokenRef != record.TokenRef && !local {
 		return nil, executionFailure(request.Model, failure(409, "binding_mismatch"))
 	}
 	_, token, err := service.resolve(ctx, request.StorageJSON, request.AuthID)
@@ -74,7 +85,11 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 		if lease.snapshot().state == maintenanceHostPending {
 			return nil, executionFailure(request.Model, failure(409, "host_sync_pending"))
 		}
-		token, err = service.renewForVideo(ctx, record, token)
+		if local {
+			token, err = service.renewLocalSession(ctx, request.HostCallbackID, record)
+		} else {
+			token, err = service.renewForVideo(ctx, record, token)
+		}
 		if err != nil {
 			return nil, executionFailure(request.Model, err)
 		}
@@ -106,6 +121,11 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	if err != nil {
 		return nil, err
 	}
+	if exclusive && local {
+		if err := service.localSubmission(record, localSubmitting); err != nil {
+			return nil, executionFailure(request.Model, err)
+		}
+	}
 	response, err := service.sidecar(ctx, sidecarRequest{Method: "POST", Path: "/v1beta/models/" + model + ":generateContent", Token: token, Body: body, Reference: record.TokenRef})
 	if err != nil {
 		if exclusive {
@@ -120,6 +140,11 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 		if err := validateVideoResponse(response.Body); err != nil {
 			lease.set(credentialState{state: maintenanceOperator, errCode: "submission_outcome_unknown"})
 			return nil, executionFailure(request.Model, err)
+		}
+		if local {
+			if err := service.localSubmission(record, localReady); err != nil {
+				return nil, executionFailure(request.Model, err)
+			}
 		}
 	}
 	if stream {
@@ -168,7 +193,11 @@ func hasOmniStopRules(rules []stopRule) bool {
 	return true
 }
 
-func validateOmni(raw []byte) error {
+// omniPrompt validates a Gemini-native omni request and returns the single text
+// prompt it carries. Fixed safety thresholds are accepted because the host's
+// OpenAI-to-Gemini translation adds them; they are dropped rather than
+// forwarded, since the upstream body is rebuilt from the prompt alone.
+func omniPrompt(raw []byte) (string, error) {
 	var body struct {
 		Model    string `json:"model"`
 		Contents []struct {
@@ -178,26 +207,43 @@ func validateOmni(raw []byte) error {
 			} `json:"parts"`
 		} `json:"contents"`
 		GenerationConfig map[string]json.RawMessage `json:"generationConfig"`
+		SafetySettings   json.RawMessage            `json:"safetySettings"`
 	}
 	if len(raw) > 5*1024*1024 || strictJSON(raw, &body) != nil || body.Model != "" && body.Model != omniModel || len(body.GenerationConfig) != 0 || len(body.Contents) != 1 {
-		return failure(400, "unsupported_omni_request")
+		return "", failure(400, "unsupported_omni_request")
 	}
 	turn := body.Contents[0]
 	if turn.Role != "" && turn.Role != "user" || len(turn.Parts) == 0 {
-		return failure(400, "omni_single_user_turn_required")
+		return "", failure(400, "omni_single_user_turn_required")
 	}
 	texts := make([]string, 0, len(turn.Parts))
 	for _, part := range turn.Parts {
 		if part.Text == nil {
-			return failure(400, "omni_text_only")
+			return "", failure(400, "omni_text_only")
 		}
 		texts = append(texts, *part.Text)
 	}
 	prompt := strings.Join(texts, "\n")
 	if strings.TrimSpace(prompt) == "" || utf8.RuneCountInString(prompt) > 8000 {
-		return failure(400, "omni_prompt_length_invalid")
+		return "", failure(400, "omni_prompt_length_invalid")
 	}
-	return nil
+	return prompt, nil
+}
+
+func validateOmni(raw []byte) error {
+	_, err := omniPrompt(raw)
+	return err
+}
+
+// omniOriginalAccepted reports whether the caller's untranslated request is a
+// single-turn omni request in one of the two supported client formats, so that
+// a request the caller did not intend can never burn a generation.
+func omniOriginalAccepted(raw []byte) bool {
+	if _, err := omniPrompt(raw); err == nil {
+		return true
+	}
+	_, err := openAIPromptForOmni(raw)
+	return err == nil
 }
 
 func nativePayload(raw []byte, model string) ([]byte, error) {

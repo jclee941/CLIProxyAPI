@@ -1,0 +1,23 @@
+{
+  "repository": "https://github.com/router-for-me/CLIProxyAPI.git",
+  "tag": "v7.3.1",
+  "commit": "44e62bc8acc2f224bff9c62d222717d3f6723dea",
+  "tree": "0b9513a6c0a0c3682064a43a8d3ec62bfde22e3e",
+  "git_archive_sha256": "248d841dfc84dc3e9f799dbc818b41e770aebe36f8e8d06fa574d61cd5078c7a",
+  "version": "v7.3.1-compatible-host-auth-save.1",
+  "build_date": "2026-09-14T00:00:00Z",
+  "go_version": "go1.26.8",
+  "gcc_version": "13.3.0",
+  "glibc_version": "glibc 2.39",
+  "binutils_version": "GNU ld (GNU Binutils for Ubuntu) 2.42",
+  "goos": "linux",
+  "goarch": "amd64",
+  "goamd64": "v1",
+  "cgo_enabled": "1",
+  "native_abi_version": 1,
+  "rpc_schema_version": 6,
+  "deployed_binary_sha256": "163fe79fdd84e7b071520212382d798a2163edfe3b85183312a1d17bd7dcc4a7",
+  "deployed_version": "v7.3.1",
+  "deployed_commit_label": "44e62bc",
+  "deployed_build_date": "2026-09-13T17:07:49Z"
+}

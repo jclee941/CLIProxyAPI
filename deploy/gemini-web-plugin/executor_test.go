@@ -96,14 +96,14 @@ func TestOmniReturnsMP4WithoutImageConversion(t *testing.T) {
 	}
 }
 
-func TestOmniRejectsTranslatedChatOriginal_beforeResolving(t *testing.T) {
+func TestOmniRejectsUnsupportedChatOriginal_beforeResolving(t *testing.T) {
 	service := newService(nil)
 	auth, err := authFromRecord(recordFixture(t, "a"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := invoke(t, service, "executor.execute", executorRequest{Model: omniModel, Format: "gemini", SourceFormat: "gemini", Payload: []byte(`{"contents":[{"parts":[{"text":"test"}]}]}`), OriginalRequest: []byte(`{"model":"gemini-web-omni","messages":[{"role":"user","content":"test"}]}`), AuthMetadata: auth.Metadata})
-	if result.OK || result.Error.HTTPStatus != 400 {
-		t.Fatal("translated chat request reached Omni")
+	result := invoke(t, service, "executor.execute", executorRequest{Model: omniModel, Format: "gemini", SourceFormat: "gemini", Payload: []byte(`{"contents":[{"parts":[{"text":"test"}]}]}`), OriginalRequest: []byte(`{"model":"gemini-web-omni","messages":[{"role":"user","content":"test"},{"role":"assistant","content":"again"}]}`), AuthMetadata: auth.Metadata})
+	if result.OK || result.Error.HTTPStatus != 400 || result.Error.Code != "unsupported_omni_request" {
+		t.Fatalf("multi-turn chat request reached Omni: %+v", result.Error)
 	}
 }

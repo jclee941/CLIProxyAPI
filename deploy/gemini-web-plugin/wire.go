@@ -14,6 +14,9 @@ const (
 	resourcePath = "/v0/resource/plugins/gemini-web/index"
 	accountsPath = "/v0/management/plugins/gemini-web/accounts"
 	refreshPath  = "/v0/management/plugins/gemini-web/refresh"
+	resolvePath  = "/v0/management/plugins/gemini-web/resolve"
+	labelPath    = "/v0/management/plugins/gemini-web/label"
+	detachPath   = "/v0/management/plugins/gemini-web/detach"
 )
 
 type envelope struct {

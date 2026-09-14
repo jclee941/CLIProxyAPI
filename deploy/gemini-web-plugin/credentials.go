@@ -131,7 +131,7 @@ func (service *service) parseStorage(raw []byte, strict bool) (storageRecord, er
 	if err != nil || record.Type != provider || !accountIDPattern.MatchString(record.ID) || strings.TrimSpace(record.Label) == "" {
 		return record, failure(400, "invalid_auth_storage")
 	}
-	if _, err := parseReference(record.TokenRef, service.settings().Vault); err != nil {
+	if _, err := parseCredentialReference(record.TokenRef, service.settings().Vault); err != nil {
 		return record, err
 	}
 	return record, nil

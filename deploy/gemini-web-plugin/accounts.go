@@ -27,14 +27,20 @@ type usageView struct {
 	ObservedAt float64       `json:"observed_at"`
 }
 type accountView struct {
-	ID         string             `json:"id"`
-	Label      string             `json:"label"`
-	Enabled    bool               `json:"enabled"`
-	Status     string             `json:"status"`
-	Models     []accountModelView `json:"models"`
-	Usage      *usageView         `json:"usage"`
-	Error      string             `json:"error,omitempty"`
-	ObservedAt float64            `json:"observed_at"`
+	ID             string             `json:"id"`
+	Label          string             `json:"label"`
+	Enabled        bool               `json:"enabled"`
+	Status         string             `json:"status"`
+	Models         []accountModelView `json:"models"`
+	Usage          *usageView         `json:"usage"`
+	Error          string             `json:"error,omitempty"`
+	ObservedAt     float64            `json:"observed_at"`
+	AutoResolvedAt float64            `json:"auto_resolved_at,omitempty"`
+}
+
+type accountListResponse struct {
+	Accounts []accountView `json:"accounts"`
+	Provider string        `json:"provider"`
 }
 
 func (service *service) callback(method string, request callbackRequest, output interface{}) error {
@@ -121,11 +127,8 @@ func (service *service) findRecord(callbackID, id string) (storageRecord, bool, 
 
 func (service *service) inspectAccount(ctx context.Context, record storageRecord, enabled bool) accountView {
 	view := accountView{ID: record.ID, Label: record.Label, Enabled: enabled, Status: "unknown", Models: []accountModelView{}, ObservedAt: float64(service.now().UnixMilli()) / 1000}
-	reference, err := parseReference(record.TokenRef, service.settings().Vault)
-	if err != nil {
-		return failedAccount(view, err)
-	}
-	token, err := service.resolveCredential(ctx, reference, false)
+	view.AutoResolvedAt = float64(service.autoReleaseIfInterrupted(ctx, record))
+	token, err := service.inspectLocalAccount(ctx, record)
 	if err != nil {
 		return failedAccount(view, err)
 	}
@@ -178,9 +181,6 @@ func (service *service) usage(ctx context.Context, reference string, token sessi
 	}
 	if json.Unmarshal(response.Body, &wire) != nil || wire.Source != "GoogleWeb" || wire.Estimated == nil || *wire.Estimated || wire.ObservedAt <= 0 {
 		return nil, failure(502, "usage_response_invalid")
-	}
-	if wire.Tier != nil && *wire.Tier != "PRO" {
-		return nil, failure(502, "usage_tier_unknown")
 	}
 	result := &usageView{Tier: wire.Tier, TierCode: wire.TierCode, Source: wire.Source, ObservedAt: wire.ObservedAt}
 	if wire.Metrics != nil {

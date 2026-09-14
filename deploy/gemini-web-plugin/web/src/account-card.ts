@@ -1,4 +1,5 @@
 import type { Account, Metric } from './contract';
+import { accountErrorMessage } from './api';
 import { badge, button, element, icon, localTime } from './dom';
 
 const statuses = {
@@ -47,6 +48,7 @@ export type CardState = {
   readonly locked: boolean;
 };
 export type CardActions = {
+  readonly login: (account: Account) => void;
   readonly update: (account: Account) => void;
   readonly refresh: (account: Account) => void;
 };
@@ -62,7 +64,7 @@ export function accountCard(account: Account, state: CardState, actions: CardAct
   const status = statuses[account.status];
   tags.append(badge(state.error ? '확인 실패' : status.label, state.error ? 'warning' : status.tone));
   if (!account.enabled) tags.append(badge('비활성'));
-  if (account.usage?.tier) tags.append(badge(/^pro$/i.test(account.usage.tier) ? 'Pro' : account.usage.tier, 'info'));
+  if (account.usage?.tier) tags.append(badge(`Google 보고 등급 · ${account.usage.tier}`, 'info'));
   header.append(title, tags);
   card.append(header);
 
@@ -82,7 +84,7 @@ export function accountCard(account: Account, state: CardState, actions: CardAct
   card.append(modelSection);
 
   if (account.status === 'expired') {
-    card.append(element('p', 'notice notice-warning', '웹 토큰이 만료되었습니다. 새 토큰으로 업데이트해 주세요.'));
+    card.append(element('p', 'notice notice-warning', '웹 세션이 만료되었습니다. Google 로그인을 다시 연결하거나 기존 방식으로 토큰을 업데이트하세요.'));
   }
   if (state.error) {
     const warning = element('div', 'notice notice-warning');
@@ -90,7 +92,7 @@ export function accountCard(account: Account, state: CardState, actions: CardAct
     warning.setAttribute('role', 'status');
     card.append(warning);
   } else if (account.error) {
-    card.append(element('p', 'notice notice-warning', account.error));
+    card.append(element('p', 'notice notice-warning', accountErrorMessage(account.error)));
   }
 
   const usage = element('section', 'usage-section');
@@ -111,7 +113,15 @@ export function accountCard(account: Account, state: CardState, actions: CardAct
 
   const footer = element('footer', 'account-footer');
   footer.append(element('p', 'caption', `계정 확인 ${localTime(account.observed_at)}`));
+  if (account.auto_resolved_at) {
+    footer.append(element('p', 'caption', `중단된 작업 자동 복구 ${localTime(account.auto_resolved_at)}`));
+  }
+  footer.append(element('p', 'caption', '인증 출처 · 마지막 세션 갱신 · 세션 만료: 미확인'));
   const controls = element('div', 'cluster card-actions');
+  const login = button('Google 로그인', () => actions.login(account));
+  login.id = `login-${account.id}`;
+  login.setAttribute('aria-label', `${account.label} Google 로그인`);
+  login.disabled = state.locked;
   const update = button('토큰 업데이트', () => actions.update(account));
   update.id = `update-${account.id}`;
   update.setAttribute('aria-label', `${account.label} 토큰 업데이트`);
@@ -122,7 +132,7 @@ export function accountCard(account: Account, state: CardState, actions: CardAct
   if (state.pending === '확인 중') refresh.classList.add('is-loading');
   update.disabled = state.locked;
   refresh.disabled = state.locked;
-  controls.append(update, refresh);
+  controls.append(login, update, refresh);
   footer.append(controls);
   card.append(footer);
   return card;

@@ -1,0 +1,5 @@
+oauth-model-alias:
+  gemini-web:
+    - name: gemini-web-flash-3.8
+      alias: gemini-web-flash
+      fork: true

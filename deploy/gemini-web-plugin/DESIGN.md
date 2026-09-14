@@ -6,7 +6,8 @@ An account-management resource inside the existing CPA-Manager-Plus dashboard,
 not a second dashboard. Preserve CPAMP's quiet blue accents, translucent neutral
 surfaces, thin borders, rounded controls, and compact operational typography.
 No application header, sidebar, chat, video playground, or decorative motion.
-The primary task is identifying an expired account and replacing its web token.
+The primary task is connecting one explicitly approved Google web session and
+identifying expired accounts. Legacy masked token entry remains separate.
 All user-facing labels are concise Korean; provider/model identifiers stay exact.
 
 Source of truth: `seakee/CPA-Manager-Plus` v1.12.11,
@@ -93,6 +94,23 @@ Verify 375, 768, and 1280px widths, long labels, empty data, and errors.
 | Metric | Named window, used percentage, remaining compute units, 8px bar, local reset time | CPAMP `QuotaProgressBar` |
 | State panel | Loading, empty, request error, missing host authentication; one actionable recovery control | CPAMP `EmptyState` |
 | Token dialog | Native modal dialog, labelled name input, required masked textarea, hints, error region, submit/cancel | CPAMP `Input`, `Modal` |
+| Google login panel | Existing card surface, labelled account name, unchecked required consent, ordered instructions, live status and explicit connect/check/cancel/reconcile actions | Existing card, input, button, status primitives |
+| Consent row | Native checkbox with a full-width clickable label, visible focus, disabled/checked states; existing icon size, control height and spacing | Existing form tokens; beui.dev checkbox mechanism inspected, no library or animation added |
+
+The inline login panel lives between the policy note and account list; the
+document keeps scroll ownership. Opening it focuses the account-name input,
+normal Tab order remains intact, and hiding an idle/terminal panel returns
+focus to its trigger. It is not a second shell or a second credential form.
+At <=768px the primary Google login action owns a toolbar row; the two secondary
+actions wrap naturally below it rather than compressing Korean labels. Login
+phase changes focus the live status when hiding the consent form.
+Google passwords and 2FA stay in Google UI. The companion's own popup selects
+exactly one Gemini tab/account and obtains approval; the portal never scans
+profiles or presents captured credentials. Concise Korean status text distinguishes
+pending, processing, host-sync pending, saved-but-unconfirmed, ready, failure,
+cancelled and expired. Only `ready && models_ready` is usable. A saved account
+known from the account DTO to be disabled is labelled exactly `Saved, disabled`;
+`saved` alone never proves disabled state or model readiness.
 
 Only returned models are shown, and only for enabled, ready accounts. Never
 invent available models, a Pro tier, quotas, or five account cards. Usage bars
@@ -107,12 +125,21 @@ Unix seconds; timestamps show browser-local timezone. `usage.source` must be
 
 Use CPAMP's 150ms ease control feedback, restricted to transform/opacity.
 A loading indicator rotates only during a request. Reduced motion disables it;
-loading text remains. No timed API polling, account renewal, or automatic mutation.
+loading text remains. No timed API polling or account renewal. Only an explicitly
+approved companion session triggers automatic one-shot handoff. Login expiry has
+one local deadline (server Unix seconds, maximum ten minutes), not a polling loop.
+Pending host sync exposes a manual reconcile action, never an automatic retry.
 Manual refresh-all uses two workers, disables conflicting actions, reports
 per-account progress/failure, and continues after individual failures.
 The inspected backend returns one account view from refresh; consume that view
 directly and verify its ID. Do not follow refresh with a list GET, because the
 current backend list operation itself rechecks every account against Google.
+An HTTP 200 account with error/expired/unknown status is still a failed refresh:
+retain the last observation as stale and clear failure only on a ready response.
+Provider tier text is opaque and is labelled as Google-reported, not normalized
+into a subscription claim. The account DTO currently supplies no session source,
+credential expiry or last-refresh timestamp; these remain explicitly unknown.
+`observed_at` is only an observation time, never a credential lifetime.
 Native modal focus containment, Escape, cancel, focus restoration, and keyboard
 form submission are required. The token is masked, never revealed or persisted,
 cleared immediately after submission and on every close; failed submission asks
@@ -148,6 +175,20 @@ Official CPAMC `main` was also inspected: same persistence name/envelope,
 obfuscation, and Bearer transport. Only that shared contract is supported.
 Cross-origin embedding/configuration is rejected without sending credentials.
 HTTP redirects are rejected, preventing credential/token forwarding.
+Login uses the same auth adapter and authenticated same-origin API under
+`/v0/management/plugins/gemini-web/login/{start,complete,status,cancel,reconcile}`.
+It requires HTTPS (loopback only for QA), the exact Manager origin returned by
+start, and resource path `/v0/resource/plugins/gemini-web/index`. The only extension
+transport is `chrome.runtime.connect(extension_id, {name:'gemini-web-login'})`.
+Messages must come from that exact port and state. No `window.postMessage`,
+extension HTTP access to Manager, native OAuth RPC, global token state, browser
+storage writes, external code or manual-token fallback belongs to this flow.
+The port receives only begin/ack/cancel, never Manager credentials. Raw session
+material exists only within the local complete call and is released/reset there.
+Unknown errors use fixed safe copy. Cancel/replay never promises to remove already
+committed secrets; uncertain writes require status inspection, not retransmission.
+Missing runtime/extension shows approved-companion installation and connection
+instructions. Installation URLs are not guessed.
 Known backend error codes distinguish an expired Google token from an expired
 Manager login. Unrecognized error response text is never reflected. A failed
 Manager authentication clears account display and offers explicit reconnection.

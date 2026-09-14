@@ -26,11 +26,11 @@ and local SVG paths. It has no runtime CDN, font, analytics, script, or styleshe
 dependency. This generated artifact is included so the backend can serve it
 without a frontend toolchain. Rebuild it after changing `src/`.
 
-`test` runs 20 unit/artifact checks, including the host's actual obfuscation
+`test` runs unit/artifact, login-contract and external-port checks, including the host's actual obfuscation
 format, same-origin checks, opaque token format, nullable Google observations,
 and V8 syntax validation of the built inline script. Build before running tests.
-Authored TypeScript, CSS, configuration, and HTML templates have clean LSP
-diagnostics. Running the generic Biome LSP directly on generated `index.html`
+Authored TypeScript is verified with the strict project typecheck. Running the
+generic Biome LSP directly on generated `index.html`
 reports style diagnostics in minified/library code (assignment expressions,
 comma operators, and similar bundler output). These are not suppressed or
 hand-edited; the generated artifact is checked by V8 and the real-browser suite.
@@ -41,7 +41,7 @@ iframe. All test-visible account labels are marked **MOCK**. It blocks requests
 outside the local mock origin, checks that key/token values are not rendered,
 and closes every server and browser context in `finally` blocks.
 
-The 18 browser scenarios cover light/dark at 375/768/1280px; dynamic account
+The original 18 browser scenarios remain intact: light/dark at 375/768/1280px; dynamic account
 counts (0, 1, 5, 6); available model filtering; actual fraction-derived usage;
 null/unknown/AI-credit quotas; expired tokens; host authentication failures;
 blocked storage; registration/replacement; masked/cleared token input; keyboard
@@ -50,12 +50,78 @@ concurrency ceiling; no follow-up list GET during refresh; no timed polling;
 live host theme changes; reduced motion; and safe rendering of long/HTML-like
 account labels.
 
-Evidence is written under ignored `web/evidence/`. `qa-report.json` enumerates
-all 28 final screenshots and records scenario outcomes and cleanup. Full-list
+Additional scenarios drive the real portal DOM with a fake Chrome runtime
+injected only at the external-port boundary. They cover consent, absent companion,
+wrong state/port/identity, duplicate sessions, ack, configuration/API errors,
+uncertain completion, expiry, cancel during processing, disabled saves, explicit
+reconciliation, and privacy. Refresh tests cover HTTP 200 error/expired bodies,
+retained stale observations and recovery only after a ready response.
+Service workers and non-mock network destinations are blocked.
+
+Each run creates a unique ignored `web/evidence/companion-*/` directory.
+Its `qa-report.json` enumerates screenshots and records outcomes and cleanup;
+earlier baseline and failed-run evidence is preserved. Full-list
 captures temporarily expand only the mock host iframe height to show every
 account without clipping; viewport width is unchanged and the normal bounded
 host layout is restored afterward. Dialog captures use the normal 1000px-high
 viewport. These are mock UI checks, **not proof of production CPA/Google access**.
+
+## Google Login Companion
+
+Use the toolbar's **Google login** to add an account or the corresponding card
+action to replace a selected account's session. The portal requires an account
+label and explicit, initially unchecked storage consent. After start, connect the
+server-approved companion. Its own popup asks the user to select one Gemini
+tab/account and approve transfer. Google login and 2FA stay in Google UI: this is
+not a Google OAuth token issuer or a webpage password form. Legacy masked token
+entry remains separately labelled **Manual token registration**.
+
+Login API paths are relative to `/v0/management/plugins/gemini-web`:
+
+- `POST /login/start`: `{label,existing_id?,consent:true}`.
+- `POST /login/complete`: one approved `{state,token,account_sha256,auth_user,extension_id,consent:true}`.
+- `POST /login/status`, `/login/cancel`, `/login/reconcile`: `{state}`.
+
+Start/connect require HTTPS (loopback HTTP only for QA), the exact `manager_origin`
+returned by start, and resource path `/v0/resource/plugins/gemini-web/index`.
+Only the existing host-auth adapter supplies Manager credentials. The extension
+ID comes from the authenticated start response, not user input. The sole extension
+transport is `chrome.runtime.connect(extension_id, {name:'gemini-web-login'})`.
+The portal sends `begin`, accepts `ready` then one matching `session` from that
+exact port and state, transfers it once, sends `ack`, and disconnects. Cancel sends
+`cancel` before disconnect. No Manager key goes to the extension, and it does not
+call Manager HTTP. There is no window-message fallback, native OAuth RPC, automatic
+profile capture or manual-token fallback in this flow.
+
+Tokens exist only in the local handoff call; parsed/session payload references
+are released/reset afterward. State and credentials never enter rendered text,
+URLs, browser storage, downloadable files or application logs. Unknown errors
+render fixed safe instructions. Missing companion instructions explain obtaining
+the administrator-approved build, enabling it in desktop Chrome, and checking the
+exact Manager origin and extension ID. No install URL or extension ID is guessed.
+
+Pending, processing and host-sync pending are not success. Backend
+`status:'ready' && models_ready:true` is necessary but not sufficient: the portal
+also requires an enabled ready account and a nonempty authenticated host
+`GET /v0/management/auth-files/models?name=<account_id>` result. Empty/failed
+registry reads remain stored/registration-unconfirmed; explicit Check Status
+can recheck once without replaying a token. `saved` alone is unconfirmed.
+An account known to be disabled from the account DTO is labelled
+exactly **Saved, disabled** and is never enabled automatically. Ready/saved results
+perform one account-list read for authoritative accounts and disabled state.
+The login-request deadline is never presented as a credential expiry time.
+
+The request deadline is bounded to ten minutes. No quota/status polling is added.
+Users explicitly check status or reconcile pending host sync. Uncertain completion
+never retransmits a token. Cancellation during processing can still return a
+committed or host-sync-pending result; it never promises to delete stored secrets.
+Unload disconnects the companion and leaves expiry to the server. In-memory flow
+state is not restored from browser storage.
+
+Official references: [Chrome runtime Port](https://developer.chrome.com/docs/extensions/reference/api/runtime#type-Port)
+and [web-page messaging](https://developer.chrome.com/docs/extensions/develop/concepts/messaging#external-webpage).
+Caller-side ports do not require `sender`; exact source-port object equality is
+checked. `runtime.lastError` is read inside disconnect callbacks without logging.
 
 ## Host Integration
 
@@ -63,6 +129,7 @@ viewport. These are mock UI checks, **not proof of production CPA/Google access*
 - Resource: `GET /v0/resource/plugins/gemini-web/index` serves `web/index.html`.
 - Manager route: `/plugin-pages/gemini-web/0` inside the host router.
 - APIs: same-origin `/v0/management/plugins/gemini-web/accounts` and `/refresh`.
+- Login: authenticated `/login/*` endpoints above, not native OAuth RPC.
 - No resource request needs a management key. The artifact contains no account
   data or credentials. Only subsequent authenticated API calls retrieve data.
 
@@ -75,18 +142,22 @@ The auth adapter is grounded in CPAMP v1.12.11, commit
 - `apps/web/src/services/api/client.ts`
 - `apps/web/src/features/plugins/PluginResourcePage.tsx` and `pluginHostStyle.ts`
 
-It reads only the existing same-origin `cli-proxy-auth` Zustand envelope,
-decodes the host's `enc::v1::` reversible obfuscation, and sends the persisted
-`state.managementKey` in `Authorization: Bearer ...`. Full Mode uses Manager's
-admin context; Manager substitutes its saved CPA key server-side. The resource
-never retrieves or needs that separate CPA key. The same storage/transport
-contract was verified in official CPAMC source; no guessed storage aliases,
-React internals, parent globals, or cross-origin transports are supported.
+With the maintained Manager patch, `src/host-request.ts` validates the keyless,
+document-bound `__CPAMP_PLUGIN_HOST__` capability and prefers its request function.
+The parent uses current native authentication internally. Remember-off login
+works without sending the management key to the iframe or companion and without
+new storage. One ready event may retry an initial missing host context; repeated
+events never poll. Logout, auth/target changes and navigation revoke the parent
+capability and abort its requests. See the [Manager bridge contract](../../cpa-manager-plus/PATCH-BUILD.md).
 
-When Manager does not remember the login, its persisted envelope deliberately
-omits the key. The resource explains the saved-login requirement and offers one
-explicit reconnection action. It never asks for a second management key or
-creates a new localStorage/sessionStorage entry.
+Only when the capability is absent, the legacy explicit remembered-login or
+same-origin standalone path reads `cli-proxy-auth`, decodes `enc::v1::`, and uses
+the persisted `state.managementKey`. This adapter is unchanged; neither path
+guesses key aliases, reads React internals, writes storage or asks for another
+key. If neither is available the existing safe authentication error is preserved.
+Full Mode still uses Manager's admin context; the distinct CPA key stays server-side.
+An account read and its model check retain one transport choice to avoid switching
+to a newly installed capability before the parent observed that account response.
 
 The CPAMP bridge supplies live CSS custom properties. Source-derived fallbacks
 are in a lower-priority CSS layer, so they cannot override the injected host
@@ -97,7 +168,9 @@ tokens. See [`../DESIGN.md`](../DESIGN.md) for the source-backed visual contract
 The server is authoritative for profiles, status, models, tier, usage, and token
 validity. No account count, plan entitlement, quota, or successful registration
 is manufactured. Expired/error/disabled accounts do not advertise available
-models. Missing usage is visibly unknown, never unlimited or zero.
+models. Enabled ready accounts additionally load their actual public host model
+registry; missing registration is unconfirmed and exposes no usable model chips.
+Missing usage is visibly unknown, never unlimited or zero.
 
 Usage is accepted only as `source: 'GoogleWeb'`, `estimated: false`, with
 `provider_compute_unit` units. Bars use `usage_fraction`; optional
@@ -113,6 +186,15 @@ matching card updates immediately. There is no extra list GET after refresh,
 because the backend's list operation itself checks Google. Registration returns
 only `{id,status}`, so a successful registration performs one list GET to obtain
 the authoritative updated account list.
+
+HTTP 200 alone is not refresh success: a body with `status:'ready'` and confirmed
+host model registration is required for an enabled account.
+Error/expired/unknown bodies retain the previous observation as stale, hide old
+model availability, and count as failures in refresh-all. Failure badges remain
+during another request and clear only after a ready response. Tier is an opaque
+Google-reported string, without Pro normalization. The account DTO currently has
+no auth-source, session-refresh or credential-expiry fields; these remain unknown
+rather than being inferred from `observed_at`.
 
 Token input is a required masked textarea, validated only for an opaque
 `gemini-web:v1:` base64url envelope. Cookie contents are not decoded client-side.
@@ -132,4 +214,4 @@ Only `web/**` and `../DESIGN.md` belong to this frontend task. Backend Go files,
 Manager deployment configuration, production browsers, Google profiles, and
 1Password are untouched. The coordinator owns final integration against the
 actual Manager/CPA resource route and real accounts. No production deployment,
-commit, push, independent agent review, or Lighthouse score is claimed here.
+commit, push, production integration or Lighthouse score is claimed here.

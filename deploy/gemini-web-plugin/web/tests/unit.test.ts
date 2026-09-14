@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { decodeStoredAuth, HostAuthError } from '../src/auth';
+import { decodeStoredAuth, HostAuthError, resolveHostAuth } from '../src/auth';
 import { accountsResponseSchema, isWebToken } from '../src/contract';
 
 const environment = {
@@ -111,4 +111,33 @@ test('built resource has executable inline JavaScript, with no external assets o
   });
   expect(await syntax.exited).toBe(0);
   expect(html).not.toMatch(/<script[^>]+src=|<link[^>]+rel="stylesheet"|MOCK_MANAGER_CONTEXT|MOCK ·/);
+});
+
+describe('operator key fallback', () => {
+  const stored = hostEnvelope(state);
+  const withoutKey = hostEnvelope({ apiBase: environment.origin, rememberPassword: true, sessionMode: 'manager_embedded' });
+
+  test('prefers the Manager stored management key', () => {
+    expect(resolveHostAuth(stored, 'OPERATOR_KEY', environment).managementKey).toBe('MOCK_MANAGER_CONTEXT');
+  });
+
+  test('falls back to the operator key when the Manager stores none', () => {
+    expect(resolveHostAuth(withoutKey, 'OPERATOR_KEY', environment).managementKey).toBe('OPERATOR_KEY');
+  });
+
+  test('trims the operator key', () => {
+    expect(resolveHostAuth(null, '  OPERATOR_KEY  ', environment).managementKey).toBe('OPERATOR_KEY');
+  });
+
+  test('rejects a blank operator key', () => {
+    expect(() => resolveHostAuth(withoutKey, '   ', environment)).toThrow(HostAuthError);
+  });
+
+  test('rejects an operator key containing a newline', () => {
+    expect(() => resolveHostAuth(withoutKey, 'BAD\nKEY', environment)).toThrow(HostAuthError);
+  });
+
+  test('throws when neither source provides a key', () => {
+    expect(() => resolveHostAuth(withoutKey, null, environment)).toThrow(HostAuthError);
+  });
 });

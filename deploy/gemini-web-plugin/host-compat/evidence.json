@@ -1,0 +1,72 @@
+{
+  "result": "local-only verified",
+  "source_commit": "ac02da6c05e18f465aa7e3ed5b0a65a2f060917d",
+  "source_archive_sha256": "3fc0c51dd4059837a5824fc15b14f1062a3f835cac7ad2587d6de99d8fef90f1",
+  "base_production_binary": "/tmp/opencode/gemini-native-session-qa-kJtYJqlA/production-core-ac02da6",
+  "base_production_binary_sha256": "07077b8b61ee2422fa99b14cd8d3c7b0a3ce0979cd07d714607f0f70bc5764ea",
+  "patch_sha256": "1bfd300dcd123275c10fc7a7f37864cc5cbada52e1d4ef9aa5e43b2f9a4ae915",
+  "source_pin_sha256": "29402825d9534f56a911b5ed2fcc7d2c593e83fc17668a25eb805806a2ef6dac",
+  "patched_source_sha256": "25d287e78940a834f7b72d8eaff07c2fa12ac9cfaca662a30081cfea364845f6",
+  "regression_test_sha256": "9fd23863c937288c796dace0d137cd0b67e7bf3b39e7c56c3754ba9d6d8882d4",
+  "go_mod_sha256": "432f236e54b5672bb56113c0d774ab80037a9c7be8afe07d68764460d840f615",
+  "go_sum_sha256": "b29392b1f713b238d6232af2f8fd09e28b7f5d221847ddccf0fc35682a9b29bd",
+  "license_sha256": "879792e89cf1bdd6a8d446033ec87e30496f97dcafc4656dc53f641509b346a6",
+  "binary": "/tmp/opencode/cpa-host-compat-build-gIooqp/CLIProxyAPI-host-compat",
+  "binary_sha256": "3045afdc0dd40fbe0024ae8c386239d4fd9487a44a6975579edf371f20b01fb8",
+  "independent_binary": "/tmp/opencode/cpa-host-compat-ac02da6-fOMrDt/CLIProxyAPI-host-compat",
+  "independent_build_cmp_exit": 0,
+  "version": "v7.2.159-compatible-host-auth-save.1",
+  "schema_version": 6,
+  "abi_and_schema_files_unchanged": true,
+  "red": {
+    "log": "/tmp/opencode/cpa-host-compat-build-gIooqp/red.jsonl",
+    "sha256": "f61d1de3dd746eae62e5c9b8107e7bb3ac9006ce00f6f120fafd09187d30dc0c",
+    "failing_groups": [
+      "TestHostAuthSavePreservesDisabled",
+      "TestHostAuthSaveRejectsInvalidDisabledBeforeWrite",
+      "TestHostAuthUpsertPreservesDisableAfterBuild"
+    ]
+  },
+  "green": {
+    "log": "/tmp/opencode/cpa-host-compat-build-gIooqp/green.log",
+    "sha256": "036d9e82f34f2d436b026e33d0d88917fd56642a50e7e0db9713298e4874d48d",
+    "leaf_cases_passed": 25,
+    "race": true
+  },
+  "related": {
+    "log": "/tmp/opencode/cpa-host-compat-build-gIooqp/related-race.log",
+    "sha256": "bd32c0f3a7d9507a43815278c84071f179890c9b5c23831a100eaee413e12147",
+    "packages_passed": 9,
+    "race": true,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "lsp_errors": 0
+  },
+  "fixture_module_sha256": "c6111b408c34a00b246108d33f69e92bff58d35c9144fcd95d438e29a38470aa",
+  "fixture_runs": [
+    {
+      "report": "/tmp/opencode/gemini-native-session-qa-kJtYJqlA/run-20260913T221853-3164465/report.json",
+      "report_sha256": "10be1a6a4b29100db16e69168b7a1eb310ccecb64fd5891d0f66f41968ac3a53",
+      "assertions": 71,
+      "passed": 71,
+      "failures": 0,
+      "disabled_handoff_preserves_ID_and_disabled": true,
+      "local_session_op_subprocesses": 0,
+      "network": "none",
+      "container_removed": "gemini-session-qa-1789305533-3164465"
+    },
+    {
+      "report": "/tmp/opencode/gemini-native-session-qa-kJtYJqlA/run-20260913T222318-3189115/report.json",
+      "report_sha256": "9ebfa2c0914680c1dc685d278d2a5130bd465035c8d3c84fa3d01e217c634c6f",
+      "assertions": 71,
+      "passed": 71,
+      "failures": 0,
+      "disabled_handoff_preserves_ID_and_disabled": true,
+      "local_session_op_subprocesses": 0,
+      "network": "none",
+      "container_removed": "gemini-session-qa-1789305798-3189115"
+    }
+  ],
+  "production_deployment": false,
+  "stage_commit_push_ssh": false
+}

@@ -1,15 +1,15 @@
 import { chromium, expect, type FrameLocator, type Page } from '@playwright/test';
-import { mkdir } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { accountSchema } from '../src/contract';
 import { MOCK_KEY, MOCK_TOKEN, mockAccounts, observedAt } from './fixtures';
 import { startMockServer } from './mock-server';
+import { runLoginScenarios } from './login-browser';
 
-const evidence = `${import.meta.dir}/../evidence`;
-await mkdir(evidence, { recursive: true });
+const evidence = await mkdtemp(`${import.meta.dir}/../evidence/companion-`);
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const results: { readonly name: string; readonly passed: boolean; readonly error?: string }[] = [];
 const screenshots: { readonly name: string; readonly width: number; readonly height: number }[] = [];
-type Surface = { readonly page: Page; readonly frame: FrameLocator; readonly mock: ReturnType<typeof startMockServer> };
+export type Surface = { readonly page: Page; readonly frame: FrameLocator; readonly mock: ReturnType<typeof startMockServer> };
 
 async function capture(page: Page, name: string, full = false): Promise<void> {
   if (full) {
@@ -32,11 +32,11 @@ async function capture(page: Page, name: string, full = false): Promise<void> {
 
 async function scenario(name: string, verify: (surface: Surface) => Promise<void>): Promise<void> {
   const mock = startMockServer();
-  const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, timezoneId: 'Asia/Seoul' });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, timezoneId: 'Asia/Seoul', serviceWorkers: 'block' });
   const page = await context.newPage();
   const pageErrors: string[] = [];
   const externalRequests: string[] = [];
-  await page.route('**/*', (route) => {
+  await context.route('**/*', (route) => {
     if (new URL(route.request().url()).origin === mock.server.url.origin) return route.continue();
     externalRequests.push(new URL(route.request().url()).origin);
     return route.abort();
@@ -55,13 +55,14 @@ async function scenario(name: string, verify: (surface: Surface) => Promise<void
     results.push({ name, passed: false, error: error.message });
     console.log(`FAIL ${name}: ${error.message}`);
   } finally {
-    mock.releaseRefresh(); mock.releaseList(); mock.releaseSave();
+    mock.releaseRefresh(); mock.releaseList(); mock.releaseSave(); mock.login.release();
     await context.close();
     await mock.server.stop(true);
   }
 }
 
 try {
+  await runLoginScenarios(scenario, capture);
   for (const theme of ['white', 'dark']) {
     for (const width of [375, 768, 1280]) {
       await scenario(`responsive-${theme}-${width}`, async ({ page, frame, mock }) => {
@@ -269,3 +270,4 @@ try {
 }
 if (results.some((result) => !result.passed)) process.exitCode = 1;
 console.log(`${results.filter((result) => result.passed).length}/${results.length} MOCK browser scenarios passed; ${screenshots.length} screenshots.`);
+console.log(`Evidence: ${evidence}`);

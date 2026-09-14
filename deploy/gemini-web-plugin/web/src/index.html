@@ -13,6 +13,16 @@
 <body>
   <div id="app"><p>Gemini Web 계정 관리 화면을 준비하고 있습니다.</p></div>
   <noscript>계정을 관리하려면 이 리소스 페이지의 JavaScript 실행을 허용하세요.</noscript>
+  <section class="usage-guide">
+    <h2>요청 방법</h2>
+    <p class="hint">OpenAI 호환 <code>POST /v1/chat/completions</code>과 Gemini 네이티브 <code>POST /v1beta/models/{model}:generateContent</code>를 모두 받습니다.</p>
+    <dl class="usage-models">
+      <dt>gemini-web-flash-3.8</dt>
+      <dd>일반 대화용입니다. <code>gemini-web-flash</code>로도 호출할 수 있습니다.</dd>
+      <dt>gemini-web-omni</dt>
+      <dd>호출 한 번이 약 10초 분량 영상 하나를 실제로 소비합니다. user 텍스트 한 턴만, 스트리밍 없이 보내세요. OpenAI 호환 응답은 <code>choices[0].message.images[0].image_url.url</code>에 <code>data:video/mp4;base64,…</code>를 담고, Gemini 네이티브 응답은 <code>candidates[0].content.parts[0].inlineData</code>로 돌려줍니다.</dd>
+    </dl>
+  </section>
   <script>/* RESOURCE_SCRIPT */</script>
 </body>
 </html>

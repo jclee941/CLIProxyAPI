@@ -54,8 +54,7 @@ func cliproxyPluginFree(pointer unsafe.Pointer, length C.size_t) { C.free(pointe
 
 //export cliproxyPluginShutdown
 func cliproxyPluginShutdown() {
-	pluginService.clearCredentials()
-	pluginService.client.CloseIdleConnections()
+	pluginService.stop()
 }
 
 func callHostABI(method string, raw []byte) ([]byte, error) {

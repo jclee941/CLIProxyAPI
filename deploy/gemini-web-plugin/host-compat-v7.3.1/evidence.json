@@ -1,0 +1,108 @@
+{
+  "status": "verified-local-only-not-deployed",
+  "date": "2026-09-14",
+  "source": {
+    "tag_api": "/tmp/opencode/cpa-host-v731-evidence/upstream-tag.json",
+    "commit": "44e62bc8acc2f224bff9c62d222717d3f6723dea",
+    "tree": "0b9513a6c0a0c3682064a43a8d3ec62bfde22e3e",
+    "archive_sha256": "248d841dfc84dc3e9f799dbc818b41e770aebe36f8e8d06fa574d61cd5078c7a",
+    "patch_sha256": "a2e7f2c2603603615f74ebc62930e89c2fac1081385f584950e4bad988214f41",
+    "source_json_sha256": "6bd697f6184318ff2bc7fdd3a5456bcb1ee2c7d4647633cf064e86a2ce471d2a",
+    "build_script_sha256": "940e3ea78b3c17c5b84472e316b4f3fcd06310d0910afcd6ff2cc145185f38bd",
+    "original_callback_sha256": "758601e13970d1f05af5ab1613aaca189074315787cf7e35c0425f971d8a6a96",
+    "patched_callback_sha256": "25d287e78940a834f7b72d8eaff07c2fa12ac9cfaca662a30081cfea364845f6",
+    "regression_test_sha256": "9fd23863c937288c796dace0d137cd0b67e7bf3b39e7c56c3754ba9d6d8882d4",
+    "go_mod_sha256": "432f236e54b5672bb56113c0d774ab80037a9c7be8afe07d68764460d840f615",
+    "go_sum_sha256": "b29392b1f713b238d6232af2f8fd09e28b7f5d221847ddccf0fc35682a9b29bd",
+    "old_reference_patch_sha256": "1bfd300dcd123275c10fc7a7f37864cc5cbada52e1d4ef9aa5e43b2f9a4ae915"
+  },
+  "builds": [
+    {
+      "directory": "/tmp/opencode/cpa-host-v731-build-oHlR9M",
+      "binary": "CLIProxyAPI-host-compat",
+      "sha256": "1cd125f9e1c969c157b77f010e391a17f269bc8fa7a30decf4c9f3336b401a1e",
+      "red_jsonl_sha256": "a05b1ed874d54e801719e145a210e19160635c2707c1032eb3619c940c27e27d",
+      "green_jsonl_sha256": "9fe4205d2047ed143b7d1a3e212a96cd84d307ef28e36129818b84a9f7166fb1",
+      "related_race_log_sha256": "aa5ae65983d1165a7bc100c04d4cd3c9fe26c66ca12640e7db878f197f8fdc29",
+      "vet_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "build_info_sha256": "a20dc6e0840bff3ea52210b0ebf852b59d35be31771af8eea2531ac6f5fda8da",
+      "source_files_manifest_sha256": "8c3c028aaa6f2006be7cb45305cf175aaedc4c671b68baeddd3cc85596e73cfc"
+    },
+    {
+      "directory": "/tmp/opencode/cpa-host-v731-build-LewNWZ",
+      "binary": "CLIProxyAPI-host-compat",
+      "sha256": "1cd125f9e1c969c157b77f010e391a17f269bc8fa7a30decf4c9f3336b401a1e",
+      "red_jsonl_sha256": "320a411c690e91f9f7a64cee06e4a9a79701b94b136f92bb7e43b36cdf6fa0bf",
+      "green_jsonl_sha256": "ce5d7e1e1e7be7bb745fe9da927080f5cd7329192fee6cf28c3505a28ce196e5",
+      "related_race_log_sha256": "40c2e3c27aa0aaa8d8506c7bda14e852906b21bd6f987e0f92f379d22a350828",
+      "vet_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "verification": {
+    "binary_cmp_exit": 0,
+    "regression_groups_failed_on_pristine": 3,
+    "regression_groups_passed_on_patched": 3,
+    "related_packages_race_and_vet": [
+      "internal/pluginhost", "sdk/auth", "sdk/cliproxy/auth", "sdk/pluginabi",
+      "sdk/pluginapi", "internal/watcher", "internal/watcher/diff",
+      "internal/watcher/synthesizer", "internal/api/handlers/management"
+    ],
+    "linked_dependency_diff_exit": 0,
+    "lsp_diagnostics": "clean on both Go files, source.json, and build.sh",
+    "full_repository_suite": "not run",
+    "initial_toolchain_probe": "Auto toolchain with GOSUMDB=off could not verify acquisition; resolved normally first, then used pinned GOROOT/bin with GOTOOLCHAIN=local offline. No gate bypass."
+  },
+  "fixture": {
+    "original_directory": "/tmp/opencode/gemini-actual114-qa-HlUR0IxU",
+    "unchanged_copy_directory": "/tmp/opencode/gemini-v731-patched-qa-pVFvWYFA",
+    "original_inputs_hash_manifest": "/tmp/opencode/cpa-host-v731-evidence/fixture-original.sha256",
+    "inputs_byte_identical": true,
+    "plugin_sha256_before_and_after": "c6111b408c34a00b246108d33f69e92bff58d35c9144fcd95d438e29a38470aa",
+    "scenario_go_sha256": "ceabca92d48b66576a13adbe8edc85119bdfa84293ea86ac666a36479f228bf3",
+    "run_sh_sha256": "ec593e014f257cd60b48a53b500b08f172ff3054d99c204181d2611a8f117cb6",
+    "baseline": {
+      "core_sha256": "163fe79fdd84e7b071520212382d798a2163edfe3b85183312a1d17bd7dcc4a7",
+      "report": "/tmp/opencode/gemini-actual114-qa-HlUR0IxU/run-20260914T090132-1357384/report.json",
+      "report_sha256": "9eb92727bf686d34bdc80aa6b7abe4be08cc4c4a14ce43f40e0ba8f0c5ded50e",
+      "passed": 70,
+      "total": 71,
+      "failure": "disabled_handoff_preserves_ID_and_disabled"
+    },
+    "patched_runs": [
+      {
+        "report": "/tmp/opencode/gemini-v731-patched-qa-pVFvWYFA/run-20260914T091747-1512086/report.json",
+        "sha256": "8a26047b7273904b7b689c087a172e94481ba3af29ce13e86e5950f657c91aa5",
+        "passed": 71,
+        "total": 71,
+        "failures": 0,
+        "exit_code": 0
+      },
+      {
+        "report": "/tmp/opencode/gemini-v731-patched-qa-pVFvWYFA/run-20260914T091920-1535064/report.json",
+        "sha256": "bb6f7007e9a6b2e36a53aa1893ef731408d06acbf254dc0ae979f0af201420e3",
+        "passed": 71,
+        "total": 71,
+        "failures": 0,
+        "exit_code": 0
+      }
+    ],
+    "disabled_relogin": {
+      "same_id_and_filename": true,
+      "revision": 3,
+      "disabled": true,
+      "status": "saved",
+      "models_ready": false,
+      "registered_models": 0
+    },
+    "local_session_op_subprocesses": 0,
+    "isolation": "network none, loopback synthetic provider, no OP token, read-only root, all capabilities dropped, no-new-privileges",
+    "cleanup": "both core processes per run waited, synthetic provider drained, both owned containers removed; no matching container remains",
+    "staged_diff_unchanged_during_fixture": true
+  },
+  "limits": [
+    "No production access or rollout; coordinator owns deployment decision.",
+    "Original release compiler/libc build environment is unknown; local glibc and exact runtime must be checked before separately authorized cutover.",
+    "Final host lookup and native Manager replacement are not one atomic status/save transaction.",
+    "Non-file stores and full repository suite were not exercised."
+  ]
+}

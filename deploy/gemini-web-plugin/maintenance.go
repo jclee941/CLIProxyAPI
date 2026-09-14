@@ -39,8 +39,18 @@ func (service *service) maintain(ctx context.Context, request managementRequest)
 		selectedID = *body.ID
 	}
 	bindings := service.settings().MaintenanceSources
+	localIDs := make(map[string]bool)
+	if store := service.localStore(); store != nil {
+		records, err := store.records()
+		if err != nil {
+			return maintenanceResponse{}, err
+		}
+		for _, record := range records {
+			localIDs[record.Target.ID] = true
+		}
+	}
 	if selectedID != "" {
-		if _, exists := bindings[selectedID]; !exists {
+		if _, exists := bindings[selectedID]; !exists && !localIDs[selectedID] {
 			return maintenanceResponse{}, failure(404, "maintenance_binding_not_found")
 		}
 	}
@@ -58,13 +68,23 @@ func (service *service) maintain(ctx context.Context, request managementRequest)
 			ids = append(ids, id)
 		}
 	}
+	for id := range localIDs {
+		if _, bound := bindings[id]; !bound && registered[id] && (selectedID == "" || selectedID == id) {
+			ids = append(ids, id)
+		}
+	}
 	if selectedID != "" && len(ids) == 0 {
 		return maintenanceResponse{}, failure(404, "account_not_found")
 	}
 	sort.Strings(ids)
 	result := maintenanceResponse{Results: make([]maintenanceResult, 0, len(ids))}
 	for _, id := range ids {
-		result.Results = append(result.Results, service.maintainAccount(ctx, maintenanceTarget{callbackID: request.HostCallbackID, id: id, explicit: selectedID != ""}))
+		target := maintenanceTarget{callbackID: request.HostCallbackID, id: id, explicit: selectedID != ""}
+		if localIDs[id] {
+			result.Results = append(result.Results, service.maintainLocalAccount(ctx, target))
+		} else {
+			result.Results = append(result.Results, service.maintainAccount(ctx, target))
+		}
 	}
 	return result, nil
 }

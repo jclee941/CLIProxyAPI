@@ -9,12 +9,17 @@ import (
 
 func accountHost(t *testing.T, records []storageRecord) hostCall {
 	t.Helper()
+	return accountHostScoped(t, records, "scope-list")
+}
+
+func accountHostScoped(t *testing.T, records []storageRecord, scope string) hostCall {
+	t.Helper()
 	return func(method string, raw []byte) ([]byte, error) {
 		var request callbackRequest
 		if err := json.Unmarshal(raw, &request); err != nil {
 			t.Fatal(err)
 		}
-		if request.HostCallbackID != "scope-list" {
+		if scope != "" && request.HostCallbackID != scope {
 			t.Fatalf("callback scope lost in %s", method)
 		}
 		entries := make([]hostEntry, 0, len(records))

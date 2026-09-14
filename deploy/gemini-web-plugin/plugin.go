@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"time"
 
@@ -13,20 +17,33 @@ import (
 )
 
 type pluginConfig struct {
+	HostEnabled        bool                         `yaml:"enabled"`
+	HostPriority       int                          `yaml:"priority"`
+	SessionDir         string                       `yaml:"session_dir"`
+	ManagerOrigin      string                       `yaml:"manager_origin"`
+	BrowserExtensionID string                       `yaml:"browser_extension_id"`
 	Vault              string                       `yaml:"vault"`
 	DashboardPath      string                       `yaml:"dashboard_path"`
 	MaintenanceSources map[string]maintenanceSource `yaml:"maintenance_sources"`
 }
 type hostCall func(string, []byte) ([]byte, error)
 type service struct {
-	mu      sync.RWMutex
-	config  pluginConfig
-	host    hostCall
-	secrets secretStore
-	client  *http.Client
-	now     func() time.Time
-	source  credentialSource
-	leases  credentialLeases
+	mu             sync.RWMutex
+	config         pluginConfig
+	host           hostCall
+	secrets        secretStore
+	client         *http.Client
+	now            func() time.Time
+	source         credentialSource
+	leases         credentialLeases
+	sessions       *sessionStore
+	sessionKeyHash [32]byte
+	loginMu        sync.Mutex
+	logins         map[string]loginFlow
+	modelPending   map[string]uint64
+	lifecycle      sessionLifecycle
+	accountsMu     sync.Mutex
+	accountsCache  map[string]cachedAccountList
 }
 
 func newService(host hostCall) *service {
@@ -35,12 +52,15 @@ func newService(host hostCall) *service {
 
 func (service *service) handle(ctx context.Context, method string, raw []byte) []byte {
 	var result interface{}
-	var err error
-	if method == "plugin.register" || method == "plugin.reconfigure" {
+	err := service.lifecycle.enter()
+	if err == nil {
+		defer service.lifecycle.leave()
+	}
+	if err == nil && (method == "plugin.register" || method == "plugin.reconfigure") {
 		service.mu.Lock()
 		result, err = service.register(raw)
 		service.mu.Unlock()
-	} else {
+	} else if err == nil {
 		result, err = service.dispatch(ctx, method, raw)
 	}
 	response := envelope{OK: err == nil}
@@ -81,8 +101,12 @@ func (service *service) register(raw []byte) (interface{}, error) {
 		return nil, failure(400, "invalid_registration")
 	}
 	config := pluginConfig{Vault: "homelab", DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html"}
-	if len(request.ConfigYAML) > 0 && yaml.Unmarshal(request.ConfigYAML, &config) != nil {
-		return nil, failure(400, "invalid_plugin_config")
+	if len(request.ConfigYAML) > 0 {
+		decoder := yaml.NewDecoder(bytes.NewReader(request.ConfigYAML))
+		decoder.KnownFields(true)
+		if err := decoder.Decode(&config); err != nil {
+			return nil, failure(400, "invalid_plugin_config")
+		}
 	}
 	if config.Vault != "homelab" || !filepath.IsAbs(config.DashboardPath) || filepath.Ext(config.DashboardPath) != ".html" {
 		return nil, failure(400, "invalid_plugin_config")
@@ -90,19 +114,41 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	if err := validateMaintenanceSources(config.MaintenanceSources, config.Vault); err != nil {
 		return nil, err
 	}
-	if err := service.reconfigureCredentials(config); err != nil {
-		return nil, err
+	current := service.config
+	current.HostEnabled, current.HostPriority = config.HostEnabled, config.HostPriority
+	if len(current.MaintenanceSources) == 0 && len(config.MaintenanceSources) == 0 {
+		current.MaintenanceSources = config.MaintenanceSources
 	}
-	service.config = config
-	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"vault","Type":"enum","EnumValues":["homelab"],"Description":"1Password vault; web-session field references only"},{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"},{"Name":"maintenance_sources","Type":"object","Description":"Non-secret account-ID keyed credential source bindings"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini"],"management_api":true,"request_interceptor":true}}`), nil
+	unchanged := reflect.DeepEqual(current, config) && (config.SessionDir == "" || service.sessions != nil && service.sessionKeyHash == sha256.Sum256([]byte(os.Getenv("GEMINI_WEB_SESSION_KEY"))))
+	if !unchanged {
+		if err := service.lifecycle.reconfigure(func() error {
+			if err := service.reconfigureCredentials(config); err != nil {
+				return err
+			}
+			if err := service.configureSessions(config); err != nil {
+				return err
+			}
+			service.config = config
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"vault","Type":"enum","EnumValues":["homelab"],"Description":"1Password vault; web-session field references only"},{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"},{"Name":"maintenance_sources","Type":"object","Description":"Non-secret account-ID keyed credential source bindings"},{"Name":"session_dir","Type":"string","Description":"Dedicated 0700 encrypted application-session directory; single process owner"},{"Name":"manager_origin","Type":"string","Description":"Exact HTTPS management portal origin"},{"Name":"browser_extension_id","Type":"string","Description":"Registered 32-character browser companion extension ID"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini"],"management_api":true,"request_interceptor":true,"quota_provider":true}}`), nil
 }
 
 func (service *service) dispatch(ctx context.Context, method string, raw []byte) (interface{}, error) {
 	switch method {
-	case "auth.identifier", "executor.identifier":
+	case "auth.identifier", "executor.identifier", "quota.identifier":
 		return struct {
 			Identifier string `json:"identifier"`
 		}{provider}, nil
+	case "quota.describe":
+		return quotaDescription{SupportedProviders: []string{provider}, DisplayName: "Gemini Web", SupportsReset: false}, nil
+	case "quota.fetch":
+		return service.quotaFetch(ctx, raw)
+	case "quota.reset":
+		return nil, failure(400, "quota_reset_unsupported")
 	case "auth.parse":
 		var request struct{ RawJSON []byte }
 		if json.Unmarshal(raw, &request) != nil {
@@ -136,7 +182,7 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 			Models   []modelInfo
 		}{provider, []modelInfo{}}, nil
 	case "management.register":
-		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/refresh"},{"Method":"POST","Path":"/plugins/gemini-web/maintain"}],"resources":[{"Path":"/index","Menu":"Gemini Web","Description":"Five-account models and measured usage dashboard"}]}`), nil
+		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/refresh"},{"Method":"POST","Path":"/plugins/gemini-web/maintain"},{"Method":"POST","Path":"/plugins/gemini-web/resolve"},{"Method":"POST","Path":"/plugins/gemini-web/label"},{"Method":"POST","Path":"/plugins/gemini-web/detach"},{"Method":"POST","Path":"/plugins/gemini-web/login/start"},{"Method":"POST","Path":"/plugins/gemini-web/login/complete"},{"Method":"POST","Path":"/plugins/gemini-web/login/status"},{"Method":"POST","Path":"/plugins/gemini-web/login/cancel"},{"Method":"POST","Path":"/plugins/gemini-web/login/reconcile"}],"resources":[{"Path":"/index","Menu":"Gemini Web","Description":"Account models and measured usage dashboard"}]}`), nil
 	case "management.handle":
 		return service.management(ctx, raw)
 	case "request.intercept_before", "request.intercept_after":
@@ -158,6 +204,13 @@ func (service *service) resolve(ctx context.Context, raw []byte, identity string
 	if identity != record.ID {
 		return record, sessionToken{}, failure(400, "auth_identity_mismatch")
 	}
+	if localReferencePattern.MatchString(record.TokenRef) {
+		token, err := service.resolveLocal(record)
+		return record, token, err
+	}
+	if err := service.rejectMigratedRecord(record); err != nil {
+		return record, sessionToken{}, err
+	}
 	reference, err := parseReference(record.TokenRef, service.settings().Vault)
 	if err != nil {
 		return record, sessionToken{}, err
@@ -174,6 +227,22 @@ func (service *service) authOperation(ctx context.Context, method string, raw []
 	if json.Unmarshal(raw, &request) != nil || request.AuthProvider != provider {
 		return nil, failure(400, "invalid_auth_request")
 	}
+	if method == "model.for_auth" {
+		record, err := service.parseStorage(request.StorageJSON, false)
+		if err != nil {
+			return nil, err
+		}
+		if record.ID != request.AuthID {
+			return nil, failure(400, "auth_identity_mismatch")
+		}
+		if localReferencePattern.MatchString(record.TokenRef) {
+			models, err := service.localAuthModels(ctx, record)
+			return struct {
+				Provider string
+				Models   []modelInfo
+			}{provider, models}, err
+		}
+	}
 	record, token, err := service.resolve(ctx, request.StorageJSON, request.AuthID)
 	if err != nil {
 		return nil, err
@@ -181,6 +250,11 @@ func (service *service) authOperation(ctx context.Context, method string, raw []
 	account, err := service.accountModels(ctx, record.TokenRef, token)
 	if err != nil {
 		return nil, err
+	}
+	if !localReferencePattern.MatchString(record.TokenRef) {
+		if err := service.rejectMigratedRecord(record); err != nil {
+			return nil, err
+		}
 	}
 	switch method {
 	case "model.for_auth":

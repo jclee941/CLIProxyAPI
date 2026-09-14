@@ -1,22 +1,26 @@
 import { accountCard } from './account-card';
 import { listAccounts, PluginApiError, refreshAccount, saveAccount, userMessage } from './api';
-import { HostAuthError } from './auth';
+import { HostAuthError, saveOperatorKey } from './auth';
+import { readHostRequest } from './host-request';
 import type { Account, AccountId, SaveAccount } from './contract';
 import { badge, button, element, icon } from './dom';
 import { openTokenDialog } from './token-dialog';
+import { createLoginPanel } from './login-panel';
 
 const page = element('main', 'page');
 const heading = element('header', 'page-heading');
 const headingText = element('div', 'heading-copy');
-headingText.append(element('h1', '', 'Gemini Web'), element('p', 'muted', '계정별 웹 토큰, 사용 가능 모델과 Google 사용량을 관리합니다.'));
+headingText.append(element('h1', '', 'Gemini Web'), element('p', 'muted', 'Google 로그인 연결, 계정별 사용 가능 모델과 실측 사용량을 관리합니다.'));
 const toolbar = element('div', 'cluster toolbar');
 const refreshAll = button('전체 새로고침', () => void refresh(accounts.map((account) => account.id)));
 refreshAll.id = 'refresh-all';
 refreshAll.prepend(icon('refresh'));
-const add = button('계정 등록', () => openTokenDialog(undefined, save), 'primary');
+const add = button('수동 토큰 등록', () => openTokenDialog(undefined, save));
 add.id = 'add-account';
 add.prepend(icon('plus'));
-toolbar.append(refreshAll, add);
+const googleLogin = button('Google 로그인', () => loginPanel.open(), 'primary');
+googleLogin.id = 'google-login';
+toolbar.append(refreshAll, add, googleLogin);
 heading.append(headingText, toolbar);
 const summary = element('div', 'summary cluster');
 const policy = element('p', 'policy-note', '사용량은 GoogleWeb에서 확인한 값만 표시합니다. 자동 조회하지 않으며, 새로고침은 로그인이나 토큰 갱신을 수행하지 않습니다.');
@@ -25,23 +29,40 @@ notice.setAttribute('role', 'status');
 notice.setAttribute('aria-live', 'polite');
 const statePanel = element('div', 'state-panel');
 const grid = element('div', 'account-grid');
-page.append(heading, summary, policy, notice, statePanel, grid);
+const loginPanel = createLoginPanel({
+  changed: (active) => { loginActive = active; render(); },
+  failure: (error) => {
+    if (isAuthError(error)) { authBlocked = true; loadError = userMessage(error); accounts = []; render(); }
+  },
+  saved: async (id) => {
+    await load();
+    if (loadError) return undefined;
+    const account = accounts.find((account) => account.id === id);
+    if (account?.status === 'ready') { errors.delete(account.id); render(); }
+    return account;
+  },
+});
+page.append(heading, summary, policy, loginPanel.element, notice, statePanel, grid);
 document.getElementById('app')?.replaceChildren(page);
 
 let accounts: readonly Account[] = [];
 let loading = true;
 let refreshing = false;
 let saving = false;
+let loginActive = false;
 let loadError = '';
 let authBlocked = false;
+let missingHostContext = false;
 const pending = new Map<AccountId, string>();
 const errors = new Map<AccountId, string>();
 
 function render(): void {
   const focusedId = document.activeElement instanceof HTMLElement ? document.activeElement.id : '';
-  const locked = loading || refreshing || saving || authBlocked;
+  const locked = loading || refreshing || saving || authBlocked || loginActive;
   add.disabled = locked || Boolean(loadError);
   refreshAll.disabled = locked || !accounts.length;
+  googleLogin.disabled = loading || refreshing || saving || authBlocked || Boolean(loadError);
+  googleLogin.textContent = loginActive ? '로그인 진행 상태' : 'Google 로그인';
   summary.replaceChildren(badge(`${accounts.length}개 계정`), badge(
     `사용 가능 ${accounts.filter((account) => account.enabled && account.status === 'ready' && !errors.has(account.id) && !loadError).length}`, 'success',
   ));
@@ -55,16 +76,34 @@ function render(): void {
     const retry = button('연결 다시 확인', () => void load());
     retry.disabled = loading || refreshing || saving;
     statePanel.append(retry);
+    if (authBlocked) {
+      const keyInput = document.createElement('input');
+      keyInput.type = 'password';
+      keyInput.autocomplete = 'off';
+      keyInput.spellcheck = false;
+      keyInput.placeholder = 'Manager Admin Key';
+      keyInput.setAttribute('aria-label', 'Manager Admin Key');
+      const connect = button('키로 연결', () => {
+        const value = keyInput.value.trim();
+        if (!value) return;
+        saveOperatorKey(value);
+        keyInput.value = '';
+        void load();
+      });
+      connect.disabled = loading || refreshing || saving;
+      statePanel.append(element('p', 'muted', 'Manager가 키를 전달하지 않는 배포에서는 Manager Admin Key를 직접 입력해 이 탭에서만 연결할 수 있습니다.'), keyInput, connect);
+    }
   } else if (loading && !accounts.length) {
     statePanel.hidden = false;
     statePanel.append(element('p', 'muted', '계정 목록을 불러오는 중입니다.'));
   } else if (!accounts.length) {
     statePanel.hidden = false;
-    statePanel.append(element('h2', '', '등록된 계정이 없습니다'), element('p', 'muted', '계정 등록에서 웹 토큰을 추가해 주세요. 등록된 계정만 이곳에 표시됩니다.'));
+    statePanel.append(element('h2', '', '등록된 계정이 없습니다'), element('p', 'muted', 'Google 로그인으로 선택한 계정을 연결하세요. 기존 방식의 수동 토큰 등록도 별도로 사용할 수 있습니다.'));
   }
   grid.replaceChildren(...accounts.map((account) => accountCard(account, {
     pending: pending.get(account.id), error: errors.get(account.id) || loadError || undefined, locked,
   }, {
+    login: (selected) => loginPanel.open(selected),
     update: (selected) => openTokenDialog(selected, save),
     refresh: (selected) => void refresh([selected.id]),
   })));
@@ -82,10 +121,12 @@ async function load(): Promise<void> {
     accounts = await listAccounts();
     loadError = '';
     authBlocked = false;
+    missingHostContext = false;
   } catch (error) {
     if (!(error instanceof Error)) throw error;
     loadError = userMessage(error);
     authBlocked = isAuthError(error);
+    missingHostContext = error instanceof HostAuthError;
     if (authBlocked) accounts = [];
   } finally {
     loading = false;
@@ -116,10 +157,10 @@ async function save(payload: SaveAccount): Promise<void> {
 }
 
 async function refresh(ids: readonly AccountId[]): Promise<void> {
-  if (refreshing || loading || saving || authBlocked) return;
+  if (refreshing || loading || saving || authBlocked || loginActive) return;
   refreshing = true;
   const queue = [...ids];
-  for (const id of ids) { pending.set(id, '대기 중'); errors.delete(id); }
+  for (const id of ids) pending.set(id, '대기 중');
   notice.textContent = '최대 2개 계정을 동시에 확인합니다.';
   render();
   const worker = async () => {
@@ -130,7 +171,10 @@ async function refresh(ids: readonly AccountId[]): Promise<void> {
       render();
       try {
         const refreshed = await refreshAccount(id);
-        accounts = accounts.map((account) => account.id === id ? refreshed : account);
+        if (!authBlocked) {
+          accounts = accounts.map((account) => account.id === id ? refreshed : account);
+          errors.delete(id);
+        }
       } catch (error) {
         if (!(error instanceof Error)) throw error;
         errors.set(id, userMessage(error));
@@ -145,7 +189,7 @@ async function refresh(ids: readonly AccountId[]): Promise<void> {
     await Promise.all([worker(), worker()]);
     const failed = ids.filter((id) => errors.has(id)).length;
     notice.textContent = authBlocked ? 'Manager 인증을 다시 확인해 주세요.'
-      : `${ids.length}개 계정 확인 요청 완료${failed ? ` · ${failed}개 조회 실패` : ''}.`;
+      : `${ids.length}개 계정 확인 요청 완료 · ${ids.length - failed}개 사용 가능 확인${failed ? ` · ${failed}개 조회 실패` : ''}.`;
   } finally {
     pending.clear();
     refreshing = false;
@@ -153,4 +197,13 @@ async function refresh(ids: readonly AccountId[]): Promise<void> {
   }
 }
 
-void load();
+const initialLoad = load();
+let retriedHostContext = false;
+window.addEventListener('cpamp-plugin-request-ready', () => {
+  void initialLoad.then(() => {
+    if (!retriedHostContext && missingHostContext && readHostRequest()) {
+      retriedHostContext = true;
+      void load();
+    }
+  });
+});

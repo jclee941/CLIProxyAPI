@@ -29,6 +29,7 @@ export const accountSchema = z.object({
   }).readonly().nullable(),
   error: z.string().optional(),
   observed_at: z.number(),
+  auto_resolved_at: z.number().optional(),
 }).readonly();
 
 export const accountsResponseSchema = z.object({
@@ -38,7 +39,7 @@ export const accountsResponseSchema = z.object({
 
 export const savedAccountSchema = z.object({ id: accountIdSchema, status: statusSchema });
 export const errorResponseSchema = z.object({
-  error: z.enum(['account_unavailable', 'sidecar_request_failed', 'disabled_account_update_requires_host_enable']),
+  error: z.enum(['account_unavailable', 'sidecar_request_failed', 'disabled_account_update_requires_host_enable', 'secret_store_unavailable']),
 });
 export type ErrorCode = z.infer<typeof errorResponseSchema>['error'];
 export type Account = z.infer<typeof accountSchema>;

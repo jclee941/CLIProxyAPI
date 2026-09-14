@@ -1,6 +1,8 @@
 # Gemini Web Native CPA Plugin
 
 Independent C ABI 1 plugin for CPA v7.2.157 (`09a29bd`), using RPC schema 6.
+See [Local Application Sessions](LOCAL-SESSIONS.md) for the vendor-companion login,
+encrypted session storage, and explicit deployment gates.
 The credential-cache changes below are locally verified source changes, not a
 claim that the running deployment has been restarted with this build.
 No Go plugin interfaces or core executor changes are required to load the binary.

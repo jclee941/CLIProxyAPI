@@ -89,7 +89,7 @@ func (service *service) credentialHTTP(ctx context.Context, reference string, re
 	tagged := request
 	tagged.Reference = reference
 	response, err := service.sidecar(credentialContext, tagged)
-	if err != nil {
+	if err != nil && reference != "" {
 		service.credentialFailure(reference, err)
 	}
 	return response, err

@@ -23,15 +23,29 @@ func interceptRequest(raw []byte) requestInterceptResponse {
 	if !isOmniModel(request.RequestedModel) && !isOmniModel(request.Model) {
 		return requestInterceptResponse{}
 	}
-	if err == nil && request.SourceFormat == "gemini" && !request.Stream && validateOmni(request.Body) == nil {
+	if err == nil && !request.Stream && omniRouteAccepted(request.SourceFormat, request.Body) {
 		return requestInterceptResponse{}
 	}
 	return requestInterceptResponse{
 		Terminate:       true,
 		StatusCode:      http.StatusBadRequest,
 		ResponseHeaders: http.Header{"Content-Type": {"application/json"}},
-		ResponseBody:    []byte(`{"error":{"code":"unsupported_omni_request","type":"invalid_request_error","message":"Omni requires a synchronous Gemini-native single-user-turn text request."}}`),
+		ResponseBody:    []byte(`{"error":{"code":"unsupported_omni_request","type":"invalid_request_error","message":"Omni requires a synchronous single-user-turn text request in Gemini or OpenAI chat format."}}`),
 	}
+}
+
+// omniRouteAccepted reports whether the route carries a body the executor can
+// turn into exactly one generation. It mirrors the executor's own admission
+// checks so a malformed request is refused before any video is produced.
+func omniRouteAccepted(sourceFormat string, body []byte) bool {
+	switch sourceFormat {
+	case "gemini":
+		return validateOmni(body) == nil
+	case "openai":
+		_, err := openAIPromptForOmni(body)
+		return err == nil
+	}
+	return false
 }
 
 func isOmniModel(model string) bool {

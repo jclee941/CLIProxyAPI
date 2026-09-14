@@ -1,0 +1,312 @@
+diff --git a/internal/pluginhost/auth_callbacks.go b/internal/pluginhost/auth_callbacks.go
+index 92619e6..0ba84f4 100644
+--- a/internal/pluginhost/auth_callbacks.go
++++ b/internal/pluginhost/auth_callbacks.go
+@@ -296,7 +296,23 @@ func (h *Host) saveAuthFile(ctx context.Context, name string, data []byte) (stri
+ 	if errBuild != nil {
+ 		return "", errBuild
+ 	}
+-	if errWrite := os.WriteFile(dst, data, 0o600); errWrite != nil {
++	fileData := data
++	if auth.Disabled {
++		var fields map[string]json.RawMessage
++		if errUnmarshal := json.Unmarshal(data, &fields); errUnmarshal != nil {
++			return "", fmt.Errorf("invalid auth file: %w", errUnmarshal)
++		}
++		if fields == nil {
++			fields = make(map[string]json.RawMessage)
++		}
++		fields["disabled"] = json.RawMessage("true")
++		var errMarshal error
++		fileData, errMarshal = json.Marshal(fields)
++		if errMarshal != nil {
++			return "", fmt.Errorf("marshal auth file: %w", errMarshal)
++		}
++	}
++	if errWrite := os.WriteFile(dst, fileData, 0o600); errWrite != nil {
+ 		return "", fmt.Errorf("failed to write auth file: %w", errWrite)
+ 	}
+ 	if errUpsert := h.upsertAuthRecord(ctx, auth); errUpsert != nil {
+@@ -320,6 +336,14 @@ func (h *Host) buildAuthFromFileData(path string, data []byte) (*coreauth.Auth,
+ 	if errUnmarshal := json.Unmarshal(data, &metadata); errUnmarshal != nil {
+ 		return nil, fmt.Errorf("invalid auth file: %w", errUnmarshal)
+ 	}
++	disabled := false
++	if rawDisabled, exists := metadata["disabled"]; exists {
++		parsed, ok := rawDisabled.(bool)
++		if !ok {
++			return nil, fmt.Errorf("invalid auth disabled: must be a boolean")
++		}
++		disabled = parsed
++	}
+ 	coreauth.NormalizeCredentialMetadata(metadata)
+ 	provider, _ := metadata["type"].(string)
+ 	if strings.TrimSpace(provider) == "" {
+@@ -339,6 +363,7 @@ func (h *Host) buildAuthFromFileData(path string, data []byte) (*coreauth.Auth,
+ 		FileName: filepath.Base(path),
+ 		Label:    label,
+ 		Status:   coreauth.StatusActive,
++		Disabled: disabled,
+ 		Attributes: map[string]string{
+ 			"path":   path,
+ 			"source": path,
+@@ -349,12 +374,20 @@ func (h *Host) buildAuthFromFileData(path string, data []byte) (*coreauth.Auth,
+ 	}
+ 	if manager := h.currentAuthManager(); manager != nil {
+ 		if existing, ok := manager.GetByID(authID); ok {
++			auth.Disabled = auth.Disabled || existing.Disabled
+ 			auth.CreatedAt = existing.CreatedAt
+ 			auth.LastRefreshedAt = existing.LastRefreshedAt
+ 			auth.NextRetryAfter = existing.NextRetryAfter
+ 			auth.Runtime = existing.Runtime
+ 		}
+ 	}
++	if auth.Disabled {
++		auth.Status = coreauth.StatusDisabled
++		if auth.Metadata == nil {
++			auth.Metadata = make(map[string]any)
++		}
++		auth.Metadata["disabled"] = true
++	}
+ 	if errWeight := coreauth.ValidateAuthWeight(auth); errWeight != nil {
+ 		return nil, fmt.Errorf("invalid auth weight: %w", errWeight)
+ 	}
+@@ -369,6 +402,14 @@ func (h *Host) upsertAuthRecord(ctx context.Context, auth *coreauth.Auth) error
+ 	}
+ 	if existing, ok := manager.GetByID(auth.ID); ok {
+ 		auth.CreatedAt = existing.CreatedAt
++		if existing.Disabled {
++			auth.Disabled = true
++			auth.Status = coreauth.StatusDisabled
++			if auth.Metadata == nil {
++				auth.Metadata = make(map[string]any)
++			}
++			auth.Metadata["disabled"] = true
++		}
+ 		_, errUpdate := manager.Update(ctx, auth)
+ 		return errUpdate
+ 	}
+diff --git a/internal/pluginhost/auth_callbacks_disabled_test.go b/internal/pluginhost/auth_callbacks_disabled_test.go
+new file mode 100644
+index 0000000..e92ab4b
+--- /dev/null
++++ b/internal/pluginhost/auth_callbacks_disabled_test.go
+@@ -0,0 +1,218 @@
++package pluginhost
++
++import (
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
++	tokenauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
++	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
++	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
++	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
++)
++
++func TestHostAuthSavePreservesDisabled(t *testing.T) {
++	for _, persistent := range []bool{false, true} {
++		mode := "runtime-only"
++		if persistent {
++			mode = "file-token-store"
++		}
++		t.Run(mode, func(t *testing.T) {
++			for _, test := range []struct {
++				name             string
++				incoming         string
++				existing         bool
++				existingDisabled bool
++				wantDisabled     bool
++			}{
++				{name: "new disabled", incoming: `,"disabled":true`, wantDisabled: true},
++				{name: "active becomes disabled", incoming: `,"disabled":true`, existing: true, wantDisabled: true},
++				{name: "disabled stays disabled", incoming: `,"disabled":true`, existing: true, existingDisabled: true, wantDisabled: true},
++				{name: "false cannot enable", incoming: `,"disabled":false`, existing: true, existingDisabled: true, wantDisabled: true},
++				{name: "omission cannot enable", existing: true, existingDisabled: true, wantDisabled: true},
++				{name: "new active", incoming: `,"disabled":false`},
++				{name: "default active"},
++				{name: "active stays active", existing: true, incoming: `,"disabled":false`},
++				{name: "case sensitive field", incoming: `,"Disabled":true`},
++			} {
++				t.Run(test.name, func(t *testing.T) {
++					authDir := t.TempDir()
++					host := New()
++					host.runtimeConfig = &config.Config{AuthDir: authDir}
++					var store coreauth.Store
++					if persistent {
++						fileStore := tokenauth.NewFileTokenStore()
++						fileStore.SetBaseDir(authDir)
++						store = fileStore
++					}
++					manager := coreauth.NewManager(store, nil, nil)
++					host.SetAuthManager(manager)
++					const name = "saved.json"
++					if test.existing {
++						status := coreauth.StatusActive
++						if test.existingDisabled {
++							status = coreauth.StatusDisabled
++						}
++						_, errRegister := manager.Register(t.Context(), &coreauth.Auth{
++							ID: name, FileName: name, Provider: "demo",
++							Disabled: test.existingDisabled, Status: status,
++						})
++						if errRegister != nil {
++							t.Fatalf("register auth: %v", errRegister)
++						}
++					}
++					accountNumber := "42"
++					if test.wantDisabled {
++						accountNumber = "9007199254740993"
++					}
++					metadata := `"type":"demo","account_number":` + accountNumber + `,"nested":{"items":[1,"x",null]},"note":"unchanged"`
++					request := []byte(`{"name":"  saved.json  ","json":{` + metadata + test.incoming + `}}`)
++
++					rawResponse, errCall := host.callFromPlugin(t.Context(), pluginabi.MethodHostAuthSave, request)
++
++					if errCall != nil {
++						t.Fatalf("host.auth.save: %v", errCall)
++					}
++					response, errDecode := decodeRPCEnvelope[pluginapi.HostAuthSaveResponse](rawResponse)
++					if errDecode != nil {
++						t.Fatalf("decode response: %v", errDecode)
++					}
++					if response.Name != name || response.Path != filepath.Join(authDir, name) {
++						t.Fatalf("response has noncanonical name/path: %#v", response)
++					}
++					auth, ok := manager.GetByID(name)
++					if !ok || auth.FileName != name || len(manager.List()) != 1 {
++						t.Fatal("save did not retain a single canonical ID/FileName")
++					}
++					wantStatus := coreauth.StatusActive
++					if test.wantDisabled {
++						wantStatus = coreauth.StatusDisabled
++					}
++					if auth.Disabled != test.wantDisabled || auth.Status != wantStatus {
++						t.Errorf("runtime disabled/status = %v/%s, want %v/%s", auth.Disabled, auth.Status, test.wantDisabled, wantStatus)
++					}
++					if test.wantDisabled && auth.Metadata["disabled"] != true {
++						t.Errorf("runtime metadata disabled = %v, want true", auth.Metadata["disabled"])
++					}
++					data, errRead := os.ReadFile(response.Path)
++					if errRead != nil {
++						t.Fatalf("read saved file: %v", errRead)
++					}
++					var fields map[string]json.RawMessage
++					if errDecode := json.Unmarshal(data, &fields); errDecode != nil {
++						t.Fatalf("decode saved fields: %v", errDecode)
++					}
++					persistedDisabled := false
++					if rawDisabled, exists := fields["disabled"]; exists {
++						if errDecode := json.Unmarshal(rawDisabled, &persistedDisabled); errDecode != nil {
++							t.Fatalf("decode saved disabled: %v", errDecode)
++						}
++					}
++					if persistedDisabled != test.wantDisabled {
++						t.Errorf("persisted disabled = %v, want %v", persistedDisabled, test.wantDisabled)
++					}
++					for key, want := range map[string]string{
++						"account_number": accountNumber, "nested": `{"items":[1,"x",null]}`, "note": `"unchanged"`,
++					} {
++						if string(fields[key]) != want {
++							t.Errorf("unrelated %s changed: %s", key, fields[key])
++						}
++					}
++				})
++			}
++		})
++	}
++}
++
++func TestHostAuthSaveRejectsInvalidDisabledBeforeWrite(t *testing.T) {
++	for _, invalid := range []string{`"true"`, `"false"`, `1`, `null`, `[]`, `{}`} {
++		t.Run(invalid, func(t *testing.T) {
++			authDir := t.TempDir()
++			path := filepath.Join(authDir, "saved.json")
++			const original = `{"type":"demo","disabled":true,"note":"original"}`
++			if errWrite := os.WriteFile(path, []byte(original), 0o600); errWrite != nil {
++				t.Fatalf("write original: %v", errWrite)
++			}
++			host := New()
++			host.runtimeConfig = &config.Config{AuthDir: authDir}
++			store := tokenauth.NewFileTokenStore()
++			store.SetBaseDir(authDir)
++			manager := coreauth.NewManager(store, nil, nil)
++			host.SetAuthManager(manager)
++			if _, errRegister := manager.Register(t.Context(), &coreauth.Auth{
++				ID: "saved.json", FileName: "saved.json", Provider: "demo", Disabled: true, Status: coreauth.StatusDisabled,
++			}); errRegister != nil {
++				t.Fatalf("register auth: %v", errRegister)
++			}
++			request := []byte(`{"name":"saved.json","json":{"type":"demo","disabled":` + invalid + `}}`)
++
++			_, errCall := host.callFromPlugin(t.Context(), pluginabi.MethodHostAuthSave, request)
++
++			if errCall == nil {
++				t.Error("host.auth.save accepted invalid disabled metadata")
++			}
++			data, errRead := os.ReadFile(path)
++			if errRead != nil {
++				t.Fatalf("read original: %v", errRead)
++			}
++			if string(data) != original {
++				t.Errorf("source changed after validation failure: %s", data)
++			}
++			auth, ok := manager.GetByID("saved.json")
++			if !ok || !auth.Disabled || auth.Status != coreauth.StatusDisabled {
++				t.Error("runtime disabled state changed after validation failure")
++			}
++		})
++	}
++}
++
++func TestHostAuthUpsertPreservesDisableAfterBuild(t *testing.T) {
++	authDir := t.TempDir()
++	path := filepath.Join(authDir, "saved.json")
++	const original = `{"type":"demo","disabled":false,"note":"retained"}`
++	if errWrite := os.WriteFile(path, []byte(original), 0o600); errWrite != nil {
++		t.Fatalf("write auth: %v", errWrite)
++	}
++	store := tokenauth.NewFileTokenStore()
++	store.SetBaseDir(authDir)
++	manager := coreauth.NewManager(store, nil, nil)
++	host := New()
++	host.runtimeConfig = &config.Config{AuthDir: authDir}
++	host.SetAuthManager(manager)
++	prepared, errBuild := host.buildAuthFromFileData(path, []byte(original))
++	if errBuild != nil {
++		t.Fatalf("build auth: %v", errBuild)
++	}
++	if _, errRegister := manager.Register(t.Context(), &coreauth.Auth{
++		ID: "saved.json", FileName: "saved.json", Provider: "demo",
++		Disabled: true, Status: coreauth.StatusDisabled,
++	}); errRegister != nil {
++		t.Fatalf("register disabled runtime: %v", errRegister)
++	}
++
++	errUpsert := host.upsertAuthRecord(t.Context(), prepared)
++
++	if errUpsert != nil {
++		t.Fatalf("upsert auth: %v", errUpsert)
++	}
++	auth, ok := manager.GetByID("saved.json")
++	if !ok || !auth.Disabled || auth.Status != coreauth.StatusDisabled || auth.Metadata["disabled"] != true {
++		t.Error("upsert lost disabled runtime state observed after build")
++	}
++	data, errRead := os.ReadFile(path)
++	if errRead != nil {
++		t.Fatalf("read auth: %v", errRead)
++	}
++	var fields struct {
++		Disabled bool   `json:"disabled"`
++		Note     string `json:"note"`
++	}
++	if errDecode := json.Unmarshal(data, &fields); errDecode != nil {
++		t.Fatalf("decode auth: %v", errDecode)
++	}
++	if !fields.Disabled || fields.Note != "retained" {
++		t.Errorf("upsert persisted wrong state: %#v", fields)
++	}
++}

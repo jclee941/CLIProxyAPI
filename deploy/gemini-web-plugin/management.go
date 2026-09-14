@@ -10,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 )
 
 func managementJSON(status int, value interface{}) (httpResponse, error) {
@@ -49,29 +50,53 @@ func (service *service) management(ctx context.Context, raw []byte) (httpRespons
 }
 
 func (service *service) managementOperation(ctx context.Context, request managementRequest) (interface{}, error) {
+	if request.Method == "POST" {
+		defer service.dropAccountsCache()
+	}
 	switch {
+	case request.Method == "POST" && strings.HasPrefix(request.Path, loginPath):
+		return service.loginOperation(ctx, request)
 	case request.Method == "GET" && request.Path == accountsPath:
 		entries, err := service.entries(request.HostCallbackID)
 		if err != nil {
 			return nil, err
 		}
-		accounts := make([]accountView, 0, len(entries))
-		for _, entry := range entries {
-			record, enabled, err := service.getRecord(request.HostCallbackID, entry)
-			if err != nil {
-				accounts = append(accounts, failedAccount(accountView{ID: entry.ID, Label: "Unavailable account", Enabled: !entry.Disabled, Models: []accountModelView{}, ObservedAt: float64(service.now().UnixMilli()) / 1000}, err))
-				continue
-			}
-			accounts = append(accounts, service.inspectAccount(ctx, record, enabled))
+		// The host opens a fresh callback id for every call, so the listing is
+		// cached under the set of accounts it covers instead.
+		scope := accountsScope(entries)
+		if cached, fresh := service.cachedAccounts(scope); fresh {
+			return accountListResponse{cached, provider}, nil
 		}
-		return struct {
-			Accounts []accountView `json:"accounts"`
-			Provider string        `json:"provider"`
-		}{accounts, provider}, nil
+		// Accounts are inspected concurrently because each one costs two
+		// independent upstream round trips; the indexed slice keeps the response
+		// in host entry order.
+		accounts := make([]accountView, len(entries))
+		var inspections sync.WaitGroup
+		for index, entry := range entries {
+			inspections.Add(1)
+			go func() {
+				defer inspections.Done()
+				record, enabled, errRecord := service.getRecord(request.HostCallbackID, entry)
+				if errRecord != nil {
+					accounts[index] = failedAccount(accountView{ID: entry.ID, Label: "Unavailable account", Enabled: !entry.Disabled, Models: []accountModelView{}, ObservedAt: float64(service.now().UnixMilli()) / 1000}, errRecord)
+					return
+				}
+				accounts[index] = service.inspectAccount(ctx, record, enabled)
+			}()
+		}
+		inspections.Wait()
+		service.storeAccounts(scope, accounts)
+		return accountListResponse{accounts, provider}, nil
 	case request.Method == "POST" && request.Path == accountsPath:
 		return service.registerAccount(ctx, request)
 	case request.Method == "POST" && request.Path == "/v0/management"+maintainPath:
 		return service.maintain(ctx, request)
+	case request.Method == "POST" && request.Path == resolvePath:
+		return service.resolveIntent(ctx, request)
+	case request.Method == "POST" && request.Path == labelPath:
+		return service.relabelAccount(ctx, request)
+	case request.Method == "POST" && request.Path == detachPath:
+		return service.detachLegacyBinding(ctx, request)
 	case request.Method == "POST" && request.Path == refreshPath:
 		var body struct {
 			ID string `json:"id"`
