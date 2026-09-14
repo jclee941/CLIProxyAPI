@@ -206,3 +206,64 @@ func TestExecuteRejectsInvalidImageRequests(t *testing.T) {
 		}
 	}
 }
+
+func hostListing(files string) hostCall {
+	return func(method string, _ []byte) ([]byte, error) {
+		if method != "host.auth.list" {
+			return nil, failure(500, "unexpected_host_call")
+		}
+		return []byte(`{"ok":true,"result":{"files":` + files + `}}`), nil
+	}
+}
+
+func candidateIDs(entries []hostEntry) []string {
+	ids := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		ids = append(ids, entry.ID)
+	}
+	return ids
+}
+
+func TestImageCandidatesPreferActiveCredentials(t *testing.T) {
+	service := newService(hostListing(`[
+		{"id":"active","auth_index":"1","provider":"codex","disabled":false},
+		{"id":"spent","auth_index":"2","provider":"codex","disabled":true},
+		{"id":"other","auth_index":"3","provider":"gemini-web","disabled":false}]`))
+	candidates, err := service.imageCandidates("callback")
+	if err != nil {
+		t.Fatalf("image candidates: %v", err)
+	}
+	ids := candidateIDs(candidates)
+	if len(ids) != 1 || ids[0] != "active" {
+		t.Fatalf("expected only the active codex credential, got %v", ids)
+	}
+}
+
+func TestImageCandidatesFallBackWhenQuotaDisabledEveryCredential(t *testing.T) {
+	service := newService(hostListing(`[
+		{"id":"spent-a","auth_index":"1","provider":"codex","disabled":true},
+		{"id":"spent-b","auth_index":"2","provider":"codex","disabled":true}]`))
+	candidates, err := service.imageCandidates("callback")
+	if err != nil {
+		t.Fatalf("image candidates must survive a fully disabled pool: %v", err)
+	}
+	if len(candidateIDs(candidates)) != 2 {
+		t.Fatalf("expected both reserve credentials, got %v", candidateIDs(candidates))
+	}
+}
+
+func TestImageCandidatesRejectWhenNoChatGPTCredentialExists(t *testing.T) {
+	service := newService(hostListing(`[{"id":"other","auth_index":"1","provider":"gemini-web","disabled":false}]`))
+	_, err := service.imageCandidates("callback")
+	public, ok := err.(*publicError)
+	if !ok || public.Code != "no_chatgpt_credential_available" {
+		t.Fatalf("expected no_chatgpt_credential_available, got %v", err)
+	}
+}
+
+func TestFailureCarriesTheMessageTheHostSurfaces(t *testing.T) {
+	err := failure(503, "no_chatgpt_credential_available")
+	if err.Message != "no_chatgpt_credential_available" {
+		t.Fatalf("expected the code as the host-visible message, got %q", err.Message)
+	}
+}

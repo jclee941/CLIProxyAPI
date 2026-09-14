@@ -139,21 +139,35 @@ func (service *service) generateImage(ctx context.Context, callbackID string, re
 	return nil, lastErr
 }
 
+// imageCandidates keeps this path off the Codex API quota state. The host disables
+// a ChatGPT credential once its Codex API allowance is spent, but the web
+// image_gen allowance is a separate bucket that is still spendable, so disabled
+// credentials are held in reserve instead of being dropped. Active ones are still
+// preferred so that disabling a single credential keeps its intended effect.
 func (service *service) imageCandidates(callbackID string) ([]hostEntry, error) {
 	entries, err := service.entries(callbackID)
 	if err != nil {
 		return nil, err
 	}
-	candidates := make([]hostEntry, 0, len(entries))
+	active := make([]hostEntry, 0, len(entries))
+	reserve := make([]hostEntry, 0, len(entries))
 	for _, entry := range entries {
-		if entry.Provider == authProvider && !entry.Disabled {
-			candidates = append(candidates, entry)
+		if entry.Provider != authProvider {
+			continue
 		}
+		if entry.Disabled {
+			reserve = append(reserve, entry)
+			continue
+		}
+		active = append(active, entry)
 	}
-	if len(candidates) == 0 {
-		return nil, failure(503, "no_chatgpt_credential_available")
+	if len(active) > 0 {
+		return active, nil
 	}
-	return candidates, nil
+	if len(reserve) > 0 {
+		return reserve, nil
+	}
+	return nil, failure(503, "no_chatgpt_credential_available")
 }
 
 func (service *service) tokenFor(callbackID string, entry hostEntry) (string, error) {

@@ -95,6 +95,9 @@ type envelope struct {
 type publicError struct {
 	HTTPStatus int    `json:"http_status"`
 	Code       string `json:"code"`
+	// Message is what the host surfaces to the client; without it every plugin
+	// error reaches the caller as the opaque "plugin call failed".
+	Message string `json:"message,omitempty"`
 }
 
 func (err *publicError) Error() string {
@@ -102,7 +105,7 @@ func (err *publicError) Error() string {
 }
 
 func failure(status int, code string) *publicError {
-	return &publicError{HTTPStatus: status, Code: code}
+	return &publicError{HTTPStatus: status, Code: code, Message: code}
 }
 
 func strictJSON(raw []byte, target interface{}) error {
