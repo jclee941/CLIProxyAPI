@@ -90,6 +90,7 @@ func main() {
 	var tuiMode bool
 	var standalone bool
 	var localModel bool
+	var authStatus bool
 
 	// Define command-line flags for different operation modes.
 	flag.BoolVar(&codexLogin, "codex-login", false, "Login to Codex using OAuth")
@@ -109,6 +110,7 @@ func main() {
 	flag.BoolVar(&tuiMode, "tui", false, "Start with terminal management UI")
 	flag.BoolVar(&standalone, "standalone", false, "In TUI mode, start an embedded local server")
 	flag.BoolVar(&localModel, "local-model", false, "Use embedded models.json and codex_client_models.json only, skip remote model catalog fetching")
+	flag.BoolVar(&authStatus, "auth-status", false, "Show authentication status for all providers")
 
 	flag.CommandLine.Usage = func() {
 		out := flag.CommandLine.Output()
@@ -662,6 +664,8 @@ func main() {
 		cmd.DoKimiLogin(cfg, options)
 	} else if xaiLogin {
 		cmd.DoXAILogin(cfg, options)
+	} else if authStatus {
+		cmd.DoAuthStatus(cfg)
 	} else {
 		// In cloud deploy mode without config file, just wait for shutdown signals
 		if isCloudDeploy && !configFileExists {
