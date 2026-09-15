@@ -100,6 +100,13 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 			lease.set(credentialState{state: maintenanceReady})
 		}
 	}
+	if request.Model == flashModel && service.settings().NativeGeneration {
+		body, errNative := service.nativeText(ctx, token, request.Model, request.Payload)
+		if errNative != nil {
+			return nil, executionFailure(request.Model, errNative)
+		}
+		return webExecutionResult(body, stream), nil
+	}
 	model := omniModel
 	if request.Model == flashModel {
 		model = "gemini-3.8-flash"
@@ -126,7 +133,12 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 			return nil, executionFailure(request.Model, err)
 		}
 	}
-	response, err := service.sidecar(ctx, sidecarRequest{Method: "POST", Path: "/v1beta/models/" + model + ":generateContent", Token: token, Body: body, Reference: record.TokenRef})
+	var response httpResponse
+	if request.Model == omniModel && service.settings().NativeGeneration {
+		response, err = service.nativeVideo(ctx, token, request.Payload)
+	} else {
+		response, err = service.sidecar(ctx, sidecarRequest{Method: "POST", Path: "/v1beta/models/" + model + ":generateContent", Token: token, Body: body, Reference: record.TokenRef})
+	}
 	if err != nil {
 		if exclusive {
 			switch safeCredentialCode(err) {

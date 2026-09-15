@@ -25,6 +25,9 @@ func routeImages(raw []byte) (interface{}, error) {
 	if json.Unmarshal(raw, &request) != nil {
 		return nil, failure(400, "invalid_route_request")
 	}
+	if claimsWebChatModel(request.RequestedModel) {
+		return modelRouteResponse{Handled: true, TargetKind: "self", Reason: "chatgpt_web_chat"}, nil
+	}
 	if !claimsWebImageModel(request.RequestedModel) {
 		return modelRouteResponse{Handled: false}, nil
 	}

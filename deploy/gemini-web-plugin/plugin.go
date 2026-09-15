@@ -25,6 +25,10 @@ type pluginConfig struct {
 	Vault              string                       `yaml:"vault"`
 	DashboardPath      string                       `yaml:"dashboard_path"`
 	MaintenanceSources map[string]maintenanceSource `yaml:"maintenance_sources"`
+	// NativeGeneration serves text turns by speaking to the web product directly
+	// instead of delegating to the sidecar. Off until the native path has been
+	// compared against the sidecar on a real account.
+	NativeGeneration bool `yaml:"native_generation"`
 }
 type hostCall func(string, []byte) ([]byte, error)
 type service struct {
@@ -44,6 +48,9 @@ type service struct {
 	lifecycle      sessionLifecycle
 	accountsMu     sync.Mutex
 	accountsCache  map[string]cachedAccountList
+	// webOriginOverride redirects the native web calls; it is set only by tests,
+	// which cannot reach the real product.
+	webOriginOverride string
 }
 
 func newService(host hostCall) *service {

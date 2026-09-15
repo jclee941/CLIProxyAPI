@@ -87,10 +87,14 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 			Identifier string `json:"identifier"`
 		}{provider}, nil
 	case "model.static":
-		return modelResponse{Provider: provider, Models: webImageModels()}, nil
+		return modelResponse{Provider: provider, Models: append(webImageModels(), webChatModels()...)}, nil
 	case "model.route":
 		return routeImages(raw)
 	case "executor.execute":
+		var routed executorRequest
+		if json.Unmarshal(raw, &routed) == nil && claimsWebChatModel(routed.Model) {
+			return service.executeChat(ctx, raw)
+		}
 		return service.executeImages(ctx, raw)
 	case "executor.execute_stream":
 		return nil, failure(400, "image_streaming_unsupported")
