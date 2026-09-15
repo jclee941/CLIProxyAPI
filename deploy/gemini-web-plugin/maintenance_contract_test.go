@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 	"time"
 )
@@ -10,7 +9,7 @@ func testMaintenanceSource() maintenanceSource {
 	return maintenanceSource{
 		TokenRef:           "op://homelab/aaaaaaaaaaaaaaaaaaaaaaaaaa/web-session",
 		ProfileGUID:        "11111111-1111-1111-1111-111111111111",
-		ExpectedGaiaSHA256: strings.Repeat("a", 64),
+		ExpectedGaiaSHA256: testAccountDigest,
 	}
 }
 

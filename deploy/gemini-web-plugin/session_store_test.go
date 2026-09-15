@@ -18,7 +18,7 @@ func localRecordFixture(t *testing.T) localSession {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return localSession{Target: record, Projection: string(auth.StorageJSON), Token: encodedToken("test-local"), Identity: credentialInspection{AccountSHA256: strings.Repeat("b", 64), AuthUser: 2}, State: localHostPending}
+	return localSession{Target: record, Projection: string(auth.StorageJSON), Token: encodedToken("test-local"), Identity: credentialInspection{AccountSHA256: testAccountDigest, AuthUser: 2}, State: localHostPending}
 }
 
 func sessionKeyFixture() string {

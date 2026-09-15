@@ -14,13 +14,18 @@ func TestBoundOmniRejectsWrongIdentity_beforeCookieRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rotations, submissions atomic.Int32
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case "/v1/session/inspect":
-			writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("b", 64)+`","auth_user":2}`)
-		case "/v1/session/renew":
+	// The page reports a different Google account than the binding expects, so
+	// the turn must stop before it rotates anything or submits.
+	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case strings.HasSuffix(request.URL.Path, "/app"):
+			writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if _, err := writer.Write([]byte(nativeIdentityPage(testOtherGaia))); err != nil {
+				t.Error(err)
+			}
+		case request.URL.Path == "/RotateCookies":
 			rotations.Add(1)
-			writeFixture(t, writer, `{"token":"`+encodedToken("original")+`","account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+			writeRotationFixture(writer, request)
 		default:
 			submissions.Add(1)
 			writeFixture(t, writer, `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"video/mp4","data":"dGVzdA=="}}]}}]}`)

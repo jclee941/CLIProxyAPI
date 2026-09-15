@@ -194,7 +194,7 @@ func TestLoginPreservesStableIDAndDisabled_whenMigratingVerifiedLegacyBinding(t 
 			host.records[previous.ID] = jsonFixture(t, previous)
 			host.disabled = disabled
 			user := uint64(2)
-			service.config.MaintenanceSources = map[string]maintenanceSource{previous.ID: {TokenRef: previous.TokenRef, ProfileGUID: "00000000-0000-4000-8000-000000000001", ExpectedGaiaSHA256: strings.Repeat("b", 64), AuthUser: &user}}
+			service.config.MaintenanceSources = map[string]maintenanceSource{previous.ID: {TokenRef: previous.TokenRef, ProfileGUID: "00000000-0000-4000-8000-000000000001", ExpectedGaiaSHA256: testAccountDigest, AuthUser: &user}}
 			oldLease := service.leases.get(previous.TokenRef)
 			started, status := loginCall(t, service, "start", jsonFixture(t, struct {
 				Label      string `json:"label"`
@@ -233,7 +233,7 @@ func TestLoginRejectsMismatchedHandoff_whenIdentityObservationDiffers(t *testing
 			service, host, vault := loginFixture(t)
 			started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 			user := uint64(2)
-			body := loginCompletion{State: started.State, Token: encodedToken("test-login"), AccountSHA256: strings.Repeat("b", 64), AuthUser: &user, ExtensionID: strings.Repeat("a", 32), Consent: true}
+			body := loginCompletion{State: started.State, Token: encodedToken("test-login"), AccountSHA256: testAccountDigest, AuthUser: &user, ExtensionID: strings.Repeat("a", 32), Consent: true}
 			switch mismatch {
 			case "gaia":
 				body.AccountSHA256 = strings.Repeat("c", 64)
@@ -370,7 +370,7 @@ func TestLoginRejectsDifferentReplayWithoutErasingCommit_whenStateAlreadySaved(t
 	ready := completeFixture(t, service, started)
 	user := uint64(2)
 
-	view, status := loginCall(t, service, "complete", jsonFixture(t, loginCompletion{State: started.State, Token: encodedToken("different-token"), AccountSHA256: strings.Repeat("b", 64), AuthUser: &user, ExtensionID: strings.Repeat("a", 32), Consent: true}))
+	view, status := loginCall(t, service, "complete", jsonFixture(t, loginCompletion{State: started.State, Token: encodedToken("different-token"), AccountSHA256: testAccountDigest, AuthUser: &user, ExtensionID: strings.Repeat("a", 32), Consent: true}))
 
 	if status != 409 || view.Error != "login_replay_mismatch" || host.saves != 1 || len(host.records[ready.AccountID]) == 0 {
 		t.Fatalf("replay status=%d error=%s", status, view.Error)

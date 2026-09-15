@@ -70,14 +70,14 @@ func maintainFixture(t *testing.T, service *service, body string) maintenanceRes
 func TestMaintenanceRenewsAndSyncs_whenIdentityMatches(t *testing.T) {
 	service, store, _, saves := maintenanceFixture(t)
 	var inspections, renewals atomic.Int32
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
+	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		switch sidecarPath(request) {
 		case "/v1/session/inspect":
 			inspections.Add(1)
-			writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+			writeIdentityFixture(t, writer)
 		case "/v1/session/renew":
 			renewals.Add(1)
-			writeFixture(t, writer, `{"token":"`+encodedToken("renewed")+`","account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+			writeRotationFixture(writer, request)
 		default:
 			t.Error("unexpected request")
 		}
@@ -85,7 +85,9 @@ func TestMaintenanceRenewsAndSyncs_whenIdentityMatches(t *testing.T) {
 
 	result := maintainFixture(t, service, `{}`)
 
-	if len(result.Results) != 1 || result.Results[0].State != maintenanceReady || store.writes != 1 || saves.Load() != 1 || inspections.Load() != 1 || renewals.Load() != 1 {
+	// A native renewal reads the account page on both sides of the rotation, so
+	// the identity is checked more than once per maintenance pass.
+	if len(result.Results) != 1 || result.Results[0].State != maintenanceReady || store.writes != 1 || saves.Load() != 1 || inspections.Load() < 1 || renewals.Load() != 1 {
 		t.Fatalf("maintenance incomplete: %+v", result)
 	}
 }
@@ -122,10 +124,9 @@ func TestMaintenanceCooldownSkipsGoogle_whenAuthenticationSourceFails(t *testing
 		captures.Add(1)
 		return capturedSession{}, failure(401, "source_login_required")
 	})
-	localSidecar(t, service, func(writer http.ResponseWriter, _ *http.Request) {
+	localSidecarAll(t, service, func(writer http.ResponseWriter, _ *http.Request) {
 		inspections.Add(1)
 		writer.WriteHeader(401)
-		writeFixture(t, writer, `{"error":{"message":"auth_error"}}`)
 	})
 	first := maintainFixture(t, service, `{}`)
 	if first.Results[0].State != maintenanceSourceRejected {

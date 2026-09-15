@@ -55,9 +55,9 @@ func resolveFixture(t *testing.T) (*service, *loginHostFixture, *memorySecrets, 
 	t.Helper()
 	service, host, vault := loginFixture(t)
 	sidecar := &resolveSidecar{mode: "healthy"}
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
+	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
 		mode := sidecar.observe()
-		switch request.URL.Path {
+		switch sidecarPath(request) {
 		case "/v1/session/inspect":
 			switch mode {
 			case "probe_unknown":
@@ -65,7 +65,7 @@ func resolveFixture(t *testing.T) (*service, *loginHostFixture, *memorySecrets, 
 			case "probe_rejected":
 				rejectionFixture(t, writer, 401, `{"error":{"code":401,"message":"auth_error"}}`)
 			default:
-				writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("b", 64)+`","auth_user":2}`)
+				writeIdentityFixture(t, writer)
 			}
 		case "/v1/account-models":
 			writeFixture(t, writer, `{"available":true,"observed_at":1234,"models":[{"capability_id":"actual","display_name":"3.8 Flash","mode":1}]}`)
@@ -76,7 +76,7 @@ func resolveFixture(t *testing.T) (*service, *loginHostFixture, *memorySecrets, 
 				rejectionFixture(t, writer, 500, `{"error":{"code":500,"message":"renew_unavailable"}}`)
 				return
 			}
-			writeFixture(t, writer, `{"token":"`+encodedToken("test-renewed")+`","account_sha256":"`+strings.Repeat("b", 64)+`","auth_user":2}`)
+			writeRotationFixture(writer, request)
 		default:
 			t.Errorf("unexpected sidecar path %s", request.URL.Path)
 			writer.WriteHeader(404)

@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
-	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -58,26 +56,31 @@ func TestOmniRenewsBeforeSubmission_whenSessionAcquisitionSucceeds(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			original := encodedToken("SID=synthetic-original; SAPISID=synthetic-sapi")
+			// The renewed token is derived from the rotated jar now, so the test
+			// asks the rotation to happen instead of naming the result.
+			cookie := "SID=synthetic-original; SAPISID=synthetic-sapi"
+			original := encodedToken(cookie)
 			renewed := original
 			if changed {
-				renewed = encodedToken("SID=synthetic-rotated; SAPISID=synthetic-sapi; SIDCC=fresh")
+				renewed = rotatedToken(cookie)
 			}
 			store := &renewalStore{memorySecrets: memorySecrets{tokens: map[string]sessionToken{record.TokenRef: {original}}}}
 			service.secrets = store
 			var renewals, submissions atomic.Int32
-			localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-				if request.Method != "POST" || request.Host != "gemini-web2api:8081" || request.Header.Get("Authorization") != "" {
-					t.Error("private request boundary changed")
-				}
-				switch request.URL.Path {
+			localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+				switch sidecarPath(request) {
+				case "/v1/session/inspect":
+					writeIdentityFixture(t, writer)
 				case "/v1/session/renew":
 					renewals.Add(1)
-					body, err := io.ReadAll(request.Body)
-					if err != nil || string(body) != "{}" || request.Header.Get("x-goog-api-key") != original {
-						t.Error("renewal contract changed")
+					if !strings.Contains(request.Header.Get("Cookie"), "synthetic-original") {
+						t.Error("rotation did not carry the credential jar")
 					}
-					writeFixture(t, writer, `{"token":"`+renewed+`"}`)
+					if changed {
+						writeRotationFixture(writer, request)
+						return
+					}
+					writer.WriteHeader(http.StatusOK)
 				case "/v1beta/models/gemini-web-omni:generateContent":
 					submissions.Add(1)
 					if request.Header.Get("x-goog-api-key") != renewed || changed && !store.persisted.Load() {
@@ -113,24 +116,23 @@ func TestOmniRenewsBeforeSubmission_whenSessionAcquisitionSucceeds(t *testing.T)
 
 func TestOmniAbortsBeforeSubmission_whenRenewalOrPersistenceFails(t *testing.T) {
 	original := encodedToken("SID=synthetic-original")
-	renewed := encodedToken("SID=synthetic-original; SIDCC=fresh")
-	otherIndex := "gemini-web:v1:" + base64.RawURLEncoding.EncodeToString([]byte(`{"cookie":"SID=synthetic-original","auth_user":3}`))
+	// The renewal answer is a cookie jar, not a document, so the malformed-body
+	// scenarios this table carried cannot occur any more. What can still go
+	// wrong is the status, the account moving across the rotation, and the
+	// persistence of the result.
 	for _, scenario := range []struct {
 		name       string
 		status     int
-		body       string
+		movesAway  bool
 		writeErr   error
 		changedRef bool
 		writes     int
 	}{
-		{"denied", 401, `{"token":"` + renewed + `","error":"synthetic-private"}`, nil, false, 0},
-		{"redirect", 307, `{}`, nil, false, 0},
-		{"malformed", 200, `{"token":"gemini-web:v1:invalid"}`, nil, false, 0},
-		{"unknown-field", 200, `{"token":"` + renewed + `","cookie":"synthetic-private"}`, nil, false, 0},
-		{"duplicate-field", 200, `{"token":"` + renewed + `","token":"` + original + `"}`, nil, false, 0},
-		{"other-account-index", 200, `{"token":"` + otherIndex + `"}`, nil, false, 0},
-		{"persist-failed", 200, `{"token":"` + renewed + `"}`, errors.New("synthetic-private"), false, 1},
-		{"reference-changed", 200, `{"token":"` + renewed + `"}`, nil, true, 1},
+		{"denied", 401, false, nil, false, 0},
+		{"redirect", 307, false, nil, false, 0},
+		{"other-account", 200, true, nil, false, 0},
+		{"persist-failed", 200, false, errors.New("synthetic-private"), false, 1},
+		{"reference-changed", 200, false, nil, true, 1},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			service := newService(nil)
@@ -145,12 +147,27 @@ func TestOmniAbortsBeforeSubmission_whenRenewalOrPersistenceFails(t *testing.T) 
 			}
 			service.secrets = store
 			var renewals, submissions atomic.Int32
-			localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-				if request.URL.Path == "/v1/session/renew" {
+			var reads atomic.Int32
+			localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+				if sidecarPath(request) == "/v1/session/inspect" {
+					gaia := testGaia
+					if scenario.movesAway && reads.Add(1) > 1 {
+						gaia = testOtherGaia
+					}
+					writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+					if _, err := writer.Write([]byte(nativeIdentityPage(gaia))); err != nil {
+						t.Error(err)
+					}
+					return
+				}
+				if sidecarPath(request) == "/v1/session/renew" {
 					renewals.Add(1)
-					writer.Header().Set("Location", sidecarBase+"/v1/session/renew")
-					writer.WriteHeader(scenario.status)
-					writeFixture(t, writer, scenario.body)
+					if scenario.status != 200 {
+						writer.Header().Set("Location", "https://accounts.google.com/signin")
+						writer.WriteHeader(scenario.status)
+						return
+					}
+					writeRotationFixture(writer, request)
 					return
 				}
 				submissions.Add(1)

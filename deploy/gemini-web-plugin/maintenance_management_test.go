@@ -14,7 +14,7 @@ func TestMaintenanceRejectsBadRequests_beforeUpstreamOrHostLookup(t *testing.T) 
 			service, store, _, _ := maintenanceFixture(t)
 			var callbacks atomic.Int32
 			service.host = func(string, []byte) ([]byte, error) { callbacks.Add(1); return nil, nil }
-			localSidecar(t, service, func(http.ResponseWriter, *http.Request) { t.Error("invalid body reached HTTP") })
+			localSidecarAll(t, service, func(http.ResponseWriter, *http.Request) { t.Error("invalid body reached HTTP") })
 
 			response, err := service.management(t.Context(), jsonFixture(t, managementRequest{Method: "POST", Path: "/v0/management" + maintainPath, HostCallbackID: "scope-list", Body: []byte(body)}))
 
@@ -34,12 +34,13 @@ func TestMaintenanceSelectsConfiguredRegisteredOnly_whenInvokedWithoutID(t *test
 	unregistered.ProfileGUID = "22222222-2222-2222-2222-222222222222"
 	unregistered.ExpectedGaiaSHA256 = strings.Repeat("c", 64)
 	service.config.MaintenanceSources["gemini-web-c.json"] = unregistered
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/v1/session/renew" {
-			writeFixture(t, writer, `{"token":"`+encodedToken("original")+`","account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+	// Enumeration only: a rotation would change the token and pull a write in.
+	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		if sidecarPath(request) == "/v1/session/renew" {
+			writer.WriteHeader(http.StatusOK)
 			return
 		}
-		writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+		writeIdentityFixture(t, writer)
 	})
 
 	result := maintainFixture(t, service, `{}`)
@@ -63,18 +64,23 @@ func TestManualBoundReplacementRejectsRebinding_beforeSecretWrite(t *testing.T) 
 				body.Token = ""
 				body.TokenRef = recordFixture(t, "b").TokenRef
 			}
-			localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-				if request.URL.Path != "/v1/session/inspect" {
-					t.Error("invalid manual identity reached models")
+			// The rejected identity now has to come from the account page and
+			// the token, because that is where it is derived from.
+			if scenario == "index" {
+				body.Token = encodedTokenUser("manual", 0)
+			}
+			gaia := testGaia
+			if scenario == "hash" {
+				gaia = testOtherGaia
+			}
+			localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+				if !strings.HasSuffix(request.URL.Path, "/app") {
+					t.Errorf("invalid manual identity reached %s", request.URL.Path)
 				}
-				identity := credentialInspection{strings.Repeat("a", 64), 2}
-				if scenario == "hash" {
-					identity.AccountSHA256 = strings.Repeat("b", 64)
+				writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+				if _, err := writer.Write([]byte(nativeIdentityPage(gaia))); err != nil {
+					t.Error(err)
 				}
-				if scenario == "index" {
-					identity.AuthUser = 0
-				}
-				writeFixture(t, writer, string(jsonFixture(t, identity)))
 			})
 
 			response, err := service.management(t.Context(), jsonFixture(t, managementRequest{Method: "POST", Path: accountsPath, HostCallbackID: "scope-list", Body: jsonFixture(t, body)}))
@@ -89,9 +95,9 @@ func TestManualBoundReplacementRejectsRebinding_beforeSecretWrite(t *testing.T) 
 func TestManualVerifiedReplacementResetsCooldown_whenTokenIsFresh(t *testing.T) {
 	service, store, record, saves := maintenanceFixture(t)
 	service.rejectMaintenance(record.ID, store.tokens[record.TokenRef], failure(401, "source_login_required"))
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/v1/session/inspect" {
-			writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		if sidecarPath(request) == "/v1/session/inspect" {
+			writeIdentityFixture(t, writer)
 			return
 		}
 		writeFixture(t, writer, `{"available":true,"models":[]}`)
@@ -144,16 +150,7 @@ func TestMaintenanceRegistrationAdvertisesAuthenticatedRouteAndObjectConfig(t *t
 	}
 }
 
-func TestAuthenticationFallbackRejectsAmbiguousErrorDTO_whenMessageDuplicated(t *testing.T) {
-	service, store, _, saves := maintenanceFixture(t)
-	localSidecar(t, service, func(writer http.ResponseWriter, _ *http.Request) {
-		writer.WriteHeader(401)
-		writeFixture(t, writer, `{"error":{"message":"bootstrap_failed","message":"auth_error"}}`)
-	})
-
-	result := maintainFixture(t, service, `{}`)
-
-	if result.Results[0].State != maintenanceCredentialError || store.writes != 0 || saves.Load() != 0 {
-		t.Fatal("ambiguous auth response triggered capture")
-	}
-}
+// The ambiguous-DTO scenario this file used to carry described a malformed
+// bridge error envelope. Upkeep now speaks to Google directly, which answers an
+// unauthenticated session with a plain 401 or the sign-in redirect and never
+// with that envelope, so there is no ambiguity left to reject.

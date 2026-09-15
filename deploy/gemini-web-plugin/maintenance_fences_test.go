@@ -70,11 +70,11 @@ func TestHostPendingSurvivesFence_whenVerificationTransportLost(t *testing.T) {
 	clock = clock.Add(70 * time.Second)
 	var renewals atomic.Int32
 	service.client.Transport = transportFunc(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Path == "/v1/session/renew" {
+		if request.URL.Path == "/RotateCookies" {
 			renewals.Add(1)
-			return credentialResponse(`{"token":"` + encodedToken("rotated") + `","account_sha256":"` + strings.Repeat("a", 64) + `","auth_user":2}`), nil
+			return credentialResponse(""), nil
 		}
-		return credentialResponse(`{"account_sha256":"` + strings.Repeat("a", 64) + `","auth_user":2}`), nil
+		return credentialResponse(nativeIdentityPage(testGaia)), nil
 	})
 
 	result := maintainFixture(t, service, `{}`)
@@ -86,14 +86,16 @@ func TestHostPendingSurvivesFence_whenVerificationTransportLost(t *testing.T) {
 
 func TestCredentialTimeoutDoesNotFence_whenWorkerKilledAndWaited(t *testing.T) {
 	service, store, _, saves := maintenanceFixture(t)
-	localSidecar(t, service, func(writer http.ResponseWriter, _ *http.Request) {
+	localSidecarAll(t, service, func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(504)
 		writeFixture(t, writer, `{"error":{"code":504,"message":"credential_timeout"}}`)
 	})
 
 	result := maintainFixture(t, service, `{}`)
 
-	if result.Results[0].State != maintenanceCredentialError || result.Results[0].Error != "credential_timeout" || store.writes != 0 || saves.Load() != 0 {
+	// An upstream status is a completed answer, not an unknown outcome, so it
+	// reports the failure without fencing the credential.
+	if result.Results[0].State != maintenanceCredentialError || result.Results[0].Error != "web_upstream_status" || store.writes != 0 || saves.Load() != 0 {
 		t.Fatalf("worker completion proof lost: %+v", result)
 	}
 }
@@ -105,19 +107,18 @@ func TestHostPendingSurvivesAuthenticationCooldown_whenVerificationRejected(t *t
 	service.leases.get(record.TokenRef).set(credentialState{state: maintenanceHostPending, tokenHash: tokenFingerprint(store.tokens[record.TokenRef])})
 	var healthy atomic.Bool
 	var renewals, inspections atomic.Int32
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/v1/session/renew" {
+	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/RotateCookies" {
 			renewals.Add(1)
-			writeFixture(t, writer, `{"token":"`+encodedToken("renewed")+`","account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+			writer.WriteHeader(http.StatusOK)
 			return
 		}
 		inspections.Add(1)
 		if !healthy.Load() {
 			writer.WriteHeader(401)
-			writeFixture(t, writer, `{"error":{"message":"auth_error"}}`)
 			return
 		}
-		writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+		writeIdentityFixture(t, writer)
 	})
 	maintainFixture(t, service, `{}`)
 	clock = clock.Add(5 * time.Minute)
@@ -152,12 +153,12 @@ func TestUnknownSecretWriteNeedsOperator_whenEditMayHaveCommitted(t *testing.T) 
 			return nil, errors.New("denied")
 		}
 	}}
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/v1/session/renew" {
-			writeFixture(t, writer, `{"token":"`+encodedToken("renewed")+`","account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/RotateCookies" {
+			writeRotationFixture(writer, request)
 			return
 		}
-		writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+		writeIdentityFixture(t, writer)
 	})
 	first := maintainFixture(t, service, `{}`)
 	if first.Results[0].State != maintenanceOperator {
@@ -182,11 +183,11 @@ func TestUnknownOmniSubmissionNeedsOperator_withoutGenerationTimeout(t *testing.
 	}
 	var submissions atomic.Int32
 	service.client.Transport = transportFunc(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Path == "/v1/session/inspect" {
-			return credentialResponse(`{"account_sha256":"` + strings.Repeat("a", 64) + `","auth_user":2}`), nil
+		if strings.HasSuffix(request.URL.Path, "/app") {
+			return credentialResponse(nativeIdentityPage(testGaia)), nil
 		}
-		if request.URL.Path == "/v1/session/renew" {
-			return credentialResponse(`{"token":"` + encodedToken("original") + `","account_sha256":"` + strings.Repeat("a", 64) + `","auth_user":2}`), nil
+		if request.URL.Path == "/RotateCookies" {
+			return credentialResponse(`{"token":"` + encodedToken("original") + `","account_sha256":"` + testAccountDigest + `","auth_user":2}`), nil
 		}
 		if _, bounded := request.Context().Deadline(); bounded {
 			t.Error("generation acquired a timeout")

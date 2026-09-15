@@ -69,13 +69,62 @@ func TestMemorySecretStoreIsolatesReferences_whenUpdated(t *testing.T) {
 	}
 }
 
+// The dial override sends every outbound call to this one server, so it has to
+// answer the native credential routes as well as the sidecar ones; otherwise a
+// test that only stubs the sidecar would let account and rotation calls fall
+// through to the real product.
 func localSidecar(t *testing.T, service *service, handler http.HandlerFunc) {
+	t.Helper()
+	localSidecarRotating(t, service, handler, false)
+}
+
+// localSidecarAll leaves the credential routes to the handler, for tests that
+// decide what every call does - usually failing all of them.
+func localSidecarAll(t *testing.T, service *service, handler http.HandlerFunc) {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	transport := service.client.Transport.(*http.Transport)
 	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	service.webOriginOverride = server.URL
+	service.webRotateOverride = server.URL
+	t.Cleanup(service.client.CloseIdleConnections)
+}
+
+// A rotation that returns no cookies leaves the token untouched, which is what
+// most tests assume; only the ones about replacement ask for a changed jar.
+func localSidecarRotating(t *testing.T, service *service, handler http.HandlerFunc, rotate bool) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/RotateCookies":
+			if rotate {
+				http.SetCookie(writer, &http.Cookie{Name: "__Secure-1PSIDTS", Value: "rotated", Path: "/", Domain: ".google.com", Secure: true})
+			}
+			writer.WriteHeader(http.StatusOK)
+		case strings.HasSuffix(request.URL.Path, "/app"):
+			writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if _, err := io.WriteString(writer, nativeIdentityPage(testGaia)); err != nil {
+				t.Error(err)
+			}
+		default:
+			handler(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	transport := service.client.Transport.(*http.Transport)
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	// Redirecting the dial is not enough for the native calls: their origins are
+	// https, and this server speaks plain http.
+	if service.webOriginOverride == "" {
+		service.webOriginOverride = server.URL
+	}
+	if service.webRotateOverride == "" {
+		service.webRotateOverride = server.URL
 	}
 	t.Cleanup(service.client.CloseIdleConnections)
 }
@@ -184,7 +233,7 @@ func TestOmniDoesNotResubmit_whenSidecarReturnsFailure(t *testing.T) {
 	var lock sync.Mutex
 	calls := 0
 	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/v1/session/renew" {
+		if sidecarPath(request) == "/v1/session/renew" {
 			writeFixture(t, writer, `{"token":"`+encodedToken("test-omni")+`"}`)
 			return
 		}

@@ -173,7 +173,10 @@ func safeCredentialCode(err error) string {
 func (service *service) credentialFailure(reference string, err error) {
 	lease := service.leases.get(reference)
 	switch safeCredentialCode(err) {
-	case "sidecar_transport_failed", "sidecar_response_failed":
+	// A transport loss leaves the outcome unknown whichever path raised it, so
+	// the native upkeep codes fence exactly like the bridge ones did.
+	case "sidecar_transport_failed", "sidecar_response_failed",
+		"web_transport_failed", "session_rotation_transport_failed":
 		state := lease.snapshot()
 		if state.state != maintenanceFenced {
 			state.afterFence = state.state

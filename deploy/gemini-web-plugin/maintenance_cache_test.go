@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/http"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,23 +12,24 @@ func TestMaintenanceWaitsUntilDue_withoutResolvingOrRenewing(t *testing.T) {
 	clock := time.Unix(100, 0)
 	service.now = func() time.Time { return clock }
 	var calls atomic.Int32
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
+	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
 		calls.Add(1)
-		if request.URL.Path == "/v1/session/renew" {
-			writeFixture(t, writer, `{"token":"`+encodedToken("original")+`","account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+		if request.URL.Path == "/RotateCookies" {
+			writer.WriteHeader(http.StatusOK)
 			return
 		}
-		writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+		writeIdentityFixture(t, writer)
 	})
 	if result := maintainFixture(t, service, `{}`); result.Results[0].State != maintenanceReady {
 		t.Fatal("initial maintenance failed")
 	}
 	reads := len(store.reads)
+	settled := calls.Load()
 	clock = clock.Add(29 * time.Minute)
 
 	result := maintainFixture(t, service, `{}`)
 
-	if result.Results[0].State != maintenanceReady || result.Results[0].NextDueAt == "" || len(store.reads) != reads || calls.Load() != 2 || store.writes != 0 {
+	if result.Results[0].State != maintenanceReady || result.Results[0].NextDueAt == "" || len(store.reads) != reads || calls.Load() != settled || store.writes != 0 {
 		t.Fatal("scheduled ready account performed premature credential work")
 	}
 }
@@ -41,15 +41,16 @@ func TestMaintenanceRuns_whenDueOrExplicitlySelected(t *testing.T) {
 			clock := time.Unix(100, 0)
 			service.now = func() time.Time { return clock }
 			var renewals atomic.Int32
-			localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-				if request.URL.Path == "/v1/session/renew" {
+			localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+				if request.URL.Path == "/RotateCookies" {
 					renewals.Add(1)
-					writeFixture(t, writer, `{"token":"`+encodedToken("original")+`","account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+					writer.WriteHeader(http.StatusOK)
 					return
 				}
-				writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+				writeIdentityFixture(t, writer)
 			})
 			maintainFixture(t, service, `{}`)
+			settled := renewals.Load()
 			body := `{}`
 			if explicit {
 				body = `{"id":"` + record.ID + `"}`
@@ -59,7 +60,7 @@ func TestMaintenanceRuns_whenDueOrExplicitlySelected(t *testing.T) {
 
 			result := maintainFixture(t, service, body)
 
-			if result.Results[0].State != maintenanceReady || renewals.Load() != 2 {
+			if result.Results[0].State != maintenanceReady || renewals.Load() <= settled {
 				t.Fatal("due or explicitly selected maintenance did not run")
 			}
 		})
@@ -86,11 +87,11 @@ func TestMaintenancePublishesRotationBeforeReadonlyHostCallback(t *testing.T) {
 		return originalHost(method, raw)
 	}
 	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/v1/session/renew" {
-			writeFixture(t, writer, `{"token":"`+encodedToken("renewed")+`","account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+		if request.URL.Path == "/RotateCookies" {
+			writeRotationFixture(writer, request)
 			return
 		}
-		writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+		writeIdentityFixture(t, writer)
 	})
 
 	result := maintainFixture(t, service, `{}`)

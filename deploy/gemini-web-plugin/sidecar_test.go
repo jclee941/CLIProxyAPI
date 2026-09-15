@@ -47,7 +47,7 @@ func TestOmniExposesOnlyAllowlistedSidecarErrors_whenSubmissionFails(t *testing.
 			service.secrets = &memorySecrets{tokens: map[string]sessionToken{record.TokenRef: {encodedToken("synthetic-sidecar-error")}}}
 			var calls atomic.Int32
 			localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-				if request.URL.Path == "/v1/session/renew" {
+				if sidecarPath(request) == "/v1/session/renew" {
 					writeFixture(t, writer, `{"token":"`+encodedToken("synthetic-sidecar-error")+`"}`)
 					return
 				}

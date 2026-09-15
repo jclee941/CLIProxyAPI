@@ -139,8 +139,11 @@ func (session *webSession) do(ctx context.Context, path string, body []byte, ove
 			_ = closeErr
 		}
 	}()
-	if response.StatusCode >= 300 && response.StatusCode < 400 {
-		return nil, failure(401, "web_unauthenticated")
+	// A redirect means the sign-in page, and 401 says so outright. Both have to
+	// arrive as an authentication failure or maintenance never reaches the
+	// branch that recaptures the credential.
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode >= 300 && response.StatusCode < 400 {
+		return nil, &AuthenticationFailure{}
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, failure(response.StatusCode, "web_upstream_status")

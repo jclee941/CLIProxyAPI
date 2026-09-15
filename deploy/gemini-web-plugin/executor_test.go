@@ -73,7 +73,7 @@ func TestOmniReturnsMP4WithoutImageConversion(t *testing.T) {
 	service.secrets = &memorySecrets{tokens: map[string]sessionToken{record.TokenRef: {encodedToken("test-video")}}}
 	video := base64.StdEncoding.EncodeToString([]byte("test-only-mp4-fixture"))
 	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/v1/session/renew" {
+		if sidecarPath(request) == "/v1/session/renew" {
 			writeFixture(t, writer, `{"token":"`+encodedToken("test-video")+`"}`)
 			return
 		}

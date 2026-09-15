@@ -191,21 +191,12 @@ func (service *service) renewLocalSession(ctx context.Context, callbackID string
 	if err := service.localStore().write(local); err != nil {
 		return sessionToken{}, err
 	}
-	response, err := service.credentialHTTP(ctx, "", sidecarRequest{Method: "POST", Path: "/v1/session/renew", Token: sessionToken{local.Token}, Body: []byte("{}")})
+	token, identity, err := service.renewCredential(ctx, "", sessionToken{local.Token})
 	if err != nil {
 		return sessionToken{}, failure(409, "session_renewal_outcome_unknown_requires_operator")
 	}
-	var body struct {
-		Token         string  `json:"token"`
-		AccountSHA256 string  `json:"account_sha256"`
-		AuthUser      *uint64 `json:"auth_user"`
-	}
-	if strictJSON(response.Body, &body) != nil || body.AuthUser == nil || *body.AuthUser != local.Identity.AuthUser || body.AccountSHA256 != local.Identity.AccountSHA256 {
+	if identity.AuthUser != local.Identity.AuthUser || identity.AccountSHA256 != local.Identity.AccountSHA256 {
 		return sessionToken{}, failure(409, "session_renewal_identity_mismatch")
-	}
-	token, err := parseToken(body.Token)
-	if err != nil {
-		return sessionToken{}, err
 	}
 	user, err := tokenAuthUser(token)
 	if err != nil || user != local.Identity.AuthUser {

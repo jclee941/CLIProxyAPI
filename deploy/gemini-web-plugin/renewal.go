@@ -52,30 +52,30 @@ func (service *service) renewSession(ctx context.Context, record storageRecord, 
 	if bound && (binding.TokenRef != record.TokenRef || binding.AuthUser != nil && *binding.AuthUser != authUser) {
 		return sessionToken{}, failure(409, "binding_mismatch")
 	}
-	response, err := service.credentialHTTP(ctx, record.TokenRef, sidecarRequest{Method: "POST", Path: "/v1/session/renew", Token: token, Body: []byte("{}")})
+	renewed, identity, err := service.renewCredential(ctx, record.TokenRef, token)
 	if err != nil {
 		return sessionToken{}, err
-	}
-	var body struct {
-		Token         string  `json:"token"`
-		AccountSHA256 string  `json:"account_sha256"`
-		AuthUser      *uint64 `json:"auth_user"`
-	}
-	if response.StatusCode != 200 || strictJSON(response.Body, &body) != nil {
-		return sessionToken{}, failure(502, "session_renewal_invalid")
-	}
-	renewed, err := parseToken(body.Token)
-	if err != nil {
-		return sessionToken{}, failure(502, "session_renewal_invalid")
 	}
 	renewedUser, err := tokenAuthUser(renewed)
 	if err != nil || renewedUser != authUser {
 		return sessionToken{}, failure(502, "session_renewal_identity_mismatch")
 	}
-	if body.AuthUser != nil && *body.AuthUser != authUser || body.AccountSHA256 != "" && !accountDigestPattern.MatchString(body.AccountSHA256) || bound && (body.AuthUser == nil || body.AccountSHA256 != binding.ExpectedGaiaSHA256) {
+	if identity.AuthUser != authUser || !accountDigestPattern.MatchString(identity.AccountSHA256) || bound && identity.AccountSHA256 != binding.ExpectedGaiaSHA256 {
 		return sessionToken{}, failure(502, "session_renewal_identity_mismatch")
 	}
 	return renewed, nil
+}
+
+// Credential upkeep talks to Google per account rather than through the bridge,
+// so a failure is attributed to the credential it belongs to.
+func (service *service) renewCredential(ctx context.Context, reference string, token sessionToken) (sessionToken, credentialInspection, error) {
+	credentialContext, cancel := context.WithTimeout(ctx, credentialFenceDuration)
+	defer cancel()
+	renewed, identity, err := service.nativeRenew(credentialContext, token)
+	if err != nil && reference != "" {
+		service.credentialFailure(reference, err)
+	}
+	return renewed, identity, err
 }
 
 type AuthenticationFailure struct{}
@@ -96,18 +96,19 @@ func (service *service) credentialHTTP(ctx context.Context, reference string, re
 }
 
 func (service *service) inspectCredential(ctx context.Context, reference string, token sessionToken) (credentialInspection, error) {
-	response, err := service.credentialHTTP(ctx, reference, sidecarRequest{Method: "POST", Path: "/v1/session/inspect", Token: token, Body: []byte("{}")})
+	credentialContext, cancel := context.WithTimeout(ctx, credentialFenceDuration)
+	defer cancel()
+	identity, err := service.nativeInspect(credentialContext, token)
 	if err != nil {
+		if reference != "" {
+			service.credentialFailure(reference, err)
+		}
 		return credentialInspection{}, err
 	}
-	var wire struct {
-		AccountSHA256 string  `json:"account_sha256"`
-		AuthUser      *uint64 `json:"auth_user"`
-	}
-	if response.StatusCode != 200 || strictJSON(response.Body, &wire) != nil || wire.AuthUser == nil || !accountDigestPattern.MatchString(wire.AccountSHA256) {
+	if !accountDigestPattern.MatchString(identity.AccountSHA256) {
 		return credentialInspection{}, failure(502, "credential_identity_invalid")
 	}
-	return credentialInspection{AccountSHA256: wire.AccountSHA256, AuthUser: *wire.AuthUser}, nil
+	return identity, nil
 }
 
 func tokenAuthUser(token sessionToken) (uint64, error) {

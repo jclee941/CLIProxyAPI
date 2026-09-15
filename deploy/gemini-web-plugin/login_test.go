@@ -132,16 +132,16 @@ func loginFixture(t *testing.T) (*service, *loginHostFixture, *memorySecrets) {
 			t.Error(err)
 		}
 	})
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
+	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		switch sidecarPath(request) {
 		case "/v1/session/inspect":
-			writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("b", 64)+`","auth_user":2}`)
+			writeIdentityFixture(t, writer)
 		case "/v1/account-models":
 			writeFixture(t, writer, `{"available":true,"observed_at":1234,"models":[{"capability_id":"actual","display_name":"3.8 Flash","mode":1}]}`)
 		case "/v1/usage":
 			writeFixture(t, writer, `{"tier":null,"metrics":null,"source":"GoogleWeb","estimated":false,"observed_at":1234}`)
 		case "/v1/session/renew":
-			writeFixture(t, writer, `{"token":"`+encodedToken("test-renewed")+`","account_sha256":"`+strings.Repeat("b", 64)+`","auth_user":2}`)
+			writeRotationFixture(writer, request)
 		case "/v1beta/models/gemini-3.8-flash:generateContent":
 			writeFixture(t, writer, `{"candidates":[{"content":{"parts":[{"text":"fixture response"}]}}]}`)
 		case "/v1beta/models/gemini-web-omni:generateContent":
@@ -171,7 +171,7 @@ func loginCall(t *testing.T, service *service, operation string, body []byte) (l
 func completeFixture(t *testing.T, service *service, started loginView) loginView {
 	t.Helper()
 	user := uint64(2)
-	view, status := loginCall(t, service, "complete", jsonFixture(t, loginCompletion{State: started.State, Token: encodedToken("test-login"), AccountSHA256: strings.Repeat("b", 64), AuthUser: &user, ExtensionID: strings.Repeat("a", 32), Consent: true}))
+	view, status := loginCall(t, service, "complete", jsonFixture(t, loginCompletion{State: started.State, Token: encodedToken("test-login"), AccountSHA256: testAccountDigest, AuthUser: &user, ExtensionID: strings.Repeat("a", 32), Consent: true}))
 	if status != 200 {
 		t.Fatalf("complete status=%d error=%s", status, view.Error)
 	}

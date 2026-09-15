@@ -51,6 +51,9 @@ type service struct {
 	// webOriginOverride redirects the native web calls; it is set only by tests,
 	// which cannot reach the real product.
 	webOriginOverride string
+	// webRotateOverride redirects cookie rotation, which lives on a different
+	// Google origin than the rest of the native calls.
+	webRotateOverride string
 }
 
 func newService(host hostCall) *service {

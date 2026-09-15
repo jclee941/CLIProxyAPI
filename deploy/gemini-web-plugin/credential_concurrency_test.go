@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -34,13 +33,13 @@ func TestGenerationHoldsCredentialLease_whenResolvingOrGenerating(t *testing.T) 
 					service.secrets = &pausedSecrets{memorySecrets: store, entered: entered, release: release}
 				}
 				var upstream atomic.Int32
-				localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
+				localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
 					upstream.Add(1)
-					switch request.URL.Path {
+					switch sidecarPath(request) {
 					case "/v1/session/inspect":
-						writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+						writeIdentityFixture(t, writer)
 					case "/v1/session/renew":
-						writeFixture(t, writer, `{"token":"`+encodedToken("original")+`","account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+						writer.WriteHeader(http.StatusOK)
 					case "/v1/account-models":
 						writeFixture(t, writer, `{"available":true,"models":[{"capability_id":"flash","display_name":"3.8 Flash"}]}`)
 					default:
@@ -109,12 +108,12 @@ func TestHostSaveAllowsReadonlyModelCallback_whenMaintenanceLeaseHeld(t *testing
 		}
 		return host(method, raw)
 	}
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
+	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		switch sidecarPath(request) {
 		case "/v1/session/inspect":
-			writeFixture(t, writer, `{"account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+			writeIdentityFixture(t, writer)
 		case "/v1/session/renew":
-			writeFixture(t, writer, `{"token":"`+encodedToken("renewed")+`","account_sha256":"`+strings.Repeat("a", 64)+`","auth_user":2}`)
+			writeRotationFixture(writer, request)
 		case "/v1/account-models":
 			writeFixture(t, writer, `{"available":true,"models":[]}`)
 		default:

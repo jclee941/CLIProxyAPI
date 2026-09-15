@@ -91,7 +91,7 @@ func TestLoginHTTPPortalSurface_whenAuthenticatedHandoffCompletes(t *testing.T) 
 		t.Fatalf("start status=%d", status)
 	}
 	user := uint64(2)
-	body := jsonFixture(t, loginCompletion{State: started.State, Token: encodedToken("test-login"), AccountSHA256: strings.Repeat("b", 64), AuthUser: &user, ExtensionID: strings.Repeat("a", 32), Consent: true})
+	body := jsonFixture(t, loginCompletion{State: started.State, Token: encodedToken("test-login"), AccountSHA256: testAccountDigest, AuthUser: &user, ExtensionID: strings.Repeat("a", 32), Consent: true})
 
 	ready, status := post("complete", "https://manager.example", "Bearer fixture-management", body)
 

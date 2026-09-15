@@ -57,18 +57,16 @@ func TestOmniSubmitsOnce_whenRegistrationUsesGenericMetadataFromSavedJSON(t *tes
 					runtime = genericMetadataFromSavedJSON(t, saved.JSON)
 					return []byte(`{"ok":true,"result":{"name":"saved.json"}}`), nil
 				})
-				token := encodedToken("test-replacement-cookie")
+				token := rotatedToken("test-old-cookie")
 				store := &memorySecrets{tokens: map[string]sessionToken{previous.TokenRef: {encodedToken("test-old-cookie")}}}
 				service.secrets = store
 				var submissions, verifications atomic.Int32
 				video := `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"video/mp4","data":"dGVzdA=="}}]}}]}`
-				localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
+				localSidecarRotating(t, service, func(writer http.ResponseWriter, request *http.Request) {
 					if request.Header.Get("x-goog-api-key") != token {
 						t.Error("selected replacement token was not used")
 					}
 					switch request.URL.Path {
-					case "/v1/session/renew":
-						writeFixture(t, writer, `{"token":"`+token+`"}`)
 					case "/v1/account-models":
 						verifications.Add(1)
 						writeFixture(t, writer, `{"available":true,"models":[]}`)
@@ -79,7 +77,7 @@ func TestOmniSubmitsOnce_whenRegistrationUsesGenericMetadataFromSavedJSON(t *tes
 					default:
 						t.Errorf("unexpected sidecar path %s", request.URL.Path)
 					}
-				})
+				}, true)
 				body := struct {
 					Label      string `json:"label"`
 					Token      string `json:"token,omitempty"`

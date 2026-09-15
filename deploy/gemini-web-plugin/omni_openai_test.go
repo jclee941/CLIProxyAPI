@@ -20,7 +20,7 @@ func omniSidecarFixture(t *testing.T, service *service, submitted *[]byte) {
 	t.Helper()
 	video := base64.StdEncoding.EncodeToString([]byte("test-only-mp4-fixture"))
 	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/v1/session/renew" {
+		if sidecarPath(request) == "/v1/session/renew" {
 			writeFixture(t, writer, `{"token":"`+encodedToken("test-video")+`"}`)
 			return
 		}

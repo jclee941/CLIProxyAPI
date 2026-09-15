@@ -19,7 +19,7 @@ type sessionWireGate struct {
 }
 
 func (gate *sessionWireGate) RoundTrip(request *http.Request) (*http.Response, error) {
-	if request.URL.Path == gate.path && (gate.token == "" || request.Header.Get("x-goog-api-key") == gate.token) {
+	if sidecarPath(request) == gate.path && (gate.token == "" || request.Header.Get("x-goog-api-key") == gate.token) {
 		gate.once.Do(func() { close(gate.entered); <-gate.release })
 	}
 	return gate.base.RoundTrip(request)
@@ -65,7 +65,7 @@ func boundLegacyFixture(t *testing.T) (*service, *loginHostFixture, *memorySecre
 	record := recordFixture(t, "a")
 	host.records[record.ID] = jsonFixture(t, record)
 	user := uint64(2)
-	service.config.MaintenanceSources = map[string]maintenanceSource{record.ID: {TokenRef: record.TokenRef, ProfileGUID: "00000000-0000-4000-8000-000000000001", ExpectedGaiaSHA256: strings.Repeat("b", 64), AuthUser: &user}}
+	service.config.MaintenanceSources = map[string]maintenanceSource{record.ID: {TokenRef: record.TokenRef, ProfileGUID: "00000000-0000-4000-8000-000000000001", ExpectedGaiaSHA256: testAccountDigest, AuthUser: &user}}
 	vault.tokens[record.TokenRef] = sessionToken{encodedToken("test-login")}
 	return service, host, vault, record
 }
@@ -159,7 +159,7 @@ type sessionIntentObserver struct {
 
 func (observer *sessionIntentObserver) RoundTrip(request *http.Request) (*http.Response, error) {
 	var expected localState
-	switch request.URL.Path {
+	switch sidecarPath(request) {
 	case "/v1/session/renew":
 		expected = localRenewing
 	case "/v1beta/models/gemini-web-omni:generateContent":
@@ -177,7 +177,7 @@ func (observer *sessionIntentObserver) RoundTrip(request *http.Request) (*http.R
 		observer.seen = append(observer.seen, expected)
 		observer.mu.Unlock()
 	}
-	if request.URL.Path == observer.failPath {
+	if sidecarPath(request) == observer.failPath {
 		if observer.failure != nil {
 			return nil, observer.failure
 		}
@@ -269,7 +269,7 @@ func TestLocalOmniStopsAfterDurableRenewal_whenHostDisablesAccountDuringSave(t *
 		t.Fatal("submission crossed host disable boundary")
 	}
 	local, err := service.localStore().read(record.TokenRef)
-	if err != nil || local.Target.SessionRevision != 2 || local.Token != encodedToken("test-renewed") {
+	if err != nil || local.Target.SessionRevision != 2 || local.Token != rotatedToken("test-login") {
 		t.Fatal("disabled account lost committed renewal")
 	}
 }
@@ -283,7 +283,7 @@ func TestLoginCancellationPreventsCommit_whenIdentityInspectionIsProcessing(t *t
 	unblock := func() { release.Do(func() { close(gate.release) }) }
 	t.Cleanup(unblock)
 	user := uint64(2)
-	request := managementRequest{Method: "POST", Path: loginPath + "complete", Headers: http.Header{"Origin": {"https://manager.example"}}, HostCallbackID: "fixture-processing", Body: jsonFixture(t, loginCompletion{State: started.State, Token: encodedToken("test-login"), AccountSHA256: strings.Repeat("b", 64), AuthUser: &user, ExtensionID: strings.Repeat("a", 32), Consent: true})}
+	request := managementRequest{Method: "POST", Path: loginPath + "complete", Headers: http.Header{"Origin": {"https://manager.example"}}, HostCallbackID: "fixture-processing", Body: jsonFixture(t, loginCompletion{State: started.State, Token: encodedToken("test-login"), AccountSHA256: testAccountDigest, AuthUser: &user, ExtensionID: strings.Repeat("a", 32), Consent: true})}
 	raw := jsonFixture(t, request)
 	finished := make(chan []byte, 1)
 	go func() { finished <- service.handle(context.Background(), "management.handle", raw) }()

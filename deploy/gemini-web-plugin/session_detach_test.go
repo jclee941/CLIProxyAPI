@@ -35,7 +35,7 @@ func migratedAccountFixture(t *testing.T) (*service, *memorySecrets, storageReco
 	previous.SessionRevision = 8
 	host.records[previous.ID] = jsonFixture(t, previous)
 	user := uint64(2)
-	binding := maintenanceSource{TokenRef: previous.TokenRef, ProfileGUID: "00000000-0000-4000-8000-000000000001", ExpectedGaiaSHA256: strings.Repeat("b", 64), AuthUser: &user}
+	binding := maintenanceSource{TokenRef: previous.TokenRef, ProfileGUID: "00000000-0000-4000-8000-000000000001", ExpectedGaiaSHA256: testAccountDigest, AuthUser: &user}
 	service.config.MaintenanceSources = map[string]maintenanceSource{previous.ID: binding}
 	started, status := loginCall(t, service, "start", jsonFixture(t, struct {
 		Label      string `json:"label"`
@@ -104,7 +104,7 @@ func TestDetachPreservesDriftGuard_whenRecordWasNeverDetached(t *testing.T) {
 		t.Fatalf("fixture is not a native local record: ref=%q err=%v", local.LegacyRef, err)
 	}
 	user := uint64(2)
-	service.config.MaintenanceSources = map[string]maintenanceSource{record.ID: {TokenRef: "op://homelab/" + strings.Repeat("z", 26) + "/web-session", ProfileGUID: "00000000-0000-4000-8000-000000000009", ExpectedGaiaSHA256: strings.Repeat("b", 64), AuthUser: &user}}
+	service.config.MaintenanceSources = map[string]maintenanceSource{record.ID: {TokenRef: "op://homelab/" + strings.Repeat("z", 26) + "/web-session", ProfileGUID: "00000000-0000-4000-8000-000000000009", ExpectedGaiaSHA256: testAccountDigest, AuthUser: &user}}
 
 	err = service.checkLocalBinding(record, local)
 
