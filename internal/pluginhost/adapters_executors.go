@@ -650,7 +650,7 @@ func (a *executorAdapter) Execute(ctx context.Context, auth *coreauth.Auth, req 
 	}
 	pluginResp, errExecute := a.executor.Execute(ctx, buildExecutorRequest(a.host, a.provider, auth, prepared.req, prepared.opts))
 	if errExecute != nil {
-		return coreexecutor.Response{}, errExecute
+		return coreexecutor.Response{}, pluginRequestStopPolicy(auth, errExecute)
 	}
 	return coreexecutor.Response{
 		Payload:  a.translateExecutorResponse(ctx, prepared, pluginResp.Payload, false, nil),
@@ -677,11 +677,11 @@ func (a *executorAdapter) ExecuteStream(ctx context.Context, auth *coreauth.Auth
 	}
 	pluginResp, errExecuteStream := a.executor.ExecuteStream(ctx, buildExecutorRequest(a.host, a.provider, auth, prepared.req, prepared.opts))
 	if errExecuteStream != nil {
-		return nil, errExecuteStream
+		return nil, pluginRequestStopPolicy(auth, errExecuteStream)
 	}
 	return &coreexecutor.StreamResult{
 		Headers: cloneHeader(pluginResp.Headers),
-		Chunks:  mapExecutorStreamChunks(ctx, a.translateExecutorStreamChunks(ctx, prepared, pluginResp.Chunks)),
+		Chunks:  mapExecutorStreamChunks(ctx, a.translateExecutorStreamChunks(ctx, prepared, pluginResp.Chunks), auth),
 	}, nil
 }
 
@@ -776,7 +776,7 @@ func (a *executorAdapter) CountTokens(ctx context.Context, auth *coreauth.Auth, 
 	}
 	pluginResp, errCountTokens := a.executor.CountTokens(ctx, buildExecutorRequest(a.host, a.provider, auth, prepared.req, prepared.opts))
 	if errCountTokens != nil {
-		return coreexecutor.Response{}, errCountTokens
+		return coreexecutor.Response{}, pluginRequestStopPolicy(auth, errCountTokens)
 	}
 	return coreexecutor.Response{
 		Payload:  a.translateExecutorResponse(ctx, prepared, pluginResp.Payload, false, nil),
@@ -891,7 +891,7 @@ func mergeExecutorMetadata(reqMetadata, optsMetadata map[string]any) map[string]
 	return merged
 }
 
-func mapExecutorStreamChunks(ctx context.Context, in <-chan pluginapi.ExecutorStreamChunk) <-chan coreexecutor.StreamChunk {
+func mapExecutorStreamChunks(ctx context.Context, in <-chan pluginapi.ExecutorStreamChunk, auth *coreauth.Auth) <-chan coreexecutor.StreamChunk {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -913,7 +913,7 @@ func mapExecutorStreamChunks(ctx context.Context, in <-chan pluginapi.ExecutorSt
 				}
 				mapped = coreexecutor.StreamChunk{
 					Payload: bytes.Clone(chunk.Payload),
-					Err:     chunk.Err,
+					Err:     pluginRequestStopPolicy(auth, chunk.Err),
 				}
 			}
 			select {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -29,8 +30,8 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 	if len(raw) > 40*1024 || strictJSON(raw, &request) != nil || request.Model != interactionOmniModel {
 		return request, nil, failure(400, "unsupported_interaction_request")
 	}
-	if request.Stream || request.Background {
-		return request, nil, failure(400, "interaction_background_and_streaming_require_host_retrieval_route")
+	if request.Background {
+		return request, nil, failure(400, "interaction_background_unsupported")
 	}
 	format := request.ResponseFormat
 	if format.Type != "" && format.Type != "video" || format.Delivery != "" && format.Delivery != "inline" {
@@ -82,8 +83,11 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 	if !service.settings().NativeContinuation || !service.settings().NativeGeneration {
 		return nil, failure(400, "native_continuation_disabled")
 	}
-	if request.Model != interactionOmniModel || request.SourceFormat != "interactions" || request.Stream || request.Alt != "" {
+	if request.Model != interactionOmniModel || request.SourceFormat != "interactions" || request.Alt != "" && request.Alt != interactionRetrieveAlt {
 		return nil, failure(400, "unsupported_interaction_route")
+	}
+	if request.Alt == interactionRetrieveAlt {
+		return service.retrieveInteraction(ctx, request)
 	}
 	body, payload, err := parseInteraction(request.Payload)
 	if err != nil {
@@ -91,6 +95,7 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 	}
 	native := request
 	native.Model, native.Format, native.SourceFormat = omniModel, "gemini", "gemini"
+	native.Stream = false
 	native.freshContinuation = true
 	native.Payload, err = json.Marshal(map[string]any{continuationField: continuationControl{Action: "prepare", Token: body.Previous}})
 	if err != nil {
@@ -120,6 +125,17 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 	if err != nil {
 		return nil, err
 	}
+	if request.Stream {
+		return service.startInteractionStream(ctx, request, native, token, body.Store)
+	}
+	return service.finishInteraction(ctx, native, token, body.Store)
+}
+
+func (service *service) finishInteraction(ctx context.Context, native executorRequest, token string, store *bool) (interface{}, error) {
+	var receipt struct {
+		View continuationView `json:"geminiWebContinuation"`
+	}
+	var result continuationResult
 	record, err := service.parseStorage(native.StorageJSON, false)
 	if err != nil {
 		return nil, err
@@ -144,30 +160,34 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 		if receipt.View.State != "pending" || receipt.View.Error != "" || !service.now().Before(deadline) {
 			break
 		}
-		if service.continuationWait != nil {
-			if err := service.continuationWait(ctx); err != nil {
-				return nil, err
-			}
-		} else {
-			timer := time.NewTimer(webVideoPollInterval)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return nil, ctx.Err()
-			case <-timer.C:
-			}
+		if err := service.waitInteraction(ctx); err != nil {
+			return nil, err
 		}
 		native.Payload, err = json.Marshal(map[string]any{continuationField: continuationControl{Action: "recover", Token: token}})
 		if err != nil {
 			return nil, err
 		}
 	}
-	if body.Store != nil && !*body.Store && receipt.View.State == "complete" {
+	if store != nil && !*store && receipt.View.State == "complete" {
 		if err := service.discardInteraction(native, token); err != nil {
 			return nil, err
 		}
 	}
 	return renderInteraction(result, receipt.View)
+}
+
+func (service *service) waitInteraction(ctx context.Context) error {
+	if service.continuationWait != nil {
+		return service.continuationWait(ctx)
+	}
+	timer := time.NewTimer(webVideoPollInterval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func renderInteraction(result continuationResult, view continuationView) (interface{}, error) {
@@ -203,7 +223,7 @@ func renderInteraction(result continuationResult, view continuationView) (interf
 	if err != nil {
 		return nil, err
 	}
-	return webExecutionResult(payload, false), nil
+	return continuationResult{Payload: payload, Headers: http.Header{"Content-Type": {"application/json"}}}, nil
 }
 
 func (service *service) discardInteraction(request executorRequest, token string) error {

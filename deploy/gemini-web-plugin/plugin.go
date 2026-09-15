@@ -40,6 +40,8 @@ type service struct {
 	client           *http.Client
 	now              func() time.Time
 	continuationWait func(context.Context) error
+	interactionsMu   sync.Mutex
+	interactions     map[string]*interactionOperation
 	source           credentialSource
 	leases           credentialLeases
 	sessions         *sessionStore

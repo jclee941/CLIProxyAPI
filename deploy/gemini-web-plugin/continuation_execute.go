@@ -25,6 +25,13 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 	if execution.control.Action == "recover" && turn.State == "prepared" {
 		return continuationResponse(turn.Model, view, nil)
 	}
+	if execution.control.Action == "recover" && turn.State == "complete" && turn.ResultStored {
+		body, err := service.localStore().readInteractionResult(execution.local, execution.key, turn.CallerScope)
+		if err != nil {
+			return nil, err
+		}
+		return continuationResponse(turn.Model, view, body)
+	}
 	if !hasOmniStopRules(execution.request.AuthMetadata.RequestScopedErrors) {
 		return nil, failure(400, "continuation_requires_host_request_stop_policy")
 	}
@@ -190,6 +197,12 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		if err != nil {
 			return nil, err
 		}
+	}
+	if turn.Model == omniModel {
+		if err := service.localStore().writeInteractionResult(execution.local, execution.key, turn.CallerScope, body); err != nil {
+			return nil, err
+		}
+		turn.ResultStored = true
 	}
 	turn.State = "complete"
 	execution.turns[execution.key] = turn

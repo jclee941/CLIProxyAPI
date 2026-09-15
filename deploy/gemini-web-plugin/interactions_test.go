@@ -86,7 +86,7 @@ func TestInteractionsRejectUnsupportedOptionsBeforeNetwork(t *testing.T) {
 	service, local := continuationFixture(t)
 	for _, body := range []string{
 		`{"model":"gemini-omni-1.1-flash","input":"x","background":true}`,
-		`{"model":"gemini-omni-1.1-flash","input":"x","stream":true}`,
+		`{"model":"gemini-omni-1.1-flash","input":"x","stream":"true"}`,
 		`{"model":"gemini-omni-1.1-flash","input":"x","response_format":{"delivery":"uri"}}`,
 		`{"model":"gemini-omni-1.1-flash","input":"x","response_format":{"resolution":"4k"}}`,
 		`{"model":"gemini-omni-1.1-flash","input":[{"type":"video","uri":"https://example.invalid/video"}]}`,

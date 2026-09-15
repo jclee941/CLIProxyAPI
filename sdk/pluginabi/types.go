@@ -7,7 +7,22 @@ const (
 	ABIVersion uint32 = 1
 	// SchemaVersion tracks the RPC JSON contract exchanged at plugin.register.
 	// Version 2 adds request lifecycle completion and active request termination.
-	SchemaVersion uint32 = 2
+	// Version 3 omits OriginalRequest/RequestBody on payload stream chunks
+	// (ChunkIndex >= 0); those fields remain on StreamChunkHeaderInitIndex only.
+	// Plugins that still need per-chunk request bodies should keep schema_version < 3.
+	// Version 4 adds upstream WebSocket response event observation.
+	// Version 5 omits history on payload stream-chunk interceptor calls.
+	// Version 6 preserves raw JSON management response bodies.
+	SchemaVersion uint32 = 6
+	// SchemaVersionStreamChunkOmitRequestBody is the first schema version that omits
+	// request bodies on payload stream-chunk interceptor calls.
+	SchemaVersionStreamChunkOmitRequestBody uint32 = 3
+	// SchemaVersionWebSocketResponseObserver introduces upstream response observation.
+	SchemaVersionWebSocketResponseObserver uint32 = 4
+	// SchemaVersionStreamChunkOmitHistory introduces header-init-only history.
+	SchemaVersionStreamChunkOmitHistory uint32 = 5
+	// SchemaVersionRawManagementResponse preserves raw management JSON.
+	SchemaVersionRawManagementResponse uint32 = 6
 )
 
 const (
@@ -50,6 +65,8 @@ const (
 	MethodResponseNormalizeAfter       = "response.normalize_after"
 	MethodResponseInterceptAfter       = "response.intercept_after"
 	MethodResponseInterceptStreamChunk = "response.intercept_stream_chunk"
+
+	MethodWebSocketResponseEvent = "websocket.response_event"
 
 	MethodThinkingIdentifier = "thinking.identifier"
 	MethodThinkingApply      = "thinking.apply"

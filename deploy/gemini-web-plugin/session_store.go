@@ -145,6 +145,16 @@ func openSessionStore(path, encodedKey string) (_ *sessionStore, err error) {
 		if file.Name() == "owner.lock" {
 			continue
 		}
+		if interactionResultFile.MatchString(file.Name()) {
+			result, err := store.open(file.Name(), syscall.O_RDONLY)
+			if err != nil {
+				return nil, err
+			}
+			if err := result.Close(); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		if file.Name() == "write.intent" || file.Name() == "write.tmp" {
 			return nil, failure(409, "session_write_outcome_unknown_requires_operator")
 		}
@@ -371,7 +381,7 @@ func (store *sessionStore) records() ([]localSession, error) {
 	}
 	result := make([]localSession, 0)
 	for _, file := range files {
-		if file.Name() == "owner.lock" {
+		if file.Name() == "owner.lock" || interactionResultFile.MatchString(file.Name()) {
 			continue
 		}
 		record, err := store.readLocked("session://gemini-web/" + strings.TrimSuffix(file.Name(), ".json"))

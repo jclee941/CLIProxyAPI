@@ -101,6 +101,7 @@ type executorRequest struct {
 		CallerScope  string `json:"caller_scope"`
 	}
 	HostCallbackID string `json:"host_callback_id,omitempty"`
+	StreamID       string `json:"stream_id,omitempty"`
 }
 
 type executorHTTPRequest struct {

@@ -19,6 +19,7 @@ import (
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/usage"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 )
@@ -1691,6 +1692,164 @@ func TestHasStreamInterceptorsReflectsActiveStreamInterceptors(t *testing.T) {
 	}
 }
 
+func TestStreamChunkRequestBodyPolicyBySchemaVersion(t *testing.T) {
+	var legacyGot, modernGot pluginapi.StreamChunkInterceptRequest
+	host := newHostWithRecords(
+		capabilityRecord{
+			id: "legacy",
+			plugin: pluginapi.Plugin{
+				SchemaVersion: 2,
+				Capabilities: pluginapi.Capabilities{
+					StreamChunkInterceptor: responseInterceptorFunc{
+						interceptStreamChunk: func(ctx context.Context, req pluginapi.StreamChunkInterceptRequest) (pluginapi.StreamChunkInterceptResponse, error) {
+							legacyGot = req
+							return pluginapi.StreamChunkInterceptResponse{Body: req.Body}, nil
+						},
+					},
+				},
+			},
+		},
+		capabilityRecord{
+			id: "modern",
+			plugin: pluginapi.Plugin{
+				SchemaVersion: pluginabi.SchemaVersionStreamChunkOmitRequestBody,
+				Capabilities: pluginapi.Capabilities{
+					StreamChunkInterceptor: responseInterceptorFunc{
+						interceptStreamChunk: func(ctx context.Context, req pluginapi.StreamChunkInterceptRequest) (pluginapi.StreamChunkInterceptResponse, error) {
+							modernGot = req
+							return pluginapi.StreamChunkInterceptResponse{Body: req.Body}, nil
+						},
+					},
+				},
+			},
+		},
+	)
+	if !host.StreamChunkPayloadIncludesRequestBody() {
+		t.Fatal("StreamChunkPayloadIncludesRequestBody() = false, want true when legacy stream interceptor is active")
+	}
+
+	_ = host.InterceptStreamChunk(context.Background(), pluginapi.StreamChunkInterceptRequest{
+		OriginalRequest: []byte("original"),
+		RequestBody:     []byte("request"),
+		Body:            []byte("chunk"),
+		ChunkIndex:      0,
+	})
+	if string(legacyGot.OriginalRequest) != "original" || string(legacyGot.RequestBody) != "request" {
+		t.Fatalf("legacy payload bodies = original:%q body:%q, want preserved", legacyGot.OriginalRequest, legacyGot.RequestBody)
+	}
+	if len(modernGot.OriginalRequest) != 0 || len(modernGot.RequestBody) != 0 {
+		t.Fatalf("modern payload bodies = original:%q body:%q, want omitted", modernGot.OriginalRequest, modernGot.RequestBody)
+	}
+
+	legacyGot = pluginapi.StreamChunkInterceptRequest{}
+	modernGot = pluginapi.StreamChunkInterceptRequest{}
+	_ = host.InterceptStreamChunk(context.Background(), pluginapi.StreamChunkInterceptRequest{
+		OriginalRequest: []byte("original"),
+		RequestBody:     []byte("request"),
+		ChunkIndex:      pluginapi.StreamChunkHeaderInitIndex,
+	})
+	if string(legacyGot.OriginalRequest) != "original" || string(modernGot.OriginalRequest) != "original" {
+		t.Fatalf("header-init bodies not preserved: legacy=%q modern=%q", legacyGot.OriginalRequest, modernGot.OriginalRequest)
+	}
+
+	modernOnly := newHostWithRecords(capabilityRecord{
+		id: "modern-only",
+		plugin: pluginapi.Plugin{
+			SchemaVersion: pluginabi.SchemaVersionStreamChunkOmitRequestBody,
+			Capabilities: pluginapi.Capabilities{
+				StreamChunkInterceptor: responseInterceptorFunc{
+					interceptStreamChunk: func(ctx context.Context, req pluginapi.StreamChunkInterceptRequest) (pluginapi.StreamChunkInterceptResponse, error) {
+						return pluginapi.StreamChunkInterceptResponse{}, nil
+					},
+				},
+			},
+		},
+	})
+	if modernOnly.StreamChunkPayloadIncludesRequestBody() {
+		t.Fatal("StreamChunkPayloadIncludesRequestBody() = true, want false for schema v3+ only")
+	}
+}
+
+func TestStreamChunkHistoryPolicyBySchemaVersion(t *testing.T) {
+	var legacyGot, modernGot pluginapi.StreamChunkInterceptRequest
+	host := newHostWithRecords(
+		capabilityRecord{
+			id: "legacy",
+			plugin: pluginapi.Plugin{
+				SchemaVersion: 4,
+				Capabilities: pluginapi.Capabilities{
+					StreamChunkInterceptor: responseInterceptorFunc{
+						interceptStreamChunk: func(ctx context.Context, req pluginapi.StreamChunkInterceptRequest) (pluginapi.StreamChunkInterceptResponse, error) {
+							legacyGot = req
+							return pluginapi.StreamChunkInterceptResponse{Body: req.Body}, nil
+						},
+					},
+				},
+			},
+		},
+		capabilityRecord{
+			id: "modern",
+			plugin: pluginapi.Plugin{
+				SchemaVersion: pluginabi.SchemaVersionStreamChunkOmitHistory,
+				Capabilities: pluginapi.Capabilities{
+					StreamChunkInterceptor: responseInterceptorFunc{
+						interceptStreamChunk: func(ctx context.Context, req pluginapi.StreamChunkInterceptRequest) (pluginapi.StreamChunkInterceptResponse, error) {
+							modernGot = req
+							return pluginapi.StreamChunkInterceptResponse{Body: req.Body}, nil
+						},
+					},
+				},
+			},
+		},
+	)
+	if !host.StreamChunkPayloadIncludesHistory() {
+		t.Fatal("StreamChunkPayloadIncludesHistory() = false, want true when legacy stream interceptor is active")
+	}
+
+	_ = host.InterceptStreamChunk(context.Background(), pluginapi.StreamChunkInterceptRequest{
+		HistoryChunks: [][]byte{[]byte("first")},
+		Body:          []byte("chunk"),
+		ChunkIndex:    0,
+	})
+	if len(legacyGot.HistoryChunks) != 1 || string(legacyGot.HistoryChunks[0]) != "first" {
+		t.Fatalf("legacy payload history = %#v, want preserved", legacyGot.HistoryChunks)
+	}
+	if len(modernGot.HistoryChunks) != 0 {
+		t.Fatalf("modern payload history = %#v, want omitted", modernGot.HistoryChunks)
+	}
+
+	legacyGot = pluginapi.StreamChunkInterceptRequest{}
+	modernGot = pluginapi.StreamChunkInterceptRequest{}
+	_ = host.InterceptStreamChunk(context.Background(), pluginapi.StreamChunkInterceptRequest{
+		HistoryChunks: [][]byte{[]byte("first")},
+		Body:          []byte("chunk"),
+		ChunkIndex:    pluginapi.StreamChunkHeaderInitIndex,
+	})
+	if len(legacyGot.HistoryChunks) != 1 || string(legacyGot.HistoryChunks[0]) != "first" {
+		t.Fatalf("legacy init history = %#v, want preserved", legacyGot.HistoryChunks)
+	}
+	if len(modernGot.HistoryChunks) != 1 || string(modernGot.HistoryChunks[0]) != "first" {
+		t.Fatalf("modern init history = %#v, want preserved", modernGot.HistoryChunks)
+	}
+
+	modernOnly := newHostWithRecords(capabilityRecord{
+		id: "modern-only",
+		plugin: pluginapi.Plugin{
+			SchemaVersion: pluginabi.SchemaVersionStreamChunkOmitHistory,
+			Capabilities: pluginapi.Capabilities{
+				StreamChunkInterceptor: responseInterceptorFunc{
+					interceptStreamChunk: func(ctx context.Context, req pluginapi.StreamChunkInterceptRequest) (pluginapi.StreamChunkInterceptResponse, error) {
+						return pluginapi.StreamChunkInterceptResponse{}, nil
+					},
+				},
+			},
+		},
+	})
+	if modernOnly.StreamChunkPayloadIncludesHistory() {
+		t.Fatal("StreamChunkPayloadIncludesHistory() = true, want false for schema v5+ only")
+	}
+}
+
 func TestHasRequestInterceptorsReflectsActiveRequestInterceptors(t *testing.T) {
 	responseOnly := newHostWithRecords(capabilityRecord{
 		id: "response",
@@ -3046,10 +3205,10 @@ func TestExecutorAdapterPanicFusesAndReturnsError(t *testing.T) {
 	}
 }
 
-func TestMapExecutorStreamChunksExitsWhenContextCanceledWithoutDownstreamConsumer(t *testing.T) {
+func TestMapExecutorStreamChunksClosesAfterCancelWithAcceptedChunk(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	in := make(chan pluginapi.ExecutorStreamChunk)
-	out := mapExecutorStreamChunks(ctx, in)
+	out := mapExecutorStreamChunks(ctx, in, nil)
 	sent := make(chan struct{})
 
 	go func() {
@@ -3063,14 +3222,25 @@ func TestMapExecutorStreamChunksExitsWhenContextCanceledWithoutDownstreamConsume
 		t.Fatal("input chunk was not accepted by bridge")
 	}
 	cancel()
-	time.Sleep(10 * time.Millisecond)
 
 	select {
 	case chunk, ok := <-out:
 		if ok {
-			t.Fatalf("output channel produced chunk after cancel: %#v", chunk)
+			// The accepted chunk may win the send/cancel select once a receiver
+			// appears. Cancellation must still close the bridge afterwards.
+			if string(chunk.Payload) != "chunk" || chunk.Err != nil {
+				t.Fatalf("unexpected accepted chunk: %#v", chunk)
+			}
+			select {
+			case _, stillOpen := <-out:
+				if stillOpen {
+					t.Fatal("output produced more than the accepted chunk")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("output channel stayed open after the accepted chunk")
+			}
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(time.Second):
 		t.Fatal("output channel was not closed after context cancellation")
 	}
 }

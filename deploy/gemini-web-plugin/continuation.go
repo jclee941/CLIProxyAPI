@@ -28,6 +28,7 @@ type continuationTurn struct {
 	Digest       [32]byte `json:"digest"`
 	Sequence     uint64   `json:"sequence"`
 	NextToken    string   `json:"next_token,omitempty"`
+	ResultStored bool     `json:"result_stored,omitempty"`
 }
 type continuationResult struct {
 	Payload []byte
@@ -114,8 +115,22 @@ func (service *service) saveContinuations(local localSession, turns map[string]c
 	if len(raw) > 48*1024 {
 		return failure(409, "continuation_storage_full")
 	}
+	previous, err := continuationTurns(local)
+	if err != nil {
+		return err
+	}
 	local.Continuations = string(raw)
-	return service.localStore().write(local)
+	if err := service.localStore().write(local); err != nil {
+		return err
+	}
+	for key := range previous {
+		if _, retained := turns[key]; !retained {
+			if err := service.localStore().removeInteractionResult(key); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func continuationResponse(model string, view continuationView, body []byte) (interface{}, error) {
