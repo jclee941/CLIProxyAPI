@@ -13,15 +13,119 @@
 <body>
   <div id="app"><p>Gemini Web 계정 관리 화면을 준비하고 있습니다.</p></div>
   <noscript>계정을 관리하려면 이 리소스 페이지의 JavaScript 실행을 허용하세요.</noscript>
-  <section class="usage-guide">
+  <section class="usage-guide api-reference">
     <h2>요청 방법</h2>
-    <p class="hint">OpenAI 호환 <code>POST /v1/chat/completions</code>과 Gemini 네이티브 <code>POST /v1beta/models/{model}:generateContent</code>를 모두 받습니다.</p>
-    <dl class="usage-models">
-      <dt>gemini-web-flash-3.8</dt>
-      <dd>일반 대화용입니다. <code>gemini-web-flash</code>로도 호출할 수 있습니다.</dd>
-      <dt>gemini-web-omni</dt>
-      <dd>호출 한 번이 약 10초 분량 영상 하나를 실제로 소비합니다. user 텍스트 한 턴만, 스트리밍 없이 보내세요. OpenAI 호환 응답은 <code>choices[0].message.images[0].image_url.url</code>에 <code>data:video/mp4;base64,…</code>를 담고, Gemini 네이티브 응답은 <code>candidates[0].content.parts[0].inlineData</code>로 돌려줍니다.</dd>
-    </dl>
+    <p class="hint">OpenAI 호환 <code>POST /v1/chat/completions</code>과 Gemini 네이티브 <code>POST /v1beta/models/{model}:generateContent</code>를 모두 받습니다. 아래 예시의 <code>$CLIPROXY</code>는 이 프록시의 베이스 URL, <code>$CLIPROXY_KEY</code>는 발급받은 API 키입니다.</p>
+
+    <details class="api-endpoint" open>
+      <summary><span class="api-method">POST</span><code>/v1beta/models/gemini-web-omni:generateContent</code><span class="api-tag api-tag-cost">호출당 영상 1건 소비</span></summary>
+      <div class="api-body">
+        <h3>요청</h3>
+        <pre class="api-sample"><code>curl -X POST "$CLIPROXY/v1beta/models/gemini-web-omni:generateContent" \
+  -H "x-goog-api-key: $CLIPROXY_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contents": [
+      { "role": "user", "parts": [{ "text": "노을 지는 해변을 걷는 사람" }] }
+    ],
+    "generationConfig": {
+      "aspectRatio": "9:16",
+      "negativePrompt": "자막, 워터마크"
+    }
+  }'</code></pre>
+
+        <h3>generationConfig</h3>
+        <div class="api-scroll"><table class="api-table">
+          <thead><tr><th>필드</th><th>타입</th><th>허용값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><code>aspectRatio</code></td><td>string</td><td><code>16:9</code> · <code>9:16</code> · <code>1:1</code></td><td>화면비. 웹 영상 도구는 옵션을 전송 필드로 받지 않아 프롬프트에 문장으로 합쳐 보냅니다. 공식 UI의 화면비 선택과 동일하게 <strong>보장이 아닌 best-effort</strong>입니다.</td></tr>
+            <tr><td><code>negativePrompt</code></td><td>string</td><td>자유 문자열</td><td>제외할 요소. 프롬프트에 합쳐집니다.</td></tr>
+            <tr><td><code>candidateCount</code></td><td>number</td><td><code>1</code></td><td>한 번의 제출은 영상 하나만 만듭니다.</td></tr>
+          </tbody>
+        </table></div>
+        <p class="hint">그 밖의 키(<code>durationSeconds</code>, <code>resolution</code>, <code>personGeneration</code> 등)는 전송 필드도 프롬프트 대응물도 없어 <code>omni_unsupported_generation_option</code>으로 거부합니다.</p>
+
+        <h3>응답</h3>
+        <pre class="api-sample"><code>{
+  "modelVersion": "gemini-web-omni",
+  "candidates": [{
+    "index": 0,
+    "finishReason": "STOP",
+    "content": {
+      "role": "model",
+      "parts": [{ "inlineData": { "mimeType": "video/mp4", "data": "AAAAIGZ0eXB…" } }]
+    }
+  }]
+}</code></pre>
+        <p class="hint">업스트림 다운로드 URL이 세션 쿠키로만 열리기 때문에 링크 대신 base64 본문으로 돌려줍니다.</p>
+
+        <h3>제약</h3>
+        <ul class="api-limits">
+          <li><code>contents</code>는 정확히 한 턴, <code>role</code>은 <code>user</code>이거나 생략, 파트는 <code>text</code>만.</li>
+          <li>스트리밍 불가. <code>stream: true</code>는 거부합니다.</li>
+          <li>프롬프트는 합쳐진 옵션 문장을 포함해 8000자 이하, 본문은 5MiB 이하.</li>
+          <li>영상이 준비될 때까지 최대 10분 폴링합니다.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="api-endpoint">
+      <summary><span class="api-method">POST</span><code>/v1/chat/completions</code><span class="api-tag">OpenAI 호환 · gemini-web-omni</span></summary>
+      <div class="api-body">
+        <h3>요청</h3>
+        <pre class="api-sample"><code>curl -X POST "$CLIPROXY/v1/chat/completions" \
+  -H "Authorization: Bearer $CLIPROXY_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-web-omni",
+    "messages": [{ "role": "user", "content": "노을 지는 해변을 걷는 사람" }]
+  }'</code></pre>
+        <p class="hint">이 경로에는 <code>generationConfig</code>가 없어 화면비·네거티브 프롬프트를 쓰려면 Gemini 네이티브 경로를 쓰거나 프롬프트 문장에 직접 적으세요. <code>messages</code>는 user 한 건만 허용합니다.</p>
+
+        <h3>응답</h3>
+        <pre class="api-sample"><code>{
+  "choices": [{
+    "message": {
+      "role": "assistant",
+      "images": [{ "image_url": { "url": "data:video/mp4;base64,AAAAIGZ0eXB…" } }]
+    }
+  }]
+}</code></pre>
+      </div>
+    </details>
+
+    <details class="api-endpoint">
+      <summary><span class="api-method">POST</span><code>/v1beta/models/gemini-web-flash-3.8:generateContent</code><span class="api-tag">일반 대화</span></summary>
+      <div class="api-body">
+        <h3>요청</h3>
+        <pre class="api-sample"><code>curl -X POST "$CLIPROXY/v1beta/models/gemini-web-flash-3.8:generateContent" \
+  -H "x-goog-api-key: $CLIPROXY_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contents": [
+      { "role": "user", "parts": [{ "text": "한 문장으로 자기소개 해줘" }] }
+    ]
+  }'</code></pre>
+        <p class="hint"><code>gemini-web-flash</code> 별칭으로도 호출할 수 있습니다. <code>stream: true</code>도 받지만 완성된 응답을 SSE 한 프레임으로 한 번에 보냅니다.</p>
+      </div>
+    </details>
+
+    <details class="api-endpoint">
+      <summary><span class="api-method api-method-error">400</span><code>오류 코드</code><span class="api-tag">제출 전 거부 · 쿼타 소모 없음</span></summary>
+      <div class="api-body">
+        <div class="api-scroll"><table class="api-table">
+          <thead><tr><th>코드</th><th>의미</th></tr></thead>
+          <tbody>
+            <tr><td><code>omni_unsupported_generation_option</code></td><td><code>generationConfig</code>에 지원하지 않는 키가 있습니다.</td></tr>
+            <tr><td><code>omni_invalid_aspect_ratio</code></td><td><code>aspectRatio</code>가 <code>16:9</code>·<code>9:16</code>·<code>1:1</code>이 아닙니다.</td></tr>
+            <tr><td><code>omni_invalid_negative_prompt</code></td><td><code>negativePrompt</code>가 문자열이 아닙니다.</td></tr>
+            <tr><td><code>omni_single_candidate_only</code></td><td><code>candidateCount</code>가 1이 아닙니다.</td></tr>
+            <tr><td><code>omni_prompt_length_invalid</code></td><td>프롬프트가 비었거나 옵션 문장 포함 8000자를 넘었습니다.</td></tr>
+            <tr><td><code>unsupported_omni_request</code></td><td>단일 user 텍스트 턴·비스트리밍이라는 형식 조건을 벗어났습니다.</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </details>
   </section>
   <script>/* RESOURCE_SCRIPT */</script>
 </body>
