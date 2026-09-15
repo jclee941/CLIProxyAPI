@@ -31,18 +31,20 @@ const webVideoChipMarker = "googleusercontent.com/video_gen_chip/"
 
 // webVideoFields turns the text request into a video submission. The overrides
 // are what distinguishes a video turn from a text one.
-// aspect selects the framing: slot 55 carries 16 for 16:9, 9 for 9:16 and 1 for
-// 1:1. It was long read as a fixed tool id, which is why every video came back
-// landscape no matter what the caller asked for.
-func webVideoFields(prompt string, mode int, conversationID string, aspect int) []any {
+// orientation is the framing, and it sits inside the turn rather than in a slot
+// of its own: the generation options hang off the prompt, the video options are
+// the first of them, and their fourth member is 1 for landscape and 2 for
+// portrait. That member had been pinned to landscape, which is why every video
+// came back landscape no matter what the caller asked for.
+func webVideoFields(prompt string, mode int, conversationID string, orientation int) []any {
 	fields := webGenerationFields(prompt, mode, 0, conversationID)
 	fields[0] = []any{prompt, 0, nil, nil, nil, nil, 0, nil, nil,
-		[]any{nil, nil, nil, nil, nil, nil, []any{[]any{nil, nil, nil, 1}}}}
+		[]any{nil, nil, nil, nil, nil, nil, []any{[]any{nil, nil, nil, orientation}}}}
 	fields[41] = []any{1}
 	fields[45] = nil
 	fields[49] = 11
 	fields[54] = []any{}
-	fields[55] = []any{[]any{aspect}}
+	fields[55] = []any{[]any{16}}
 	fields[67] = 0
 	fields[68] = 1
 	fields[80] = 1
@@ -118,7 +120,7 @@ func webResponseFrames(raw []byte) ([]any, error) {
 	return bodies, nil
 }
 
-func (session *webSession) submitVideo(ctx context.Context, prompt string, account webAccount, model capability, aspect int) ([]byte, error) {
+func (session *webSession) submitVideo(ctx context.Context, prompt string, account webAccount, model capability, orientation int) ([]byte, error) {
 	if session.xsrf == "" {
 		if err := session.bootstrap(ctx); err != nil {
 			return nil, err
@@ -128,7 +130,7 @@ func (session *webSession) submitVideo(ctx context.Context, prompt string, accou
 	if err != nil {
 		return nil, err
 	}
-	fields, err := json.Marshal(webVideoFields(prompt, model.Mode, conversationID, aspect))
+	fields, err := json.Marshal(webVideoFields(prompt, model.Mode, conversationID, orientation))
 	if err != nil {
 		return nil, failure(400, "web_request_invalid")
 	}
@@ -159,8 +161,8 @@ func (session *webSession) downloadVideo(ctx context.Context, url string) (int, 
 
 // generateVideo submits the prompt and then re-reads the conversation until the
 // download appears. The poll interval matches the bridge it replaces.
-func (session *webSession) generateVideo(ctx context.Context, prompt string, account webAccount, model capability, aspect int) ([]byte, error) {
-	raw, err := session.submitVideo(ctx, prompt, account, model, aspect)
+func (session *webSession) generateVideo(ctx context.Context, prompt string, account webAccount, model capability, orientation int) ([]byte, error) {
+	raw, err := session.submitVideo(ctx, prompt, account, model, orientation)
 	if err != nil {
 		return nil, err
 	}

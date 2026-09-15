@@ -311,7 +311,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: var
         <div class="api-scroll"><table class="api-table">
           <thead><tr><th>필드</th><th>타입</th><th>허용값</th><th>설명</th></tr></thead>
           <tbody>
-            <tr><td><code>aspectRatio</code></td><td>string</td><td><code>16:9</code> · <code>9:16</code> · <code>1:1</code></td><td>화면비. 생성 요청의 화면비 슬롯으로 그대로 전송됩니다. 생략하면 웹 앱과 같은 기본값 <code>16:9</code>입니다.</td></tr>
+            <tr><td><code>aspectRatio</code></td><td>string</td><td><code>16:9</code> · <code>9:16</code></td><td>영상 프레이밍. 요청 turn의 영상 옵션에 가로/세로 방향으로 전송됩니다. 웹 UI와 동일하게 방향만 지원하므로 <code>1:1</code> 같은 다른 비율은 거부됩니다. 생략하면 웹 앱과 같은 기본값 <code>16:9</code>입니다.</td></tr>
             <tr><td><code>negativePrompt</code></td><td>string</td><td>자유 문자열</td><td>제외할 요소. 전용 슬롯이 없어 프롬프트 뒤에 문장으로 합쳐집니다.</td></tr>
             <tr><td><code>candidateCount</code></td><td>number</td><td><code>1</code></td><td>한 번의 제출은 영상 하나만 만듭니다.</td></tr>
           </tbody>
@@ -391,7 +391,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: var
           <thead><tr><th>코드</th><th>의미</th></tr></thead>
           <tbody>
             <tr><td><code>omni_unsupported_generation_option</code></td><td><code>generationConfig</code>에 지원하지 않는 키가 있습니다.</td></tr>
-            <tr><td><code>omni_invalid_aspect_ratio</code></td><td><code>aspectRatio</code>가 <code>16:9</code>·<code>9:16</code>·<code>1:1</code>이 아닙니다.</td></tr>
+            <tr><td><code>omni_invalid_aspect_ratio</code></td><td><code>aspectRatio</code>가 <code>16:9</code>·<code>9:16</code>이 아닙니다.</td></tr>
             <tr><td><code>omni_invalid_negative_prompt</code></td><td><code>negativePrompt</code>가 문자열이 아닙니다.</td></tr>
             <tr><td><code>omni_single_candidate_only</code></td><td><code>candidateCount</code>가 1이 아닙니다.</td></tr>
             <tr><td><code>omni_prompt_length_invalid</code></td><td>프롬프트가 비었거나 <code>negativePrompt</code> 포함 8000자를 넘었습니다.</td></tr>

@@ -18,8 +18,8 @@ func TestOmniCarriesTheFramingThroughTheRebuiltRequest(t *testing.T) {
 	if prompt != "a balloon" {
 		t.Fatalf("prompt = %q, want the caller's text untouched", prompt)
 	}
-	if options.aspectCode() != 9 {
-		t.Fatalf("aspect code = %d, want 9", options.aspectCode())
+	if options.orientation() != 2 {
+		t.Fatalf("framing = %d, want portrait", options.orientation())
 	}
 	if !strings.Contains(options.applyPrompt(prompt), "Do not include: text overlays") {
 		t.Fatalf("negative prompt lost: %q", options.applyPrompt(prompt))
@@ -43,8 +43,8 @@ func TestOmniKeepsTheAppDefaultFramingWhenNoneIsAsked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plain request rejected: %v", err)
 	}
-	if options.aspectCode() != webAspectDefault {
-		t.Fatalf("aspect code = %d, want the app default %d", options.aspectCode(), webAspectDefault)
+	if options.orientation() != webOrientationLandscape {
+		t.Fatalf("framing = %d, want the app default %d", options.orientation(), webOrientationLandscape)
 	}
 }
 
@@ -54,6 +54,7 @@ func TestOmniRejectsOptionsTheWebPathCannotHonour_beforeSubmitting(t *testing.T)
 		{"resolution", `{"resolution":"1080p"}`, "omni_unsupported_generation_option"},
 		{"person_generation", `{"personGeneration":"allow_adult"}`, "omni_unsupported_generation_option"},
 		{"unlisted_ratio", `{"aspectRatio":"4:3"}`, "omni_invalid_aspect_ratio"},
+		{"square_ratio", `{"aspectRatio":"1:1"}`, "omni_invalid_aspect_ratio"},
 		{"ratio_wrong_type", `{"aspectRatio":5}`, "omni_invalid_aspect_ratio"},
 		{"negative_wrong_type", `{"negativePrompt":["a"]}`, "omni_invalid_negative_prompt"},
 		{"multiple_candidates", `{"candidateCount":2}`, "omni_single_candidate_only"},

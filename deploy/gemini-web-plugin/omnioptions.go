@@ -5,17 +5,17 @@ import (
 	"strings"
 )
 
-// webAspectDefault is the framing the web app sends when the user leaves the
-// control alone, and the value slot 55 already carried before it was understood.
-const webAspectDefault = 16
+// webOrientationLandscape is the framing the web app sends when the user leaves
+// the control alone, and the one the video payload has always carried.
+const webOrientationLandscape = 1
 
-// omniAspectCodes maps the accepted ratios onto the numbers slot 55 of the
-// generation payload carries. An unlisted ratio is rejected rather than silently
-// defaulted, so a caller never believes a framing was applied when it was not.
-var omniAspectCodes = map[string]int{
-	"16:9": 16,
-	"9:16": 9,
-	"1:1":  1,
+// omniOrientations maps the accepted ratios onto the framing the video options
+// carry. The wire holds an orientation rather than a free ratio, so a ratio that
+// is neither landscape nor portrait is rejected rather than silently widened and
+// a caller never believes a framing was applied when it was not.
+var omniOrientations = map[string]int{
+	"16:9": 1,
+	"9:16": 2,
 }
 
 type omniOptions struct {
@@ -23,11 +23,11 @@ type omniOptions struct {
 	NegativePrompt string
 }
 
-func (options omniOptions) aspectCode() int {
-	if code, ok := omniAspectCodes[options.AspectRatio]; ok {
-		return code
+func (options omniOptions) orientation() int {
+	if framing, ok := omniOrientations[options.AspectRatio]; ok {
+		return framing
 	}
-	return webAspectDefault
+	return webOrientationLandscape
 }
 
 func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {
@@ -39,7 +39,7 @@ func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {
 			if json.Unmarshal(value, &ratio) != nil {
 				return omniOptions{}, failure(400, "omni_invalid_aspect_ratio")
 			}
-			if _, ok := omniAspectCodes[ratio]; !ok {
+			if _, ok := omniOrientations[ratio]; !ok {
 				return omniOptions{}, failure(400, "omni_invalid_aspect_ratio")
 			}
 			options.AspectRatio = ratio

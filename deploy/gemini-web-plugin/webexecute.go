@@ -87,7 +87,7 @@ func (service *service) nativeVideo(ctx context.Context, token sessionToken, pay
 	if !ok {
 		return httpResponse{}, failure(404, "account_model_unavailable")
 	}
-	video, err := session.generateVideo(ctx, prompt, account, model, options.aspectCode())
+	video, err := session.generateVideo(ctx, prompt, account, model, options.orientation())
 	if err != nil {
 		return httpResponse{}, err
 	}

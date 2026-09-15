@@ -39,7 +39,7 @@ const omniGenericMessage = "Omni requires a synchronous single-user-turn text re
 // keeps the generic wording rather than describing an internal check.
 var omniRejectionMessages = map[string]string{
 	"omni_unsupported_generation_option": "Omni accepts only aspectRatio, negativePrompt and candidateCount in generationConfig.",
-	"omni_invalid_aspect_ratio":          "Omni accepts aspectRatio 16:9, 9:16 or 1:1.",
+	"omni_invalid_aspect_ratio":          "Omni video framing is an orientation, so aspectRatio accepts 16:9 or 9:16.",
 	"omni_invalid_negative_prompt":       "Omni requires negativePrompt to be a string.",
 	"omni_single_candidate_only":         "Omni produces exactly one video per request.",
 	"omni_prompt_length_invalid":         "Omni requires a non-empty prompt of at most 8000 characters, including the folded generation options.",

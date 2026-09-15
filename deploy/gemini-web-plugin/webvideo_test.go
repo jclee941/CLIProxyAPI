@@ -7,7 +7,7 @@ import (
 // The video submission is the text one with a fixed set of overrides; those
 // slots are what makes the turn produce a video at all.
 func TestWebVideoFieldsApplyTheVideoOverrides(t *testing.T) {
-	fields := webVideoFields("a wave", 1, "conversation", webAspectDefault)
+	fields := webVideoFields("a wave", 1, "conversation", webOrientationLandscape)
 	if len(fields) != 102 {
 		t.Fatalf("field count = %d", len(fields))
 	}
@@ -30,15 +30,16 @@ func TestWebVideoFieldsApplyTheVideoOverrides(t *testing.T) {
 	if depth, ok := thinking[0].([]any); !ok || depth[0] != 0 {
 		t.Fatalf("video turns must not think: %#v", fields[17])
 	}
-	for ratio, code := range map[string]int{"16:9": 16, "9:16": 9, "1:1": 1} {
-		framed := webVideoFields("a wave", 1, "conversation", omniOptions{AspectRatio: ratio}.aspectCode())
-		outer, ok := framed[55].([]any)
-		if !ok || len(outer) != 1 {
-			t.Fatalf("%s: slot 55 = %#v", ratio, framed[55])
+	// The framing rides in the video options that hang off the prompt, and slot
+	// 55 stays the constant it always was rather than carrying the ratio.
+	for ratio, framing := range map[string]int{"16:9": 1, "9:16": 2} {
+		framed := webVideoFields("a wave", 1, "conversation", omniOptions{AspectRatio: ratio}.orientation())
+		video, ok := jsonField(framed[0], 9, 6, 0).([]any)
+		if !ok || len(video) != 4 || video[3] != framing {
+			t.Fatalf("%s: video options = %#v, want framing %d", ratio, jsonField(framed[0], 9, 6, 0), framing)
 		}
-		inner, ok := outer[0].([]any)
-		if !ok || len(inner) != 1 || inner[0] != code {
-			t.Fatalf("%s: slot 55 carried %#v, want [[%d]]", ratio, framed[55], code)
+		if jsonField(framed[55], 0, 0) != 16 {
+			t.Fatalf("%s: slot 55 = %#v, want the constant it always carried", ratio, framed[55])
 		}
 	}
 }
