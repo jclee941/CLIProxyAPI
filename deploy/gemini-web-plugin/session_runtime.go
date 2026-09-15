@@ -127,13 +127,19 @@ func (service *service) localModelSnapshot(record storageRecord) (localSession, 
 		return localSession{}, err
 	}
 	state := service.leases.get(record.TokenRef).snapshot()
-	if state.state == maintenanceOperator || state.state == maintenanceFenced && service.now().Before(state.nextDue) {
+	recoverable := local.State == localSubmitting && local.ContinuationActive != ""
+	if state.state == maintenanceOperator && !recoverable || state.state == maintenanceFenced && service.now().Before(state.nextDue) {
 		return localSession{}, failure(409, string(state.state))
 	}
 	switch local.State {
 	case localReady, localHostPending:
 		return local, nil
-	case localRenewing, localSubmitting:
+	case localSubmitting:
+		if recoverable {
+			return local, nil
+		}
+		return localSession{}, failure(409, "needs_operator")
+	case localRenewing:
 		return localSession{}, failure(409, "needs_operator")
 	default:
 		return localSession{}, failure(503, "session_store_corrupt")
@@ -159,7 +165,7 @@ func (service *service) localAuthModels(ctx context.Context, record storageRecor
 	if account.AccountSHA256 != "" && account.AccountSHA256 != local.Identity.AccountSHA256 {
 		return nil, failure(409, "credential_identity_mismatch")
 	}
-	return verifiedModels(account), nil
+	return service.interactionModels(account), nil
 }
 
 func (service *service) renewLocalSession(ctx context.Context, callbackID string, record storageRecord) (sessionToken, error) {

@@ -84,19 +84,21 @@ type modelInfo struct {
 }
 
 type executorRequest struct {
-	AuthID          string
-	AuthProvider    string
-	Model           string
-	Format          string
-	SourceFormat    string
-	Stream          bool
-	Alt             string
-	Payload         []byte
-	OriginalRequest []byte
-	StorageJSON     []byte
-	AuthMetadata    authMetadata
-	Metadata        struct {
+	freshContinuation bool
+	AuthID            string
+	AuthProvider      string
+	Model             string
+	Format            string
+	SourceFormat      string
+	Stream            bool
+	Alt               string
+	Payload           []byte
+	OriginalRequest   []byte
+	StorageJSON       []byte
+	AuthMetadata      authMetadata
+	Metadata          struct {
 		PinnedAuthID string `json:"pinned_auth_id"`
+		CallerScope  string `json:"caller_scope"`
 	}
 	HostCallbackID string `json:"host_callback_id,omitempty"`
 }

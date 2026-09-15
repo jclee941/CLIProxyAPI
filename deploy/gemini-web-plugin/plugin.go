@@ -28,26 +28,28 @@ type pluginConfig struct {
 	// NativeGeneration serves text turns by speaking to the web product directly
 	// instead of delegating to the sidecar. Off until the native path has been
 	// compared against the sidecar on a real account.
-	NativeGeneration bool `yaml:"native_generation"`
+	NativeGeneration   bool `yaml:"native_generation"`
+	NativeContinuation bool `yaml:"native_continuation"`
 }
 type hostCall func(string, []byte) ([]byte, error)
 type service struct {
-	mu             sync.RWMutex
-	config         pluginConfig
-	host           hostCall
-	secrets        secretStore
-	client         *http.Client
-	now            func() time.Time
-	source         credentialSource
-	leases         credentialLeases
-	sessions       *sessionStore
-	sessionKeyHash [32]byte
-	loginMu        sync.Mutex
-	logins         map[string]loginFlow
-	modelPending   map[string]uint64
-	lifecycle      sessionLifecycle
-	accountsMu     sync.Mutex
-	accountsCache  map[string]cachedAccountList
+	mu               sync.RWMutex
+	config           pluginConfig
+	host             hostCall
+	secrets          secretStore
+	client           *http.Client
+	now              func() time.Time
+	continuationWait func(context.Context) error
+	source           credentialSource
+	leases           credentialLeases
+	sessions         *sessionStore
+	sessionKeyHash   [32]byte
+	loginMu          sync.Mutex
+	logins           map[string]loginFlow
+	modelPending     map[string]uint64
+	lifecycle        sessionLifecycle
+	accountsMu       sync.Mutex
+	accountsCache    map[string]cachedAccountList
 	// webOriginOverride redirects the native web calls; it is set only by tests,
 	// which cannot reach the real product.
 	webOriginOverride string
@@ -144,7 +146,12 @@ func (service *service) register(raw []byte) (interface{}, error) {
 			return nil, err
 		}
 	}
-	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"vault","Type":"enum","EnumValues":["homelab"],"Description":"1Password vault; web-session field references only"},{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"},{"Name":"maintenance_sources","Type":"object","Description":"Non-secret account-ID keyed credential source bindings"},{"Name":"session_dir","Type":"string","Description":"Dedicated 0700 encrypted application-session directory; single process owner"},{"Name":"manager_origin","Type":"string","Description":"Exact HTTPS management portal origin"},{"Name":"browser_extension_id","Type":"string","Description":"Registered 32-character browser companion extension ID"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini"],"management_api":true,"request_interceptor":true,"quota_provider":true}}`), nil
+	registration := json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"vault","Type":"enum","EnumValues":["homelab"],"Description":"1Password vault; web-session field references only"},{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"},{"Name":"maintenance_sources","Type":"object","Description":"Non-secret account-ID keyed credential source bindings"},{"Name":"session_dir","Type":"string","Description":"Dedicated 0700 encrypted application-session directory; single process owner"},{"Name":"manager_origin","Type":"string","Description":"Exact HTTPS management portal origin"},{"Name":"browser_extension_id","Type":"string","Description":"Registered 32-character browser companion extension ID"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini"],"management_api":true,"request_interceptor":true,"quota_provider":true}}`)
+	if config.NativeContinuation {
+		registration = bytes.Replace(registration, []byte(`"request_interceptor":true`), []byte(`"request_interceptor":true,"scheduler":true`), 1)
+		registration = bytes.ReplaceAll(registration, []byte(`["gemini"]`), []byte(`["gemini","interactions"]`))
+	}
+	return registration, nil
 }
 
 func (service *service) dispatch(ctx context.Context, method string, raw []byte) (interface{}, error) {
@@ -196,7 +203,9 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 	case "management.handle":
 		return service.management(ctx, raw)
 	case "request.intercept_before", "request.intercept_after":
-		return interceptRequest(raw), nil
+		return service.interceptContinuation(raw), nil
+	case "scheduler.pick":
+		return service.pickContinuation(raw)
 	case "executor.execute", "executor.execute_stream", "executor.count_tokens":
 		return service.execute(ctx, method, raw)
 	case "executor.http_request":

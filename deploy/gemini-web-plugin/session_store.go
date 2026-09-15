@@ -28,20 +28,22 @@ const (
 var localReferencePattern = regexp.MustCompile(`^session://gemini-web/[0-9a-f]{32}$`)
 
 type localSession struct {
-	Target          storageRecord        `json:"target"`
-	Projection      string               `json:"projection"`
-	Previous        storageRecord        `json:"previous"`
-	Token           string               `json:"token"`
-	Identity        credentialInspection `json:"identity"`
-	State           localState           `json:"state"`
-	LoginState      string               `json:"login_state,omitempty"`
-	LoginExpires    int64                `json:"login_expires,omitempty"`
-	LoginTokenHash  [32]byte             `json:"login_token_hash"`
-	LegacyRef       string               `json:"legacy_ref,omitempty"`
-	LegacyGUID      string               `json:"legacy_guid,omitempty"`
-	LegacyUserBound bool                 `json:"legacy_user_bound,omitempty"`
-	LegacyDetached  bool                 `json:"legacy_detached,omitempty"`
-	AutoResolvedAt  int64                `json:"auto_resolved_at,omitempty"`
+	Target             storageRecord        `json:"target"`
+	Projection         string               `json:"projection"`
+	Previous           storageRecord        `json:"previous"`
+	Token              string               `json:"token"`
+	Identity           credentialInspection `json:"identity"`
+	State              localState           `json:"state"`
+	LoginState         string               `json:"login_state,omitempty"`
+	LoginExpires       int64                `json:"login_expires,omitempty"`
+	LoginTokenHash     [32]byte             `json:"login_token_hash"`
+	LegacyRef          string               `json:"legacy_ref,omitempty"`
+	LegacyGUID         string               `json:"legacy_guid,omitempty"`
+	LegacyUserBound    bool                 `json:"legacy_user_bound,omitempty"`
+	LegacyDetached     bool                 `json:"legacy_detached,omitempty"`
+	AutoResolvedAt     int64                `json:"auto_resolved_at,omitempty"`
+	Continuations      string               `json:"continuations,omitempty"`
+	ContinuationActive string               `json:"continuation_active,omitempty"`
 }
 
 type sessionAAD struct {
@@ -273,6 +275,9 @@ func (store *sessionStore) write(record localSession) error {
 	raw, err := json.Marshal(envelope)
 	if err != nil {
 		return failure(500, "session_encoding_failed")
+	}
+	if len(raw) > 128*1024 {
+		return failure(413, "session_record_too_large")
 	}
 	name, err := sessionFile(record.Target.TokenRef)
 	if err != nil {

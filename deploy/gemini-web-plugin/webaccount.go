@@ -64,15 +64,16 @@ func decodeWebCredential(token sessionToken) (webCredential, error) {
 }
 
 type webSession struct {
-	client    *http.Client
-	origin    string
-	cookie    string
-	sapisid   string
-	prefix    string
-	xsrf      string
-	build     string
-	sessionID string
-	requestID int
+	client          *http.Client
+	origin          string
+	cookie          string
+	sapisid         string
+	prefix          string
+	xsrf            string
+	build           string
+	sessionID       string
+	requestID       int
+	generationFrame func([]byte) error
 }
 
 func newWebSession(client *http.Client, credential webCredential, origin string) *webSession {
@@ -147,6 +148,9 @@ func (session *webSession) do(ctx context.Context, path string, body []byte, ove
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, failure(response.StatusCode, "web_upstream_status")
+	}
+	if session.generationFrame != nil && strings.Contains(path, webGeneratePath) {
+		return readContinuationStream(response.Body, session.generationFrame)
 	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 32*1024*1024))
 	if err != nil {

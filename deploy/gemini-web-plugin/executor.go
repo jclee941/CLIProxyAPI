@@ -17,6 +17,14 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	if method == "executor.count_tokens" {
 		return nil, failure(400, "count_tokens_not_supported")
 	}
+	if request.Format == "interactions" {
+		request.Stream = request.Stream || method == "executor.execute_stream"
+		result, err := service.executeInteraction(ctx, request)
+		if err != nil {
+			return nil, executionFailure(omniModel, err)
+		}
+		return result, nil
+	}
 	if request.Format != "gemini" || request.Alt != "" {
 		return nil, failure(400, "unsupported_execution_format")
 	}
@@ -24,6 +32,17 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 		return nil, failure(400, "unsupported_model")
 	}
 	stream := request.Stream || method == "executor.execute_stream"
+	if _, _, chained, err := continuationRequest(request.Payload); chained {
+		if err != nil {
+			return nil, executionFailure(omniModel, err)
+		}
+		request.Stream = stream
+		result, err := service.executeContinuation(ctx, request)
+		if err != nil {
+			return nil, executionFailure(omniModel, err)
+		}
+		return result, nil
+	}
 	if request.Model == omniModel {
 		if stream {
 			return nil, failure(400, "omni_native_nonstreaming_only")

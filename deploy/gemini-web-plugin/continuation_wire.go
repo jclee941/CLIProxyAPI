@@ -1,0 +1,135 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"io"
+	"regexp"
+	"strings"
+)
+
+var continuationIdentifier = regexp.MustCompile(`^(c|r|rc)_[A-Za-z0-9_-]{1,128}$`)
+
+func continuationFrame(turn continuationTurn, raw []byte) (continuationTurn, error) {
+	if !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) {
+		return turn, nil
+	}
+	var entries []any
+	if json.Unmarshal(raw, &entries) != nil {
+		return turn, failure(502, "invalid_upstream_frame")
+	}
+	payload := false
+	for _, entry := range entries {
+		if jsonField(entry, 0) == "wrb.fr" {
+			payload = true
+		}
+	}
+	if !payload {
+		return turn, nil
+	}
+	frames, err := webResponseFrames(raw)
+	if err != nil {
+		return turn, err
+	}
+	metadata := make([]any, 10)
+	if turn.Metadata != "" && json.Unmarshal([]byte(turn.Metadata), &metadata) != nil {
+		return turn, failure(503, "continuation_store_corrupt")
+	}
+	for _, frame := range frames {
+		if values, ok := jsonField(frame, 1).([]any); ok {
+			if len(values) > len(metadata) {
+				return turn, failure(502, "invalid_continuation_metadata")
+			}
+			for i, value := range values {
+				if value != nil {
+					metadata[i] = value
+				}
+			}
+		}
+		if candidate, ok := jsonField(frame, 4, 0, 0).(string); ok {
+			metadata[2] = candidate
+		}
+		if context, ok := jsonField(frame, 25).(string); ok {
+			metadata[9] = context
+		}
+	}
+	values := []*string{&turn.Conversation, &turn.Reply, &turn.Candidate}
+	prefixes := []string{"c_", "r_", "rc_"}
+	for index, target := range values {
+		if value, ok := metadata[index].(string); ok && value != "" {
+			if !continuationIdentifier.MatchString(value) || !strings.HasPrefix(value, prefixes[index]) {
+				return turn, failure(502, "invalid_continuation_metadata")
+			}
+			if *target != "" && *target != value {
+				return turn, failure(502, "continuation_operation_mismatch")
+			}
+			*target = value
+		}
+	}
+	if turn.Parent != "" {
+		var parent []any
+		if json.Unmarshal([]byte(turn.Parent), &parent) != nil {
+			return turn, failure(503, "continuation_store_corrupt")
+		}
+		if turn.Conversation != "" && jsonField(parent, 0) != turn.Conversation {
+			return turn, failure(502, "continuation_operation_mismatch")
+		}
+	}
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return turn, err
+	}
+	if len(encoded) > 1024 {
+		return turn, failure(502, "continuation_metadata_too_large")
+	}
+	turn.Metadata = string(encoded)
+	return turn, nil
+}
+
+// The RPC is recent-first; matching the reply AND candidate avoids accidentally
+// recovering the newest turn after another client has added conversation history.
+func continuationCandidate(turn continuationTurn, body any) (any, error) {
+	entries, ok := jsonField(body, 0).([]any)
+	if !ok {
+		return nil, failure(502, "continuation_operation_missing")
+	}
+	for _, entry := range entries {
+		if jsonField(entry, 0, 1) != turn.Reply {
+			continue
+		}
+		candidates, ok := jsonField(entry, 3, 0).([]any)
+		if !ok {
+			break
+		}
+		for _, candidate := range candidates {
+			if jsonField(candidate, 0) == turn.Candidate {
+				return candidate, nil
+			}
+		}
+	}
+	return nil, failure(502, "continuation_operation_mismatch")
+}
+
+// Observe each complete generation line before reading the next. A transport
+// interruption after a receipt frame therefore cannot erase its durable handle.
+func readContinuationStream(reader io.Reader, observe func([]byte) error) ([]byte, error) {
+	scanner := bufio.NewScanner(io.LimitReader(reader, 32*1024*1024+1))
+	scanner.Buffer(make([]byte, 4096), 32*1024*1024)
+	var raw bytes.Buffer
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if raw.Len()+len(line)+1 > 32*1024*1024 {
+			return nil, failure(502, "web_response_too_large")
+		}
+		if err := observe(line); err != nil {
+			return nil, err
+		}
+		raw.Write(line)
+		raw.WriteByte('\n')
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, failure(502, "web_response_failed")
+	}
+	return raw.Bytes(), nil
+}

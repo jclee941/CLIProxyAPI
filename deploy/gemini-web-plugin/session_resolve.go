@@ -67,6 +67,9 @@ func (service *service) releaseInterruptedSession(ctx context.Context, record st
 	if !sameHostProjection(record, local.Target) {
 		return "", "", failure(409, "credential_changed")
 	}
+	if local.ContinuationActive != "" {
+		return "", "", failure(409, "continuation_recovery_required")
+	}
 	identity, probe := service.inspectCredential(ctx, "", sessionToken{local.Token})
 	var authentication *AuthenticationFailure
 	rejected := errors.As(probe, &authentication)

@@ -8,6 +8,8 @@ import (
 )
 
 type requestInterceptResponse struct {
+	Headers         http.Header `json:"Headers,omitempty"`
+	ClearHeaders    []string    `json:"ClearHeaders,omitempty"`
 	Terminate       bool        `json:"Terminate,omitempty"`
 	StatusCode      int         `json:"StatusCode,omitempty"`
 	ResponseHeaders http.Header `json:"ResponseHeaders,omitempty"`
