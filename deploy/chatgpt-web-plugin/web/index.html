@@ -112,6 +112,7 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
 .api-scroll { overflow-x: auto; }
 .api-table { width: 100%; min-width: 30rem; border-collapse: collapse; font-size: 13px; }
 .api-table th, .api-table td { padding: var(--space-2); border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.api-table td code { white-space: nowrap; }
 .api-table th { color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
 .api-table tr:last-child td { border-bottom: none; }
 .api-limits { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-4); color: var(--text-muted); font-size: 13px; }
@@ -210,6 +211,17 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
               <tr><td><code>background</code></td><td>string</td><td>투명 배경 등 업스트림 값을 그대로 전달합니다.</td></tr>
             </tbody>
           </table></div>
+
+          <h3>오류</h3>
+          <div class="api-scroll"><table class="api-table">
+            <thead><tr><th>코드</th><th>의미</th></tr></thead>
+            <tbody>
+              <tr><td><code>content_policy_violation</code></td><td>업스트림이 이미지 대신 거절로 답했습니다. 폴링을 기다리지 않고 즉시 돌려주며, 같은 프롬프트는 다른 자격증명으로도 재시도하지 않습니다.</td></tr>
+              <tr><td><code>web_image_not_ready</code></td><td>폴링 예산 안에 이미지가 나오지 않았습니다. 짧은 창의 생성 제한에 걸렸을 때 나타납니다.</td></tr>
+              <tr><td><code>web_transport_failed</code></td><td>업스트림 연결이 실패했습니다. 전송 전 실패는 자동으로 재시도합니다.</td></tr>
+            </tbody>
+          </table></div>
+          <p class="hint">실패해도 HTTP 상태는 <code>200</code>으로 도착할 수 있습니다. 성공·실패는 상태코드가 아니라 본문의 <code>error</code> 객체 유무로 판단하세요.</p>
         </div>
       </details>
 

@@ -61,6 +61,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: var
 .api-scroll { overflow-x: auto; }
 .api-table { width: 100%; min-width: 30rem; border-collapse: collapse; font-size: var(--gw-text-small); }
 .api-table th, .api-table td { padding: var(--gw-space-2); border-bottom: var(--gw-border) solid var(--border-color); text-align: left; vertical-align: top; }
+.api-table td code { white-space: nowrap; }
 .api-table th { color: var(--text-secondary); font-size: var(--gw-text-caption); text-transform: uppercase; letter-spacing: 0.06em; }
 .api-table tr:last-child td { border-bottom: none; }
 .api-limits { display: grid; gap: var(--gw-space-1); margin: 0; padding-left: var(--gw-space-4); color: var(--text-secondary); font-size: var(--gw-text-small); }

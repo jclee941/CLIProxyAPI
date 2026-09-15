@@ -191,6 +191,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: var
 .api-scroll { overflow-x: auto; }
 .api-table { width: 100%; min-width: 30rem; border-collapse: collapse; font-size: var(--gw-text-small); }
 .api-table th, .api-table td { padding: var(--gw-space-2); border-bottom: var(--gw-border) solid var(--border-color); text-align: left; vertical-align: top; }
+.api-table td code { white-space: nowrap; }
 .api-table th { color: var(--text-secondary); font-size: var(--gw-text-caption); text-transform: uppercase; letter-spacing: 0.06em; }
 .api-table tr:last-child td { border-bottom: none; }
 .api-limits { display: grid; gap: var(--gw-space-1); margin: 0; padding-left: var(--gw-space-4); color: var(--text-secondary); font-size: var(--gw-text-small); }
@@ -310,12 +311,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: var
         <div class="api-scroll"><table class="api-table">
           <thead><tr><th>필드</th><th>타입</th><th>허용값</th><th>설명</th></tr></thead>
           <tbody>
-            <tr><td><code>aspectRatio</code></td><td>string</td><td><code>16:9</code> · <code>9:16</code> · <code>1:1</code></td><td>화면비. 웹 영상 도구는 옵션을 전송 필드로 받지 않아 프롬프트에 문장으로 합쳐 보냅니다. 공식 UI의 화면비 선택과 동일하게 <strong>보장이 아닌 best-effort</strong>입니다.</td></tr>
-            <tr><td><code>negativePrompt</code></td><td>string</td><td>자유 문자열</td><td>제외할 요소. 프롬프트에 합쳐집니다.</td></tr>
+            <tr><td><code>aspectRatio</code></td><td>string</td><td><code>16:9</code> · <code>9:16</code> · <code>1:1</code></td><td>화면비. 생성 요청의 화면비 슬롯으로 그대로 전송됩니다. 생략하면 웹 앱과 같은 기본값 <code>16:9</code>입니다.</td></tr>
+            <tr><td><code>negativePrompt</code></td><td>string</td><td>자유 문자열</td><td>제외할 요소. 전용 슬롯이 없어 프롬프트 뒤에 문장으로 합쳐집니다.</td></tr>
             <tr><td><code>candidateCount</code></td><td>number</td><td><code>1</code></td><td>한 번의 제출은 영상 하나만 만듭니다.</td></tr>
           </tbody>
         </table></div>
-        <p class="hint">그 밖의 키(<code>durationSeconds</code>, <code>resolution</code>, <code>personGeneration</code> 등)는 전송 필드도 프롬프트 대응물도 없어 <code>omni_unsupported_generation_option</code>으로 거부합니다.</p>
+        <p class="hint">그 밖의 키(<code>durationSeconds</code>, <code>resolution</code>, <code>personGeneration</code> 등)는 전송 슬롯도 프롬프트 대응물도 없어 <code>omni_unsupported_generation_option</code>으로 거부합니다.</p>
 
         <h3>응답</h3>
         <pre class="api-sample"><code>{
@@ -335,8 +336,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: var
         <ul class="api-limits">
           <li><code>contents</code>는 정확히 한 턴, <code>role</code>은 <code>user</code>이거나 생략, 파트는 <code>text</code>만.</li>
           <li>스트리밍 불가. <code>stream: true</code>는 거부합니다.</li>
-          <li>프롬프트는 합쳐진 옵션 문장을 포함해 8000자 이하, 본문은 5MiB 이하.</li>
+          <li>프롬프트는 합쳐진 <code>negativePrompt</code> 문장을 포함해 8000자 이하, 본문은 5MiB 이하.</li>
           <li>영상이 준비될 때까지 최대 10분 폴링합니다.</li>
+          <li>생성 사이에 쿨다운이 있습니다. 직전 영상 직후 다시 호출하면 <code>no_video_generated</code>로 거절되니 간격을 두세요.</li>
         </ul>
       </div>
     </details>
@@ -392,10 +394,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: var
             <tr><td><code>omni_invalid_aspect_ratio</code></td><td><code>aspectRatio</code>가 <code>16:9</code>·<code>9:16</code>·<code>1:1</code>이 아닙니다.</td></tr>
             <tr><td><code>omni_invalid_negative_prompt</code></td><td><code>negativePrompt</code>가 문자열이 아닙니다.</td></tr>
             <tr><td><code>omni_single_candidate_only</code></td><td><code>candidateCount</code>가 1이 아닙니다.</td></tr>
-            <tr><td><code>omni_prompt_length_invalid</code></td><td>프롬프트가 비었거나 옵션 문장 포함 8000자를 넘었습니다.</td></tr>
+            <tr><td><code>omni_prompt_length_invalid</code></td><td>프롬프트가 비었거나 <code>negativePrompt</code> 포함 8000자를 넘었습니다.</td></tr>
             <tr><td><code>unsupported_omni_request</code></td><td>단일 user 텍스트 턴·비스트리밍이라는 형식 조건을 벗어났습니다.</td></tr>
+            <tr><td><code>gemini_web_omni:no_video_generated</code></td><td>쿨다운 등으로 업스트림이 영상을 만들지 않았습니다. 간격을 두고 재시도하세요.</td></tr>
+            <tr><td><code>gemini_web_omni:missing_video_operation</code></td><td>제출이 작업 핸들을 받지 못했습니다. 계정 상태·쿼타를 확인하세요.</td></tr>
           </tbody>
         </table></div>
+        <p class="hint">실패해도 HTTP 상태는 <code>200</code>으로 도착할 수 있습니다. 성공·실패는 상태코드가 아니라 본문의 <code>error</code> 객체 유무로 판단하세요.</p>
       </div>
     </details>
   </section>
