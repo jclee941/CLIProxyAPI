@@ -88,8 +88,11 @@ func continuationFrame(turn continuationTurn, raw []byte) (continuationTurn, err
 	return turn, nil
 }
 
-// The RPC is recent-first; matching the reply AND candidate avoids accidentally
-// recovering the newest turn after another client has added conversation history.
+// The RPC is recent-first; the reply id is the turn identity, so matching it is
+// what stops recovery binding to a newer turn another client appended. Inside that
+// reply the candidate id is revised as the video moves from placeholder to ready,
+// exactly as generateVideo observes, so the stored id is preferred but its absence
+// is not a mismatch: the current candidate of the matched reply is the same turn.
 func continuationCandidate(turn continuationTurn, body any) (any, error) {
 	entries, ok := jsonField(body, 0).([]any)
 	if !ok {
@@ -100,7 +103,7 @@ func continuationCandidate(turn continuationTurn, body any) (any, error) {
 			continue
 		}
 		candidates, ok := jsonField(entry, 3, 0).([]any)
-		if !ok {
+		if !ok || len(candidates) == 0 {
 			break
 		}
 		for _, candidate := range candidates {
@@ -108,6 +111,7 @@ func continuationCandidate(turn continuationTurn, body any) (any, error) {
 				return candidate, nil
 			}
 		}
+		return candidates[0], nil
 	}
 	return nil, failure(502, "continuation_operation_mismatch")
 }
