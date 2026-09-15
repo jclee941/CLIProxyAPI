@@ -67,8 +67,21 @@ func (service *service) releaseInterruptedSession(ctx context.Context, record st
 	if !sameHostProjection(record, local.Target) {
 		return "", "", failure(409, "credential_changed")
 	}
-	if local.ContinuationActive != "" {
-		return "", "", failure(409, "continuation_recovery_required")
+	turns, err := continuationTurns(local)
+	if err != nil {
+		return "", "", err
+	}
+	// A pinned generation belongs to continuation recovery for as long as recovery
+	// can still observe it upstream. A turn that never recorded an operation has
+	// nothing left to observe, so recovery would answer outcome_unknown forever and
+	// only the consenting operator route can end it. The automatic run never does.
+	active := local.ContinuationActive
+	if active != "" {
+		turn, found := turns[active]
+		observable := found && turn.Conversation != "" && turn.Reply != "" && turn.Candidate != ""
+		if automatic || observable {
+			return "", "", failure(409, "continuation_recovery_required")
+		}
 	}
 	identity, probe := service.inspectCredential(ctx, "", sessionToken{local.Token})
 	var authentication *AuthenticationFailure
@@ -83,7 +96,18 @@ func (service *service) releaseInterruptedSession(ctx context.Context, record st
 	if automatic {
 		local.AutoResolvedAt = service.now().Unix()
 	}
-	if err := store.write(local); err != nil {
+	if active != "" {
+		// Mark the ended turn so it is never mistaken for a completed one and can
+		// never be chained from, exactly as a terminally video-less turn is.
+		if turn, found := turns[active]; found {
+			turn.State = "no_operation"
+			turns[active] = turn
+		}
+		local.ContinuationActive = ""
+		if err := service.saveContinuations(local, turns); err != nil {
+			return "", "", err
+		}
+	} else if err := store.write(local); err != nil {
 		return "", "", err
 	}
 	state, credential := maintenanceReady, "valid"

@@ -49,6 +49,54 @@ func TestContinuationDoesNotReleaseIntentFromAccountListing(t *testing.T) {
 	}
 }
 
+func TestOperatorReleasesIntentOfTurnRecoveryCanNeverObserve(t *testing.T) {
+	service, local := continuationFixture(t)
+	continuationWeb(t, service, &continuationWebFixture{missingHandles: true})
+	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
+	unknown := continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+	if unknown.State != "outcome_unknown" {
+		t.Fatalf("submission state: %+v", unknown)
+	}
+	// The automatic run still refuses to end an ambiguous submission by itself.
+	if _, _, err := service.releaseInterruptedSession(context.Background(), local.Target, true); safeCredentialCode(err) != "continuation_recovery_required" {
+		t.Fatalf("automatic release: %v", err)
+	}
+	// When the operator consents to end a turn that recorded no upstream operation.
+	state, credential, err := service.releaseInterruptedSession(context.Background(), local.Target, false)
+	if err != nil || state != maintenanceReady || credential != "valid" {
+		t.Fatalf("operator release: state=%s credential=%s err=%v", state, credential, err)
+	}
+	stored, err := service.sessions.read(local.Target.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Then the account accepts new generations again.
+	if stored.State != localReady || stored.ContinuationActive != "" {
+		t.Fatalf("intent still pinned: state=%s active=%s", stored.State, stored.ContinuationActive)
+	}
+	turns, err := continuationTurns(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// And the ended turn is never mistaken for a completed one.
+	if ended := turns[continuationKey(prepared.Token)]; ended.State != "no_operation" {
+		t.Fatalf("turn not marked terminal: %+v", ended)
+	}
+}
+
+func TestOperatorDefersToRecoveryWhileTheTurnRemainsObservable(t *testing.T) {
+	service, local := continuationFixture(t)
+	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
+	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
+	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+	// When an operator tries to end a submission upstream still holds an operation for.
+	_, _, err := service.releaseInterruptedSession(context.Background(), local.Target, false)
+	// Then generation recovery, not operator consent, must answer for it.
+	if safeCredentialCode(err) != "continuation_recovery_required" {
+		t.Fatalf("operator release: %v", err)
+	}
+}
+
 func TestContinuationIntentPersistenceFailurePreventsSubmission(t *testing.T) {
 	service, local := continuationFixture(t)
 	fixture := &continuationWebFixture{}
