@@ -5,17 +5,27 @@ import (
 	"strings"
 )
 
-// webOrientationLandscape is the framing the web app sends when the user leaves
-// the control alone, and the one the video payload has always carried.
-const webOrientationLandscape = 1
+// omniFraming is how the web app states the framing, and it states it twice:
+// the chip the user picked and the orientation that chip translates into. Both
+// have to travel and they have to agree - a chip that still says landscape next
+// to an orientation that says portrait leaves the upstream holding the stream
+// open until the budget runs out.
+type omniFraming struct {
+	chip        int
+	orientation int
+}
 
-// omniOrientations maps the accepted ratios onto the framing the video options
-// carry. The wire holds an orientation rather than a free ratio, so a ratio that
-// is neither landscape nor portrait is rejected rather than silently widened and
-// a caller never believes a framing was applied when it was not.
-var omniOrientations = map[string]int{
-	"16:9": 1,
-	"9:16": 2,
+// webFramingLandscape is what the web app sends when the control is left alone,
+// and what the video payload has always carried.
+var webFramingLandscape = omniFraming{chip: 16, orientation: 1}
+
+// omniFramings maps the accepted ratios onto that pair. The wire holds an
+// orientation rather than a free ratio, so a ratio that is neither landscape nor
+// portrait is rejected rather than silently widened, and a caller never believes
+// a framing was applied when it was not.
+var omniFramings = map[string]omniFraming{
+	"16:9": webFramingLandscape,
+	"9:16": {chip: 17, orientation: 2},
 }
 
 type omniOptions struct {
@@ -23,11 +33,11 @@ type omniOptions struct {
 	NegativePrompt string
 }
 
-func (options omniOptions) orientation() int {
-	if framing, ok := omniOrientations[options.AspectRatio]; ok {
+func (options omniOptions) framing() omniFraming {
+	if framing, ok := omniFramings[options.AspectRatio]; ok {
 		return framing
 	}
-	return webOrientationLandscape
+	return webFramingLandscape
 }
 
 func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {
@@ -39,7 +49,7 @@ func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {
 			if json.Unmarshal(value, &ratio) != nil {
 				return omniOptions{}, failure(400, "omni_invalid_aspect_ratio")
 			}
-			if _, ok := omniOrientations[ratio]; !ok {
+			if _, ok := omniFramings[ratio]; !ok {
 				return omniOptions{}, failure(400, "omni_invalid_aspect_ratio")
 			}
 			options.AspectRatio = ratio

@@ -31,20 +31,23 @@ const webVideoChipMarker = "googleusercontent.com/video_gen_chip/"
 
 // webVideoFields turns the text request into a video submission. The overrides
 // are what distinguishes a video turn from a text one.
-// orientation is the framing, and it sits inside the turn rather than in a slot
-// of its own: the generation options hang off the prompt, the video options are
-// the first of them, and their fourth member is 1 for landscape and 2 for
-// portrait. That member had been pinned to landscape, which is why every video
-// came back landscape no matter what the caller asked for.
-func webVideoFields(prompt string, mode int, conversationID string, orientation int) []any {
+// The framing travels twice, exactly as the web app sends it. Slot 55 carries
+// the ids of the chips the user picked, where 16 is the landscape chip and 17
+// the portrait one, and the turn carries the orientation those chips translate
+// into: the generation options hang off the prompt, the video options are the
+// first of them, and their fourth member is 1 for landscape and 2 for portrait.
+// Both were pinned to landscape, which is why every video came back landscape,
+// and they have to move together - a portrait orientation under a landscape chip
+// leaves the upstream holding the stream open until the budget runs out.
+func webVideoFields(prompt string, mode int, conversationID string, framing omniFraming) []any {
 	fields := webGenerationFields(prompt, mode, 0, conversationID)
 	fields[0] = []any{prompt, 0, nil, nil, nil, nil, 0, nil, nil,
-		[]any{nil, nil, nil, nil, nil, nil, []any{[]any{nil, nil, nil, orientation}}}}
+		[]any{nil, nil, nil, nil, nil, nil, []any{[]any{nil, nil, nil, framing.orientation}}}}
 	fields[41] = []any{1}
 	fields[45] = nil
 	fields[49] = 11
 	fields[54] = []any{}
-	fields[55] = []any{[]any{16}}
+	fields[55] = []any{[]any{framing.chip}}
 	fields[67] = 0
 	fields[68] = 1
 	fields[80] = 1
@@ -120,7 +123,7 @@ func webResponseFrames(raw []byte) ([]any, error) {
 	return bodies, nil
 }
 
-func (session *webSession) submitVideo(ctx context.Context, prompt string, account webAccount, model capability, orientation int) ([]byte, error) {
+func (session *webSession) submitVideo(ctx context.Context, prompt string, account webAccount, model capability, framing omniFraming) ([]byte, error) {
 	if session.xsrf == "" {
 		if err := session.bootstrap(ctx); err != nil {
 			return nil, err
@@ -130,7 +133,7 @@ func (session *webSession) submitVideo(ctx context.Context, prompt string, accou
 	if err != nil {
 		return nil, err
 	}
-	fields, err := json.Marshal(webVideoFields(prompt, model.Mode, conversationID, orientation))
+	fields, err := json.Marshal(webVideoFields(prompt, model.Mode, conversationID, framing))
 	if err != nil {
 		return nil, failure(400, "web_request_invalid")
 	}
@@ -161,8 +164,8 @@ func (session *webSession) downloadVideo(ctx context.Context, url string) (int, 
 
 // generateVideo submits the prompt and then re-reads the conversation until the
 // download appears. The poll interval matches the bridge it replaces.
-func (session *webSession) generateVideo(ctx context.Context, prompt string, account webAccount, model capability, orientation int) ([]byte, error) {
-	raw, err := session.submitVideo(ctx, prompt, account, model, orientation)
+func (session *webSession) generateVideo(ctx context.Context, prompt string, account webAccount, model capability, framing omniFraming) ([]byte, error) {
+	raw, err := session.submitVideo(ctx, prompt, account, model, framing)
 	if err != nil {
 		return nil, err
 	}

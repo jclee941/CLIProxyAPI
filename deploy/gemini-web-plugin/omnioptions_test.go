@@ -18,8 +18,8 @@ func TestOmniCarriesTheFramingThroughTheRebuiltRequest(t *testing.T) {
 	if prompt != "a balloon" {
 		t.Fatalf("prompt = %q, want the caller's text untouched", prompt)
 	}
-	if options.orientation() != 2 {
-		t.Fatalf("framing = %d, want portrait", options.orientation())
+	if options.framing().orientation != 2 {
+		t.Fatalf("framing = %+v, want portrait", options.framing())
 	}
 	if !strings.Contains(options.applyPrompt(prompt), "Do not include: text overlays") {
 		t.Fatalf("negative prompt lost: %q", options.applyPrompt(prompt))
@@ -43,8 +43,8 @@ func TestOmniKeepsTheAppDefaultFramingWhenNoneIsAsked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plain request rejected: %v", err)
 	}
-	if options.orientation() != webOrientationLandscape {
-		t.Fatalf("framing = %d, want the app default %d", options.orientation(), webOrientationLandscape)
+	if options.framing() != webFramingLandscape {
+		t.Fatalf("framing = %+v, want the app default %+v", options.framing(), webFramingLandscape)
 	}
 }
 
