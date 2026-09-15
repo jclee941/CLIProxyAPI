@@ -19,24 +19,13 @@ const (
 )
 
 const (
-	// imagesModel is the static model this plugin serves on the OpenAI image endpoints.
-	imagesModel = "chatgpt-web-image"
 	// imagesModelType marks the model as callable through /v1/images/generations.
 	imagesModelType = "openai-image"
-	// responsesModel is the only carrier model ChatGPT accepts for a ChatGPT account.
-	responsesModel = "gpt-5.5"
-	// imagesToolModel is the image_generation tool model the web backend exposes.
-	imagesToolModel   = "gpt-image-2"
-	imagesInstruction = "Use the image_generation tool to create exactly one image for the user's request. Return the generated image result."
 
-	imagesDefaultSize    = "1024x1024"
-	imagesDefaultQuality = "auto"
-	imagesDefaultFormat  = "png"
+	imagesDefaultFormat = "png"
 
 	// imagesMaxEventBytes bounds one SSE line; a 1024x1024 base64 PNG is about 1 MB.
 	imagesMaxEventBytes = 32 * 1024 * 1024
-	// imagesMinResultBytes keeps short unrelated "result" fields from matching.
-	imagesMinResultBytes = 256
 )
 
 type modelInfo struct {
