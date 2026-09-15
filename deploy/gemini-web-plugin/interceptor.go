@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 )
@@ -23,29 +24,60 @@ func interceptRequest(raw []byte) requestInterceptResponse {
 	if !isOmniModel(request.RequestedModel) && !isOmniModel(request.Model) {
 		return requestInterceptResponse{}
 	}
-	if err == nil && !request.Stream && omniRouteAccepted(request.SourceFormat, request.Body) {
-		return requestInterceptResponse{}
+	if err != nil || request.Stream {
+		return omniRejection(nil)
+	}
+	if routeErr := omniRouteRejection(request.SourceFormat, request.Body); routeErr != nil {
+		return omniRejection(routeErr)
+	}
+	return requestInterceptResponse{}
+}
+
+const omniGenericMessage = "Omni requires a synchronous single-user-turn text request in Gemini or OpenAI chat format."
+
+// A rejected option is named so the caller can correct it; every other refusal
+// keeps the generic wording rather than describing an internal check.
+var omniRejectionMessages = map[string]string{
+	"omni_unsupported_generation_option": "Omni accepts only aspectRatio, negativePrompt and candidateCount in generationConfig.",
+	"omni_invalid_aspect_ratio":          "Omni accepts aspectRatio 16:9, 9:16 or 1:1.",
+	"omni_invalid_negative_prompt":       "Omni requires negativePrompt to be a string.",
+	"omni_single_candidate_only":         "Omni produces exactly one video per request.",
+	"omni_prompt_length_invalid":         "Omni requires a non-empty prompt of at most 8000 characters, including the folded generation options.",
+}
+
+func omniRejection(err error) requestInterceptResponse {
+	code, message := "unsupported_omni_request", omniGenericMessage
+	var public *publicError
+	if errors.As(err, &public) {
+		if named, ok := omniRejectionMessages[public.Code]; ok {
+			code, message = public.Code, named
+		}
+	}
+	body, marshalErr := json.Marshal(map[string]any{
+		"error": map[string]string{"code": code, "type": "invalid_request_error", "message": message},
+	})
+	if marshalErr != nil {
+		body = []byte(`{"error":{"code":"unsupported_omni_request","type":"invalid_request_error","message":"` + omniGenericMessage + `"}}`)
 	}
 	return requestInterceptResponse{
 		Terminate:       true,
 		StatusCode:      http.StatusBadRequest,
 		ResponseHeaders: http.Header{"Content-Type": {"application/json"}},
-		ResponseBody:    []byte(`{"error":{"code":"unsupported_omni_request","type":"invalid_request_error","message":"Omni requires a synchronous single-user-turn text request in Gemini or OpenAI chat format."}}`),
+		ResponseBody:    body,
 	}
 }
 
-// omniRouteAccepted reports whether the route carries a body the executor can
-// turn into exactly one generation. It mirrors the executor's own admission
-// checks so a malformed request is refused before any video is produced.
-func omniRouteAccepted(sourceFormat string, body []byte) bool {
+// omniRouteRejection mirrors the executor's own admission checks so a malformed
+// request is refused before any video is produced.
+func omniRouteRejection(sourceFormat string, body []byte) error {
 	switch sourceFormat {
 	case "gemini":
-		return validateOmni(body) == nil
+		return validateOmni(body)
 	case "openai":
 		_, err := openAIPromptForOmni(body)
-		return err == nil
+		return err
 	}
-	return false
+	return failure(400, "unsupported_omni_request")
 }
 
 func isOmniModel(model string) bool {

@@ -208,7 +208,8 @@ func hasOmniStopRules(rules []stopRule) bool {
 // omniPrompt validates a Gemini-native omni request and returns the single text
 // prompt it carries. Fixed safety thresholds are accepted because the host's
 // OpenAI-to-Gemini translation adds them; they are dropped rather than
-// forwarded, since the upstream body is rebuilt from the prompt alone.
+// forwarded, since the upstream body is rebuilt from the prompt alone. The
+// generation options that path can honour are folded into that prompt.
 func omniPrompt(raw []byte) (string, error) {
 	var body struct {
 		Model    string `json:"model"`
@@ -221,8 +222,12 @@ func omniPrompt(raw []byte) (string, error) {
 		GenerationConfig map[string]json.RawMessage `json:"generationConfig"`
 		SafetySettings   json.RawMessage            `json:"safetySettings"`
 	}
-	if len(raw) > 5*1024*1024 || strictJSON(raw, &body) != nil || body.Model != "" && body.Model != omniModel || len(body.GenerationConfig) != 0 || len(body.Contents) != 1 {
+	if len(raw) > 5*1024*1024 || strictJSON(raw, &body) != nil || body.Model != "" && body.Model != omniModel || len(body.Contents) != 1 {
 		return "", failure(400, "unsupported_omni_request")
+	}
+	options, optionsErr := parseOmniOptions(body.GenerationConfig)
+	if optionsErr != nil {
+		return "", optionsErr
 	}
 	turn := body.Contents[0]
 	if turn.Role != "" && turn.Role != "user" || len(turn.Parts) == 0 {
@@ -235,8 +240,12 @@ func omniPrompt(raw []byte) (string, error) {
 		}
 		texts = append(texts, *part.Text)
 	}
-	prompt := strings.Join(texts, "\n")
-	if strings.TrimSpace(prompt) == "" || utf8.RuneCountInString(prompt) > 8000 {
+	base := strings.Join(texts, "\n")
+	if strings.TrimSpace(base) == "" {
+		return "", failure(400, "omni_prompt_length_invalid")
+	}
+	prompt := options.apply(base)
+	if utf8.RuneCountInString(prompt) > 8000 {
 		return "", failure(400, "omni_prompt_length_invalid")
 	}
 	return prompt, nil
