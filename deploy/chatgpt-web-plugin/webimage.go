@@ -451,6 +451,11 @@ func (client *webClient) pollConversation(ctx context.Context, references *webIm
 			if len(references.fileIDs) > 0 || len(references.sedimentIDs) > 0 {
 				return nil
 			}
+			// Only conclusive while nothing has been produced: a refusal cannot
+			// be distinguished from a pending render once assets exist.
+			if webPolicyRefusal(webConversationText(raw)) {
+				return failure(400, webPolicyCode)
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -602,6 +607,11 @@ func (service *service) generateWebImage(ctx context.Context, callbackID string,
 		}
 		result, generateErr := client.generate(ctx, request.Prompt)
 		if generateErr != nil {
+			// Another account would reproduce the same refusal for the same
+			// prompt, so the walk stops rather than spending a second budget.
+			if webRefusedByPolicy(generateErr) {
+				return nil, generateErr
+			}
 			lastErr = generateErr
 			continue
 		}
