@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -13,6 +14,12 @@ import (
 
 // defaultMaxAttempts bounds how many times a violating reply is regenerated.
 const defaultMaxAttempts = 2
+
+const (
+	outcomeRegenerated      = "regenerated"
+	outcomeRegenerationFail = "regeneration_failed"
+	outcomeBudgetExhausted  = "budget_exhausted"
+)
 
 // enforcement carries one request's contract together with everything needed to
 // ask the model again when a reply breaks it.
@@ -65,12 +72,15 @@ func (e enforcement) apply(body []byte) ([]byte, bool) {
 			return body, changed
 		}
 		if attempt >= e.cfg.MaxAttempts {
+			e.report(attempt, violations, outcomeBudgetExhausted)
 			return body, changed
 		}
 		regenerated, ok := e.regenerate(raw, violations)
 		if !ok {
+			e.report(attempt, violations, outcomeRegenerationFail)
 			return body, changed
 		}
+		e.report(attempt, violations, outcomeRegenerated)
 		body, changed = regenerated, true
 	}
 }
@@ -128,6 +138,71 @@ func (e enforcement) contract() string {
 		return toolInstructionText(e.tools)
 	}
 	return instructionText(e.spec)
+}
+
+// hostLogRequest mirrors the host's log callback payload. The field names are
+// part of that contract: a mismatch logs nothing rather than failing.
+type hostLogRequest struct {
+	Level   string         `json:"level,omitempty"`
+	Message string         `json:"message,omitempty"`
+	Fields  map[string]any `json:"fields,omitempty"`
+}
+
+// report records one repair attempt so an operator can see how often an upstream
+// breaks the contract, which is otherwise invisible: a repaired reply looks
+// exactly like one the upstream got right. It carries no request or reply
+// content, only the model, which contract broke, and the validator's own wording.
+func (e enforcement) report(attempt int, violations []string, outcome string) {
+	_, _ = callHost(pluginabi.MethodHostLog, hostLogRequest{
+		// Every outcome is a warning: each one means an upstream ignored a
+		// contract the caller asked for. Lower levels are also filtered out of
+		// the deployed text log, which would hide the repairs entirely.
+		Level:   "warn",
+		Message: "structured-output: upstream reply broke the requested contract",
+		Fields:  e.reportFields(attempt, violations, outcome),
+	})
+}
+
+// reportFields maps the repair onto the field names the host's text formatter
+// actually renders. It keeps a fixed allow list and silently drops everything
+// else, so descriptive names like "outcome" or "violations" would reach logrus
+// and then vanish before being written.
+func (e enforcement) reportFields(attempt int, violations []string, outcome string) map[string]any {
+	// A regeneration reports the attempt it is spending; giving up reports the
+	// attempts already spent, which is the loop counter itself.
+	spent := attempt + 1
+	if outcome == outcomeBudgetExhausted {
+		spent = attempt
+	}
+	fields := map[string]any{
+		"provider": pluginID,
+		"model":    e.model,
+		"mode":     e.contractKind(),
+		"state":    outcome,
+		"budget":   fmt.Sprintf("%d of %d regenerations, %d violations", spent, e.cfg.MaxAttempts, len(violations)),
+	}
+	if len(violations) > 0 {
+		fields["reason"] = truncateRunes(violations[0], 200)
+	}
+	return fields
+}
+
+func (e enforcement) contractKind() string {
+	if e.tools.demandsCall() {
+		return "tool_call"
+	}
+	if e.spec != nil {
+		return e.spec.Kind
+	}
+	return "none"
+}
+
+func truncateRunes(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit]) + "..."
 }
 
 func replyViolations(spec *outputSpec, candidate string, extracted bool) []string {
