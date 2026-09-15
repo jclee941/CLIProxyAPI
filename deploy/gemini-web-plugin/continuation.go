@@ -217,6 +217,17 @@ func (service *service) executeContinuation(ctx context.Context, request executo
 		return nil, failure(409, "session_requires_reconciliation")
 	}
 	state := lease.snapshot()
+	if state.state == maintenanceHostPending && request.HostCallbackID != "" {
+		// A manager re-login parks every account here for a while. The omni executor
+		// resolves that by pushing the credential to the host instead of refusing, so
+		// continuation does the same; otherwise native runs fail at random depending
+		// on when they land relative to a login.
+		if err := service.syncCredentialHost(request.HostCallbackID, record); err != nil {
+			return nil, err
+		}
+		lease.set(credentialState{state: maintenanceReady})
+		state = lease.snapshot()
+	}
 	if state.state == maintenanceFenced || state.state == maintenanceHostPending || state.state == maintenanceOperator && local.ContinuationActive != key {
 		return nil, failure(409, "session_requires_reconciliation")
 	}
