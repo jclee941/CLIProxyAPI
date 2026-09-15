@@ -2,11 +2,13 @@
 //
 // Some providers are bridges onto a chat product rather than the platform API.
 // They accept the client's response_format and then answer with prose anyway.
-// This plugin restates the contract to the model before the request is sent and
-// strips the reply back down to its JSON value afterwards.
+// This plugin restates the contract to the model before the request is sent,
+// reduces the reply to its JSON value, and checks it against the requested
+// schema. A reply that still breaks the contract is regenerated through the host
+// with the specific violations until it conforms or the budget is spent.
 //
-// Providers with native structured output are unaffected: their reply already is
-// a bare JSON value, so the response pass finds nothing to change.
+// Providers with native structured output are unaffected: their first reply
+// already validates, so nothing is rewritten and nothing is re-executed.
 package main
 
 /*
@@ -18,11 +20,14 @@ typedef struct {
 	size_t len;
 } cliproxy_buffer;
 
+typedef int (*cliproxy_host_call_fn)(void*, const char*, const uint8_t*, size_t, cliproxy_buffer*);
+typedef void (*cliproxy_host_free_fn)(void*, size_t);
+
 typedef struct {
 	uint32_t abi_version;
 	void* host_ctx;
-	void* call;
-	void* free_buffer;
+	cliproxy_host_call_fn call;
+	cliproxy_host_free_fn free_buffer;
 } cliproxy_host_api;
 
 typedef int (*cliproxy_plugin_call_fn)(char*, uint8_t*, size_t, cliproxy_buffer*);
@@ -39,18 +44,36 @@ typedef struct {
 extern int cliproxyPluginCall(char*, uint8_t*, size_t, cliproxy_buffer*);
 extern void cliproxyPluginFree(void*, size_t);
 extern void cliproxyPluginShutdown(void);
+
+static const cliproxy_host_api* stored_host;
+
+static void store_host_api(const cliproxy_host_api* host) {
+	stored_host = host;
+}
+
+static int call_host_api(const char* method, const uint8_t* request, size_t request_len, cliproxy_buffer* response) {
+	if (stored_host == NULL || stored_host->call == NULL) {
+		return 1;
+	}
+	return stored_host->call(stored_host->host_ctx, method, request, request_len, response);
+}
+
+static void free_host_buffer(void* ptr, size_t len) {
+	if (stored_host != NULL && stored_host->free_buffer != NULL && ptr != NULL) {
+		stored_host->free_buffer(ptr, len);
+	}
+}
 */
 import "C"
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 	"unsafe"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 	"gopkg.in/yaml.v3"
 )
 
@@ -59,7 +82,7 @@ const pluginID = "structured-output"
 var state = struct {
 	mu     sync.Mutex
 	config pluginConfig
-}{config: pluginConfig{Instruct: true, Clean: true}}
+}{config: defaultConfig()}
 
 type pluginConfig struct {
 	// Instruct restates the contract to the model before the request is sent.
@@ -70,6 +93,26 @@ type pluginConfig struct {
 	// agent placeholder rather than a resolvable image, which some web bridges emit.
 	// Off by default because it rewrites ordinary replies, not just structured ones.
 	StripAgentTags bool `yaml:"strip_agent_tags"`
+	// Validate checks the reply against the requested schema rather than trusting
+	// an upstream that already ignored the contract once.
+	Validate bool `yaml:"validate"`
+	// MaxAttempts bounds regeneration after a violating reply. Zero delivers the
+	// cleaned reply unchanged.
+	MaxAttempts int `yaml:"max_attempts"`
+	// BufferStreaming answers a streaming strict request from one complete reply,
+	// because a contract cannot be judged from a partial stream.
+	BufferStreaming bool `yaml:"buffer_streaming"`
+	// InstructTools states a demanded function call up front, which saves a round
+	// trip on a bridge that cannot call functions. Turn it off where providers
+	// call functions natively, because the instruction talks them out of a real
+	// call. Optional tool use is never instructed either way.
+	InstructTools bool `yaml:"instruct_tools"`
+}
+
+// defaultConfig keeps the defaults in one place so a reconfigure cannot drift
+// from the values the plugin starts with.
+func defaultConfig() pluginConfig {
+	return pluginConfig{Instruct: true, Clean: true, Validate: true, MaxAttempts: defaultMaxAttempts, BufferStreaming: true, InstructTools: true}
 }
 
 type envelope struct {
@@ -102,10 +145,11 @@ type registrationCapability struct {
 func main() {}
 
 //export cliproxy_plugin_init
-func cliproxy_plugin_init(_ *C.cliproxy_host_api, plugin *C.cliproxy_plugin_api) C.int {
+func cliproxy_plugin_init(host *C.cliproxy_host_api, plugin *C.cliproxy_plugin_api) C.int {
 	if plugin == nil {
 		return 1
 	}
+	C.store_host_api(host)
 	plugin.abi_version = C.uint32_t(pluginabi.ABIVersion)
 	plugin.call = C.cliproxy_plugin_call_fn(C.cliproxyPluginCall)
 	plugin.free_buffer = C.cliproxy_plugin_free_fn(C.cliproxyPluginFree)
@@ -172,7 +216,7 @@ func configure(raw []byte) error {
 			return err
 		}
 	}
-	cfg := pluginConfig{Instruct: true, Clean: true}
+	cfg := defaultConfig()
 	if len(req.ConfigYAML) > 0 {
 		if err := yaml.Unmarshal(req.ConfigYAML, &cfg); err != nil {
 			return err
@@ -210,10 +254,14 @@ func interceptRequest(raw []byte) ([]byte, error) {
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return nil, err
 	}
+	cfg := currentConfig()
 	body := req.Body
-	if currentConfig().Instruct {
-		if spec := parseResponseFormat(body); spec != nil && gjson.GetBytes(body, "messages").IsArray() {
-			body = withSystemInstruction(body, instructionText(spec))
+	if cfg.Instruct {
+		body = withContract(body, cfg)
+	}
+	if req.Stream && cfg.Validate && cfg.BufferStreaming && requestCarriesContract(body) {
+		if terminated, ok := bufferStrictStream(req, cfg, body); ok {
+			return okEnvelope(terminated)
 		}
 	}
 	return okEnvelope(pluginapi.RequestInterceptResponse{Headers: req.Headers, Body: body})
@@ -227,37 +275,19 @@ func passThroughRequest(raw []byte) ([]byte, error) {
 	return okEnvelope(pluginapi.RequestInterceptResponse{Headers: req.Headers, Body: req.Body})
 }
 
-// interceptResponse cleans the reply text: dangling agent tags are removed, and a
-// reply to a structured request is reduced to its JSON value. A reply that needs
-// neither is left untouched.
+// interceptResponse holds the output contract on the caller's behalf: the reply
+// is cleaned, checked against the schema, and regenerated when it does not
+// conform. A reply that needs none of that is left untouched.
 func interceptResponse(raw []byte) ([]byte, error) {
 	var req pluginapi.ResponseInterceptRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return nil, err
 	}
-	cfg := currentConfig()
-	content := gjson.GetBytes(req.Body, "choices.0.message.content")
-	if !content.Exists() {
+	body, changed := enforceResponse(req, currentConfig())
+	if !changed {
 		return okEnvelope(pluginapi.ResponseInterceptResponse{})
 	}
-
-	text := content.String()
-	if cfg.StripAgentTags {
-		text = stripAgentTags(text)
-	}
-	if cfg.Clean && parseResponseFormat(req.OriginalRequest) != nil {
-		if extracted, ok := extractJSON(text); ok {
-			text = extracted
-		}
-	}
-	if text == content.String() {
-		return okEnvelope(pluginapi.ResponseInterceptResponse{})
-	}
-	updated, err := sjson.SetBytes(req.Body, "choices.0.message.content", text)
-	if err != nil {
-		return okEnvelope(pluginapi.ResponseInterceptResponse{})
-	}
-	return okEnvelope(pluginapi.ResponseInterceptResponse{Body: updated})
+	return okEnvelope(pluginapi.ResponseInterceptResponse{Body: body})
 }
 
 func okEnvelope(v any) ([]byte, error) {
@@ -271,6 +301,42 @@ func okEnvelope(v any) ([]byte, error) {
 func errorEnvelope(code, message string) []byte {
 	encoded, _ := json.Marshal(envelope{OK: false, Error: &envelopeError{Code: code, Message: message}})
 	return encoded
+}
+
+// callHost invokes a host callback and returns the result payload it carried.
+func callHost(method string, payload any) (json.RawMessage, error) {
+	rawPayload, errMarshal := json.Marshal(payload)
+	if errMarshal != nil {
+		return nil, fmt.Errorf("marshal host callback payload %s: %w", method, errMarshal)
+	}
+	cMethod := C.CString(method)
+	defer C.free(unsafe.Pointer(cMethod))
+	cPayload := C.CBytes(rawPayload)
+	defer C.free(cPayload)
+
+	var response C.cliproxy_buffer
+	code := C.call_host_api(cMethod, (*C.uint8_t)(cPayload), C.size_t(len(rawPayload)), &response)
+	var rawResponse []byte
+	if response.ptr != nil {
+		if response.len > 0 {
+			rawResponse = C.GoBytes(response.ptr, C.int(response.len))
+		}
+		C.free_host_buffer(response.ptr, response.len)
+	}
+	if len(rawResponse) == 0 {
+		return nil, fmt.Errorf("host callback %s returned no response, code=%d", method, int(code))
+	}
+	var env envelope
+	if errUnmarshal := json.Unmarshal(rawResponse, &env); errUnmarshal != nil {
+		return nil, fmt.Errorf("decode host callback envelope %s: %w", method, errUnmarshal)
+	}
+	if !env.OK {
+		if env.Error != nil {
+			return nil, fmt.Errorf("%s: %s", env.Error.Code, env.Error.Message)
+		}
+		return nil, fmt.Errorf("host callback %s failed", method)
+	}
+	return env.Result, nil
 }
 
 func writeResponse(response *C.cliproxy_buffer, raw []byte) {
