@@ -11,9 +11,19 @@
   <style>/* RESOURCE_STYLES */</style>
 </head>
 <body>
-  <div id="app"><p>Gemini Web 계정 관리 화면을 준비하고 있습니다.</p></div>
+  <div class="shell">
+    <input class="view-switch" type="radio" name="view" id="view-accounts" checked>
+    <input class="view-switch" type="radio" name="view" id="view-api">
+    <nav class="sidenav" aria-label="화면 전환">
+      <p class="sidenav-brand"><span class="sidenav-mark" aria-hidden="true">GW</span>Gemini Web</p>
+      <label class="nav-item" for="view-accounts">계정</label>
+      <label class="nav-item" for="view-api">API 레퍼런스</label>
+      <p class="sidenav-foot">CLIProxyAPI 플러그인</p>
+    </nav>
+    <main class="shell-main">
+  <div id="app" class="view view-accounts"><p class="view-placeholder">Gemini Web 계정 관리 화면을 준비하고 있습니다.</p></div>
   <noscript>계정을 관리하려면 이 리소스 페이지의 JavaScript 실행을 허용하세요.</noscript>
-  <section class="usage-guide api-reference">
+  <section class="view view-api usage-guide api-reference">
     <h2>요청 방법</h2>
     <p class="hint">OpenAI 호환 <code>POST /v1/chat/completions</code>과 Gemini 네이티브 <code>POST /v1beta/models/{model}:generateContent</code>를 모두 받습니다. 아래 예시의 <code>$CLIPROXY</code>는 이 프록시의 베이스 URL, <code>$CLIPROXY_KEY</code>는 발급받은 API 키입니다.</p>
 
@@ -127,6 +137,8 @@
       </div>
     </details>
   </section>
+    </main>
+  </div>
   <script>/* RESOURCE_SCRIPT */</script>
 </body>
 </html>
