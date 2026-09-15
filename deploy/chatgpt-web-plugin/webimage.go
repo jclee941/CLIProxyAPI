@@ -24,7 +24,11 @@ const (
 
 	webInitialWait  = 10 * time.Second
 	webPollInterval = 5 * time.Second
-	webPollBudget   = 300 * time.Second
+	// Measured generations land in 19-40s. The budget is walked once per
+	// credential, so a longer one only delays a typed error past the point where
+	// callers give up and drop the connection, turning a reportable failure into
+	// a disconnect.
+	webPollBudget = 120 * time.Second
 )
 
 var (
@@ -134,20 +138,29 @@ func (client *webClient) imageHeader(path string, requirements webRequirements, 
 }
 
 func (client *webClient) send(ctx context.Context, method, path string, header http.Header, body []byte) (*http.Response, error) {
-	var reader io.Reader
-	if body != nil {
-		reader = bytes.NewReader(body)
+	for attempt := 0; ; attempt++ {
+		var reader io.Reader
+		if body != nil {
+			reader = bytes.NewReader(body)
+		}
+		request, err := http.NewRequestWithContext(ctx, method, webBase+path, reader)
+		if err != nil {
+			return nil, failure(500, "web_request_invalid")
+		}
+		request.Header = header
+		response, doErr := client.http.Do(request)
+		if doErr == nil {
+			return response, nil
+		}
+		if attempt+1 >= webSendAttempts || !webUnsentFailure(doErr) {
+			return nil, failure(502, "web_transport_failed")
+		}
+		select {
+		case <-ctx.Done():
+			return nil, failure(499, "web_client_disconnected")
+		case <-time.After(webRetryDelay(attempt)):
+		}
 	}
-	request, err := http.NewRequestWithContext(ctx, method, webBase+path, reader)
-	if err != nil {
-		return nil, failure(500, "web_request_invalid")
-	}
-	request.Header = header
-	response, err := client.http.Do(request)
-	if err != nil {
-		return nil, failure(502, "web_transport_failed")
-	}
-	return response, nil
 }
 
 func closeBody(response *http.Response) {
