@@ -204,11 +204,10 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
             <thead><tr><th>필드</th><th>타입</th><th>설명</th></tr></thead>
             <tbody>
               <tr><td><code>prompt</code></td><td>string</td><td>생성할 이미지 설명입니다.</td></tr>
-              <tr><td><code>n</code></td><td>number</td><td>요청 장수입니다.</td></tr>
-              <tr><td><code>size</code></td><td>string</td><td><code>1024x1024</code>처럼 업스트림이 받는 값을 그대로 전달합니다.</td></tr>
-              <tr><td><code>quality</code></td><td>string</td><td>업스트림에 그대로 전달합니다.</td></tr>
-              <tr><td><code>output_format</code></td><td>string</td><td>생략하면 <code>png</code>입니다.</td></tr>
-              <tr><td><code>background</code></td><td>string</td><td>투명 배경 등 업스트림 값을 그대로 전달합니다.</td></tr>
+              <tr><td><code>size</code></td><td>string</td><td>해상도. 웹 대화 경로에는 전송 필드가 없어 프롬프트 문장으로 실어 보냅니다. <code>1024x1536</code>(세로)·<code>1536x1024</code>(가로)·<code>1024x1024</code> 실측 확인.</td></tr>
+              <tr><td><code>quality</code></td><td>string</td><td>같은 방식으로 프롬프트에 실립니다. <code>auto</code>면 생략합니다.</td></tr>
+              <tr><td><code>output_format</code></td><td>string</td><td>응답에 붙는 형식 라벨입니다. 생략하면 <code>png</code>.</td></tr>
+              <tr><td><code>n</code> · <code>background</code></td><td>—</td><td>전달되지 않습니다. 한 번에 한 장만 생성됩니다.</td></tr>
             </tbody>
           </table></div>
 

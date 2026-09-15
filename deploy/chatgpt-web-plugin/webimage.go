@@ -618,7 +618,7 @@ func (service *service) generateWebImage(ctx context.Context, callbackID string,
 			lastErr = clientErr
 			continue
 		}
-		result, generateErr := client.generate(ctx, request.Prompt)
+		result, generateErr := client.generate(ctx, imagePromptWithHints(request))
 		if generateErr != nil {
 			// Another account would reproduce the same refusal for the same
 			// prompt, so the walk stops rather than spending a second budget.
