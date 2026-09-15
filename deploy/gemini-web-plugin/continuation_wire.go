@@ -61,9 +61,10 @@ func continuationFrame(turn continuationTurn, raw []byte) (continuationTurn, err
 			if !continuationIdentifier.MatchString(value) || !strings.HasPrefix(value, prefixes[index]) {
 				return turn, failure(502, "invalid_continuation_metadata")
 			}
-			if *target != "" && *target != value {
-				return turn, failure(502, "continuation_operation_mismatch")
-			}
+			// One submission revises its own identifiers as the video candidate moves
+			// from placeholder to ready, so the newest value wins here exactly as it
+			// does in generateVideo. Cross-operation drift is caught by the parent
+			// conversation check below and by continuationCandidate on re-read.
 			*target = value
 		}
 	}
