@@ -17,6 +17,11 @@ import (
 
 const webVideoPollInterval = 10 * time.Second
 
+// webVideoBudget bounds the wait for a video that never becomes ready. Without
+// it the loop runs until the caller disconnects, holding the plugin long enough
+// for the host's other calls to time out and unload it.
+const webVideoBudget = 10 * time.Minute
+
 // webVideoTurnsRPC re-reads the conversation the submission opened.
 const webVideoTurnsRPC = "hNvQHb"
 
@@ -178,7 +183,8 @@ func (session *webSession) generateVideo(ctx context.Context, prompt string, acc
 	if err != nil {
 		return nil, err
 	}
-	for {
+	deadline := time.Now().Add(webVideoBudget)
+	for time.Now().Before(deadline) {
 		if state.Ready {
 			status, content, downloadErr := session.downloadVideo(ctx, state.URL)
 			if downloadErr != nil {
@@ -208,4 +214,5 @@ func (session *webSession) generateVideo(ctx context.Context, prompt string, acc
 			return nil, err
 		}
 	}
+	return nil, failure(504, "video_not_ready")
 }

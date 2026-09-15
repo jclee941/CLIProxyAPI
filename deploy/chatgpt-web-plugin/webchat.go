@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -17,6 +19,15 @@ import (
 // re-read only when the stream yielded nothing.
 
 const webChatModel = "gpt-web-chat"
+
+// webChatPollBudget bounds the re-read that runs when the stream produced no
+// text. A chat reply is quick, unlike an image, so waiting the image budget here
+// would hold the plugin long enough for the host's other calls to time out.
+const webChatPollBudget = 45 * time.Second
+
+// webChatMaxCredentials bounds how many accounts one chat turn may try, so a
+// systematic failure cannot multiply the wait by the size of the pool.
+const webChatMaxCredentials = 2
 
 func webChatModels() []modelInfo {
 	return []modelInfo{{
@@ -265,23 +276,112 @@ func webReadReply(response *http.Response) (string, string) {
 			Operation string          `json:"o"`
 			Value     json.RawMessage `json:"v"`
 		}
+		webTraceEvent(payload)
 		if json.Unmarshal([]byte(payload), &event) != nil {
 			continue
 		}
 		if message := event.Message; message != nil {
 			if message.Author.Role == "assistant" && message.Content.ContentType == "text" && len(message.Content.Parts) > 0 {
-				text = message.Content.Parts[0]
+				// A whole message can arrive after deltas; keep whichever is longer
+				// so a partial snapshot cannot discard what was accumulated.
+				if len(message.Content.Parts[0]) > len(text) {
+					text = message.Content.Parts[0]
+				}
 			}
 			continue
 		}
-		if event.Operation == "append" || event.Pointer == "" {
-			var fragment string
-			if json.Unmarshal(event.Value, &fragment) == nil && fragment != "" {
-				text += fragment
-			}
-		}
+		webAccumulate(json.RawMessage(payload), "", &text)
 	}
 	return text, conversationID
+}
+
+// webTextPointer reports whether a JSON pointer addresses the reply text. An
+// empty pointer is inherited from an event that carried no path of its own, which
+// the product uses for the plain text delta.
+func webTextPointer(pointer string) bool {
+	return pointer == "" || strings.HasSuffix(pointer, "/parts/0")
+}
+
+// webAccumulate folds one stream event into the reply. The product nests its
+// deltas: an event may carry the fragment directly, wrap it in a counter envelope,
+// or hold a list of operations, and each level may restate the pointer. Observed
+// shapes are {"c":n,"v":{...}}, {"o":"patch","v":[...]}, {"o":"append","p":...,
+// "v":"..."} and a bare {"v":"..."}; handling only the flat ones truncates the
+// reply at the first nested delta.
+func webAccumulate(raw json.RawMessage, pointer string, text *string) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return
+	}
+	switch trimmed[0] {
+	case '"':
+		var fragment string
+		if json.Unmarshal(raw, &fragment) == nil && fragment != "" && webTextPointer(pointer) {
+			*text += fragment
+		}
+	case '[':
+		var items []json.RawMessage
+		if json.Unmarshal(raw, &items) != nil {
+			return
+		}
+		for _, item := range items {
+			webAccumulate(item, pointer, text)
+		}
+	case '{':
+		var node struct {
+			Pointer *string         `json:"p"`
+			Value   json.RawMessage `json:"v"`
+		}
+		if json.Unmarshal(raw, &node) != nil || len(node.Value) == 0 {
+			return
+		}
+		next := pointer
+		if node.Pointer != nil && *node.Pointer != "" {
+			next = *node.Pointer
+		}
+		webAccumulate(node.Value, next, text)
+	}
+}
+
+// webChatTrace turns on a one-line-per-event record of the stream's shape. It is
+// a build-time switch because the reply patches are undocumented and the only
+// way to learn their shapes is to observe a real turn.
+const webChatTrace = false
+
+// webTraceEvent records the structure of one stream event: which keys it carries,
+// the patch operation and pointer, and the type of the value. The value itself is
+// never recorded, so no reply text reaches the log.
+func webTraceEvent(payload string) {
+	if !webChatTrace {
+		return
+	}
+	var event map[string]json.RawMessage
+	if json.Unmarshal([]byte(payload), &event) != nil {
+		fmt.Fprintf(os.Stderr, "WEBCHATDBG non-object len=%d head=%.40q\n", len(payload), payload)
+		return
+	}
+	keys := make([]string, 0, len(event))
+	for key := range event {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	operation, pointer, kind := "", "", ""
+	_ = json.Unmarshal(event["o"], &operation)
+	_ = json.Unmarshal(event["p"], &pointer)
+	if raw, present := event["v"]; present {
+		trimmed := strings.TrimSpace(string(raw))
+		switch {
+		case strings.HasPrefix(trimmed, `"`):
+			kind = "string"
+		case strings.HasPrefix(trimmed, "["):
+			kind = "array"
+		case strings.HasPrefix(trimmed, "{"):
+			kind = "object"
+		default:
+			kind = "scalar"
+		}
+	}
+	fmt.Fprintf(os.Stderr, "WEBCHATDBG keys=%s o=%q p=%q v=%s\n", strings.Join(keys, ","), operation, pointer, kind)
 }
 
 // webFinalReply re-reads the conversation when the stream produced no text, so a
@@ -291,7 +391,7 @@ func (client *webClient) webFinalReply(ctx context.Context, conversationID strin
 		return "", failure(502, "web_conversation_missing")
 	}
 	path := "/backend-api/conversation/" + conversationID
-	deadline := time.Now().Add(webPollBudget)
+	deadline := time.Now().Add(webChatPollBudget)
 	for time.Now().Before(deadline) {
 		raw, err := client.call(ctx, http.MethodGet, path,
 			client.header(path, map[string]string{"Accept": "application/json"}), nil, "web_conversation_read_failed")
@@ -361,6 +461,10 @@ func (client *webClient) generateReply(ctx context.Context, prompt string) (stri
 	if err != nil {
 		return "", err
 	}
+	// The accumulated stream is the reply. Re-reading the conversation first was
+	// tried and measured worse: the stored shape this plugin knows how to read is
+	// not the one the product returns, so every turn spent the whole poll budget
+	// before falling back here anyway.
 	text, conversationID := webReadReply(response)
 	if strings.TrimSpace(text) != "" {
 		return text, nil
@@ -396,7 +500,8 @@ func (service *service) executeChat(ctx context.Context, raw []byte) (interface{
 	}
 	start := int(nextImageCredential.Add(1)-1) % len(candidates)
 	var lastErr error = failure(503, "web_chat_unavailable")
-	for offset := range candidates {
+	attempts := min(len(candidates), webChatMaxCredentials)
+	for offset := 0; offset < attempts; offset++ {
 		entry := candidates[(start+offset)%len(candidates)]
 		token, tokenErr := service.tokenFor(request.HostCallbackID, entry)
 		if tokenErr != nil {

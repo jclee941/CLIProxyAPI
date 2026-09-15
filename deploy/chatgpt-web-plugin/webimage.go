@@ -584,7 +584,11 @@ func (service *service) generateWebImage(ctx context.Context, callbackID string,
 	}
 	start := int(nextImageCredential.Add(1)-1) % len(candidates)
 	var lastErr error = failure(503, "web_image_unavailable")
-	for offset := range candidates {
+	// Each attempt can wait out the full poll budget, so the pool is not walked
+	// end to end: a systematic failure would otherwise multiply that wait by the
+	// number of accounts.
+	attempts := min(len(candidates), webChatMaxCredentials)
+	for offset := 0; offset < attempts; offset++ {
 		entry := candidates[(start+offset)%len(candidates)]
 		token, tokenErr := service.tokenFor(callbackID, entry)
 		if tokenErr != nil {

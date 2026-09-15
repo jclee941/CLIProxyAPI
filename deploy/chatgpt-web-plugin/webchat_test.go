@@ -115,6 +115,42 @@ func TestWebReadReplyHandlesBothStreamShapes(t *testing.T) {
 	}
 }
 
+// These are the event shapes a real turn produced. Handling only the flat ones
+// truncated the reply at the first nested delta, so every observed shape is
+// pinned here.
+func TestWebReadReplyFoldsEveryObservedPatchShape(t *testing.T) {
+	stream := strings.Join([]string{
+		`data: {"conversation_id":"conv-9","type":"message_stream_start"}`,
+		`data: {"v":"Hello"}`,
+		`data: {"o":"append","p":"/message/content/parts/0","v":", world"}`,
+		`data: {"c":1,"v":{"p":"/message/content/parts/0","o":"append","v":"! 1"}}`,
+		`data: {"c":2,"v":{"v":", 2"}}`,
+		`data: {"o":"patch","v":[{"p":"/message/content/parts/0","o":"append","v":", 3"},{"p":"/message/content/parts/0","o":"append","v":", DONE"}]}`,
+		"data: [DONE]",
+		"",
+	}, "\n")
+	text, conversation := webReadReply(sseResponse(stream))
+	if text != "Hello, world! 1, 2, 3, DONE" {
+		t.Fatalf("text = %q", text)
+	}
+	if conversation != "conv-9" {
+		t.Fatalf("conversation = %q", conversation)
+	}
+}
+
+// A metadata string addressed at some other path must not land in the reply.
+func TestWebReadReplyIgnoresUnrelatedPaths(t *testing.T) {
+	stream := strings.Join([]string{
+		`data: {"o":"append","p":"/message/metadata/title","v":"a title"}`,
+		`data: {"o":"append","p":"/message/content/parts/0","v":"real"}`,
+		"data: [DONE]",
+		"",
+	}, "\n")
+	if text, _ := webReadReply(sseResponse(stream)); text != "real" {
+		t.Fatalf("text = %q", text)
+	}
+}
+
 // The conversation is keyed by message id rather than ordered, so the newest
 // assistant turn has to be chosen by timestamp.
 func TestWebLatestAssistantTextPicksTheNewestTurn(t *testing.T) {
