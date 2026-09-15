@@ -43,8 +43,14 @@ for a call envelope, each call's `arguments` is validated against that function'
 with string `arguments` and `finish_reason: "tool_calls"` for OpenAI, a
 `functionCall` part for Gemini.
 
-With `instruct_tools` on the envelope is requested up front; with it off the same
-repair still happens, one round trip later, after the upstream answers with prose.
+For a model named in `instruct_tools` the envelope is requested up front; for any
+other model the same repair still happens, one round trip later, after the
+upstream answers with prose.
+
+Every repair attempt is logged at warn with `state=` carrying the outcome
+(`regenerated`, `regeneration_failed`, `budget_exhausted`) and `reason=` carrying
+the first violation, so the rate at which a provider breaks its contract is
+visible rather than hidden behind a repaired reply.
 
 A reply that already carries a native tool call is never rewritten.
 
@@ -71,7 +77,7 @@ plugins:
       validate: true
       max_attempts: 2
       buffer_streaming: true
-      instruct_tools: true
+      instruct_tools: ["gemini-web"]
       strip_agent_tags: false
 ```
 
@@ -82,7 +88,7 @@ plugins:
 | `validate` | `true` | Checks the reply against the requested schema. |
 | `max_attempts` | `2` | Regeneration budget after a violating reply. `0` delivers the cleaned reply unchanged. |
 | `buffer_streaming` | `true` | Answers a streaming strict request from one complete, validated reply. |
-| `instruct_tools` | `true` | States a demanded function call up front, which saves a round trip on a bridge that cannot call functions. Set to `false` where providers call functions natively, because the instruction talks them out of a real call. Optional tool use is never instructed either way. |
+| `instruct_tools` | unset | Models that should be told about a demanded function call up front, given as a list of substrings matched against the model id. This saves a round trip on a bridge that cannot call functions. Leave it unset for providers that call functions natively, because the instruction talks them out of a real call; on a mixed core, name only the bridges. `true` still means every model and `false` still means none, so an existing boolean keeps working. Optional tool use is never instructed either way. |
 | `strip_agent_tags` | `false` | Removes dangling `<Image .../>` cards whose `src` is an internal agent placeholder. Rewrites ordinary replies, not just structured ones. |
 
 ## Guarantees and limits

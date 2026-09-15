@@ -43,13 +43,14 @@ func requestCarriesContract(payload []byte) bool {
 }
 
 // withContract states whichever contract the request carries. A demanded
-// function call is stated up front only when configured, because instructing a
-// provider that calls functions natively would talk it out of doing so.
-func withContract(payload []byte, cfg pluginConfig) []byte {
+// function call is stated up front only for the models configured to need it,
+// because instructing a provider that calls functions natively would talk it
+// out of doing so.
+func withContract(payload []byte, cfg pluginConfig, model string) []byte {
 	if spec := parseSpec(payload); spec != nil {
 		return withInstruction(payload, instructionText(spec))
 	}
-	if cfg.InstructTools {
+	if cfg.InstructTools.covers(model) {
 		if tools := parseTools(payload); tools.demandsCall() {
 			return withInstruction(payload, toolInstructionText(tools))
 		}

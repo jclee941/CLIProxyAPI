@@ -6,6 +6,7 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 	"github.com/tidwall/gjson"
+	"gopkg.in/yaml.v3"
 )
 
 const weatherTools = `"tools":[{"type":"function","function":{"name":"get_weather","description":"Look up weather","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false}}}]`
@@ -157,34 +158,82 @@ func TestEnforceResponseLeavesNativeToolCallsUntouched(t *testing.T) {
 	}
 }
 
-func TestWithContractInstructsDemandedToolCall(t *testing.T) {
+func TestWithContractInstructsOnlyTheScopedModels(t *testing.T) {
 	request := []byte(`{"messages":[{"role":"user","content":"weather?"}],` + weatherTools + `,"tool_choice":"required"}`)
-	instructed := withContract(request, defaultConfig())
+	scoped := defaultConfig()
+	scoped.InstructTools = toolInstructionScope{Patterns: []string{"gemini-web"}}
+
+	instructed := withContract(request, scoped, "gemini-web-flash-3.8")
 	if role := gjson.GetBytes(instructed, "messages.0.role").String(); role != "system" {
-		t.Fatalf("instruction not prepended: %s", instructed)
+		t.Fatalf("instruction not prepended for a scoped model: %s", instructed)
 	}
 	if content := gjson.GetBytes(instructed, "messages.0.content").String(); !strings.Contains(content, "get_weather") {
 		t.Fatalf("instruction does not name the function: %q", content)
 	}
 
-	disabled := defaultConfig()
-	disabled.InstructTools = false
-	if got := withContract(request, disabled); string(got) != string(request) {
-		t.Fatalf("instruct_tools=false must leave the request alone: %s", got)
+	for _, model := range []string{"claude-sonnet-4.6", "gpt-5.5", ""} {
+		if got := withContract(request, scoped, model); string(got) != string(request) {
+			t.Fatalf("model %q is outside the scope but was instructed: %s", model, got)
+		}
+	}
+	if got := withContract(request, defaultConfig(), "gemini-web-flash-3.8"); string(got) != string(request) {
+		t.Fatalf("an unset scope must instruct nothing: %s", got)
+	}
+
+	all := defaultConfig()
+	all.InstructTools = toolInstructionScope{All: true}
+	if got := withContract(request, all, "claude-sonnet-4.6"); string(got) == string(request) {
+		t.Fatal("instruct_tools: true must still cover every model")
 	}
 }
 
 // Optional tool use must never be instructed, so a provider that calls functions
 // natively keeps doing so for every request that did not demand a call.
 func TestWithContractLeavesOptionalToolUseAlone(t *testing.T) {
+	scoped := defaultConfig()
+	scoped.InstructTools = toolInstructionScope{All: true}
 	for _, payload := range []string{
 		`{"messages":[{"role":"user","content":"weather?"}],` + weatherTools + `,"tool_choice":"auto"}`,
 		`{"messages":[{"role":"user","content":"weather?"}],` + weatherTools + `}`,
 		`{"contents":[{"role":"user","parts":[{"text":"weather?"}]}],` + geminiWeatherTools + `,"toolConfig":{"functionCallingConfig":{"mode":"AUTO"}}}`,
 	} {
 		request := []byte(payload)
-		if got := withContract(request, defaultConfig()); string(got) != string(request) {
+		if got := withContract(request, scoped, "gemini-web-flash-3.8"); string(got) != string(request) {
 			t.Fatalf("optional tool use was instructed: %s", got)
 		}
+	}
+}
+
+// A deployment already carrying the original boolean must keep parsing, so the
+// scope accepts both forms.
+func TestToolInstructionScopeAcceptsBoolAndList(t *testing.T) {
+	cases := []struct {
+		name    string
+		yaml    string
+		covers  []string
+		ignores []string
+	}{
+		{"boolean false", "instruct_tools: false", nil, []string{"gemini-web-flash-3.8", "claude-sonnet-4.6"}},
+		{"boolean true", "instruct_tools: true", []string{"gemini-web-flash-3.8", "claude-sonnet-4.6"}, nil},
+		{"list", "instruct_tools: [gemini-web, chatgpt-web]", []string{"gemini-web-flash-3.8", "CHATGPT-WEB-image"}, []string{"claude-sonnet-4.6", "gpt-5.5"}},
+		{"empty list", "instruct_tools: []", nil, []string{"gemini-web-flash-3.8"}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := defaultConfig()
+			if err := yaml.Unmarshal([]byte(testCase.yaml), &cfg); err != nil {
+				t.Fatalf("parse %q: %v", testCase.yaml, err)
+			}
+			for _, model := range testCase.covers {
+				if !cfg.InstructTools.covers(model) {
+					t.Fatalf("%q should cover %q", testCase.yaml, model)
+				}
+			}
+			for _, model := range testCase.ignores {
+				if cfg.InstructTools.covers(model) {
+					t.Fatalf("%q should not cover %q", testCase.yaml, model)
+				}
+			}
+		})
 	}
 }

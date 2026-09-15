@@ -69,6 +69,7 @@ import "C"
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -102,17 +103,58 @@ type pluginConfig struct {
 	// BufferStreaming answers a streaming strict request from one complete reply,
 	// because a contract cannot be judged from a partial stream.
 	BufferStreaming bool `yaml:"buffer_streaming"`
-	// InstructTools states a demanded function call up front, which saves a round
-	// trip on a bridge that cannot call functions. Turn it off where providers
-	// call functions natively, because the instruction talks them out of a real
-	// call. Optional tool use is never instructed either way.
-	InstructTools bool `yaml:"instruct_tools"`
+	// InstructTools selects which models are told about a demanded function call
+	// up front, which saves a round trip on a bridge that cannot call functions.
+	// Leave it unset for providers that call functions natively, because the
+	// instruction talks them out of a real call. Optional tool use is never
+	// instructed either way.
+	InstructTools toolInstructionScope `yaml:"instruct_tools"`
+}
+
+// toolInstructionScope accepts either the original boolean or a list of model
+// substrings, so a deployment that already set instruct_tools: false keeps
+// parsing while a mixed core can name only the bridges that need the help.
+type toolInstructionScope struct {
+	All      bool
+	Patterns []string
+}
+
+func (scope *toolInstructionScope) UnmarshalYAML(value *yaml.Node) error {
+	var all bool
+	if value.Decode(&all) == nil {
+		scope.All, scope.Patterns = all, nil
+		return nil
+	}
+	var patterns []string
+	if err := value.Decode(&patterns); err != nil {
+		return err
+	}
+	scope.All, scope.Patterns = false, patterns
+	return nil
+}
+
+// covers reports whether a model should be told the tool contract up front.
+func (scope toolInstructionScope) covers(model string) bool {
+	if scope.All {
+		return true
+	}
+	base := strings.ToLower(strings.TrimSpace(model))
+	if base == "" {
+		return false
+	}
+	for _, pattern := range scope.Patterns {
+		trimmed := strings.ToLower(strings.TrimSpace(pattern))
+		if trimmed != "" && strings.Contains(base, trimmed) {
+			return true
+		}
+	}
+	return false
 }
 
 // defaultConfig keeps the defaults in one place so a reconfigure cannot drift
 // from the values the plugin starts with.
 func defaultConfig() pluginConfig {
-	return pluginConfig{Instruct: true, Clean: true, Validate: true, MaxAttempts: defaultMaxAttempts, BufferStreaming: true, InstructTools: true}
+	return pluginConfig{Instruct: true, Clean: true, Validate: true, MaxAttempts: defaultMaxAttempts, BufferStreaming: true}
 }
 
 type envelope struct {
@@ -257,7 +299,7 @@ func interceptRequest(raw []byte) ([]byte, error) {
 	cfg := currentConfig()
 	body := req.Body
 	if cfg.Instruct {
-		body = withContract(body, cfg)
+		body = withContract(body, cfg, req.Model)
 	}
 	if req.Stream && cfg.Validate && cfg.BufferStreaming && requestCarriesContract(body) {
 		if terminated, ok := bufferStrictStream(req, cfg, body); ok {
