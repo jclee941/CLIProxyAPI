@@ -166,6 +166,21 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 	if turn.Model == omniModel {
 		state, err := webParseVideoCandidate(candidate)
 		if err != nil {
+			// The reply exists but terminally carries no video, so this turn can
+			// never complete. Releasing the durable intent here is what keeps the
+			// account usable: the operator route defers to recovery, and recovery
+			// would otherwise return this same answer forever on a pinned session.
+			turn.State = "no_video"
+			execution.turns[execution.key] = turn
+			if execution.local.ContinuationActive == execution.key {
+				execution.local.State, execution.local.ContinuationActive = localReady, ""
+			}
+			if saveErr := service.saveContinuations(execution.local, execution.turns); saveErr != nil {
+				return nil, saveErr
+			}
+			// The credential answered definitively; only this turn failed, so the
+			// lease must leave the operator state with the session it was pinned to.
+			execution.lease.set(credentialState{state: maintenanceReady})
 			return nil, err
 		}
 		if !state.Ready {
