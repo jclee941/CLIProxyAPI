@@ -311,7 +311,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: var
         <div class="api-scroll"><table class="api-table">
           <thead><tr><th>필드</th><th>타입</th><th>허용값</th><th>설명</th></tr></thead>
           <tbody>
-            <tr><td><code>aspectRatio</code></td><td>string</td><td><code>16:9</code> · <code>9:16</code></td><td>영상 프레이밍. 요청 turn의 영상 옵션에 가로/세로 방향으로 전송됩니다. 웹 UI와 동일하게 방향만 지원하므로 <code>1:1</code> 같은 다른 비율은 거부됩니다. 생략하면 웹 앱과 같은 기본값 <code>16:9</code>입니다.</td></tr>
+            <tr><td><code>aspectRatio</code></td><td>string</td><td><code>16:9</code> · <code>9:16</code></td><td>영상 프레이밍. 선택 칩과 그 칩이 뜻하는 가로/세로 방향이 함께 전송됩니다. 웹 UI와 동일하게 방향만 표현되므로 <code>1:1</code> 같은 다른 비율은 거부됩니다. 생략하면 웹 앱과 같은 기본값 <code>16:9</code>입니다. <strong>실측(2026-09-15): <code>16:9</code>는 1280x720 영상이 생성되지만, <code>9:16</code>은 업스트림이 영상을 만들지 않아 실패합니다.</strong></td></tr>
             <tr><td><code>negativePrompt</code></td><td>string</td><td>자유 문자열</td><td>제외할 요소. 전용 슬롯이 없어 프롬프트 뒤에 문장으로 합쳐집니다.</td></tr>
             <tr><td><code>candidateCount</code></td><td>number</td><td><code>1</code></td><td>한 번의 제출은 영상 하나만 만듭니다.</td></tr>
           </tbody>
