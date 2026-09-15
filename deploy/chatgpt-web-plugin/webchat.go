@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -36,38 +38,173 @@ func claimsWebChatModel(model string) bool {
 
 type webChatRequest struct {
 	Messages []struct {
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
+		Role      string          `json:"role"`
+		Content   json.RawMessage `json:"content"`
+		Name      string          `json:"name"`
+		ToolCalls []struct {
+			Function struct {
+				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
+			} `json:"function"`
+		} `json:"tool_calls"`
 	} `json:"messages"`
+	Tools []struct {
+		Function struct {
+			Name        string          `json:"name"`
+			Description string          `json:"description"`
+			Parameters  json.RawMessage `json:"parameters"`
+		} `json:"function"`
+	} `json:"tools"`
+	ToolChoice json.RawMessage `json:"tool_choice"`
+}
+
+// webChatToolPrompt states the call contract, because the web product has no
+// function calling of its own. The wording mirrors the block the reply is then
+// scanned for.
+func webChatToolPrompt(request webChatRequest) string {
+	if len(request.Tools) == 0 {
+		return ""
+	}
+	lines := []string{
+		"# Tool Use",
+		"",
+		"Call a tool by replying with only this block:",
+		"```tool_call",
+		`{"name": "<tool_name>", "arguments": {<arguments>}}`,
+		"```",
+		"",
+		"Available tools:",
+	}
+	for _, tool := range request.Tools {
+		entry := "- " + tool.Function.Name
+		if tool.Function.Description != "" {
+			entry += ": " + tool.Function.Description
+		}
+		lines = append(lines, entry)
+		if len(tool.Function.Parameters) > 0 {
+			lines = append(lines, "  arguments must validate against "+string(tool.Function.Parameters))
+		}
+	}
+	if required, forced := webChatToolChoice(request); required {
+		if forced != "" {
+			lines = append(lines, "", `IMPORTANT: You MUST call the tool "`+forced+`". Do not reply with text only.`)
+		} else {
+			lines = append(lines, "", "IMPORTANT: You MUST call at least one tool. Do not reply with text only.")
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// webChatToolChoice reports whether the caller demanded a call, and which one.
+func webChatToolChoice(request webChatRequest) (bool, string) {
+	var named string
+	if json.Unmarshal(request.ToolChoice, &named) == nil {
+		return strings.EqualFold(strings.TrimSpace(named), "required"), ""
+	}
+	var specific struct {
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	if json.Unmarshal(request.ToolChoice, &specific) == nil && specific.Function.Name != "" {
+		return true, specific.Function.Name
+	}
+	return false, ""
 }
 
 // webChatPrompt flattens the conversation into the single turn the web product
 // accepts, marking the roles so the model can still tell them apart.
-func webChatPrompt(payload []byte) (string, error) {
+func webChatPrompt(payload []byte) (string, webChatRequest, error) {
 	var request webChatRequest
 	if json.Unmarshal(payload, &request) != nil {
-		return "", failure(400, "invalid_chat_request")
+		return "", request, failure(400, "invalid_chat_request")
 	}
 	var sections []string
+	if instruction := webChatToolPrompt(request); instruction != "" {
+		sections = append(sections, instruction)
+	}
 	for _, message := range request.Messages {
-		text, ok := webMessageText(message.Content)
-		if !ok || strings.TrimSpace(text) == "" {
-			continue
-		}
+		text, _ := webMessageText(message.Content)
 		switch message.Role {
 		case "system":
-			sections = append(sections, "[System instruction]: "+text)
+			if strings.TrimSpace(text) != "" {
+				sections = append(sections, "[System instruction]: "+text)
+			}
 		case "assistant":
-			sections = append(sections, "[Assistant]: "+text)
+			rendered := text
+			for _, call := range message.ToolCalls {
+				rendered += "\n```tool_call\n{\"name\": \"" + call.Function.Name + "\", \"arguments\": " + webArgumentsJSON(call.Function.Arguments) + "}\n```"
+			}
+			if strings.TrimSpace(rendered) != "" {
+				sections = append(sections, "[Assistant]: "+rendered)
+			}
+		case "tool":
+			sections = append(sections, "[Tool result for "+message.Name+"]: "+text)
 		default:
-			sections = append(sections, text)
+			if strings.TrimSpace(text) != "" {
+				sections = append(sections, text)
+			}
 		}
 	}
 	prompt := strings.Join(sections, "\n\n")
 	if strings.TrimSpace(prompt) == "" {
-		return "", failure(400, "prompt_required")
+		return "", request, failure(400, "prompt_required")
 	}
-	return prompt, nil
+	return prompt, request, nil
+}
+
+func webArgumentsJSON(arguments string) string {
+	trimmed := strings.TrimSpace(arguments)
+	if trimmed == "" || !json.Valid([]byte(trimmed)) {
+		return "{}"
+	}
+	return trimmed
+}
+
+type webToolCall struct {
+	Name      string
+	Arguments string
+}
+
+var webToolCallPattern = regexp.MustCompile("(?s)```tool_call\\s*\\n(.*?)\\n```")
+
+// webParseToolCalls recovers the calls a reply carries, accepting the fenced
+// block that was requested as well as a bare object, which the model emits when
+// the whole reply is the call.
+func webParseToolCalls(text string) (string, []webToolCall) {
+	clean := text
+	var calls []webToolCall
+	for _, match := range webToolCallPattern.FindAllStringSubmatch(clean, -1) {
+		if call, ok := webDecodeToolCall(match[1]); ok {
+			calls = append(calls, call)
+		}
+	}
+	clean = strings.TrimSpace(webToolCallPattern.ReplaceAllString(clean, ""))
+	if len(calls) == 0 && strings.HasPrefix(strings.TrimSpace(clean), "{") {
+		if call, ok := webDecodeToolCall(clean); ok {
+			calls, clean = append(calls, call), ""
+		}
+	}
+	return clean, calls
+}
+
+func webDecodeToolCall(raw string) (webToolCall, bool) {
+	var decoded struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+		Args      json.RawMessage `json:"args"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &decoded) != nil || decoded.Name == "" {
+		return webToolCall{}, false
+	}
+	arguments := decoded.Arguments
+	if len(arguments) == 0 {
+		arguments = decoded.Args
+	}
+	if len(arguments) == 0 {
+		arguments = json.RawMessage("{}")
+	}
+	return webToolCall{Name: decoded.Name, Arguments: string(arguments)}, true
 }
 
 func webMessageText(raw json.RawMessage) (string, bool) {
@@ -245,10 +382,11 @@ func (service *service) executeChat(ctx context.Context, raw []byte) (interface{
 	if len(payload) == 0 {
 		payload = request.OriginalRequest
 	}
-	prompt, err := webChatPrompt(payload)
+	prompt, request2, err := webChatPrompt(payload)
 	if err != nil {
 		return nil, err
 	}
+	toolsOffered := len(request2.Tools) > 0
 	if request.HostCallbackID == "" {
 		return nil, failure(401, "authenticated_execution_callback_required")
 	}
@@ -275,7 +413,7 @@ func (service *service) executeChat(ctx context.Context, raw []byte) (interface{
 			lastErr = generateErr
 			continue
 		}
-		body, renderErr := webChatPayload(request.Model, text)
+		body, renderErr := webChatPayload(request.Model, text, toolsOffered)
 		if renderErr != nil {
 			return nil, renderErr
 		}
@@ -284,7 +422,28 @@ func (service *service) executeChat(ctx context.Context, raw []byte) (interface{
 	return nil, lastErr
 }
 
-func webChatPayload(model, text string) ([]byte, error) {
+func webChatPayload(model, text string, toolsOffered bool) ([]byte, error) {
+	message := map[string]interface{}{"role": "assistant", "content": text}
+	finish := "stop"
+	if toolsOffered {
+		clean, calls := webParseToolCalls(text)
+		if len(calls) > 0 {
+			rendered := make([]interface{}, 0, len(calls))
+			for index, call := range calls {
+				rendered = append(rendered, map[string]interface{}{
+					"id":       fmt.Sprintf("call_web_%d", index),
+					"type":     "function",
+					"function": map[string]string{"name": call.Name, "arguments": call.Arguments},
+				})
+			}
+			message["tool_calls"] = rendered
+			message["content"] = nil
+			if strings.TrimSpace(clean) != "" {
+				message["content"] = clean
+			}
+			finish = "tool_calls"
+		}
+	}
 	body := map[string]interface{}{
 		"id":      "chatcmpl-web",
 		"object":  "chat.completion",
@@ -292,8 +451,8 @@ func webChatPayload(model, text string) ([]byte, error) {
 		"model":   model,
 		"choices": []interface{}{map[string]interface{}{
 			"index":         0,
-			"message":       map[string]interface{}{"role": "assistant", "content": text},
-			"finish_reason": "stop",
+			"message":       message,
+			"finish_reason": finish,
 		}},
 	}
 	raw, err := json.Marshal(body)

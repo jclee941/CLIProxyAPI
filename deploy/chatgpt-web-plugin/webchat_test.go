@@ -12,7 +12,7 @@ func sseResponse(body string) *http.Response {
 }
 
 func TestWebChatPromptMarksTheRoles(t *testing.T) {
-	prompt, err := webChatPrompt([]byte(`{"messages":[
+	prompt, _, err := webChatPrompt([]byte(`{"messages":[
 		{"role":"system","content":"be brief"},
 		{"role":"user","content":"hello"},
 		{"role":"assistant","content":"hi"},
@@ -25,8 +25,60 @@ func TestWebChatPromptMarksTheRoles(t *testing.T) {
 			t.Fatalf("prompt missing %q: %q", want, prompt)
 		}
 	}
-	if _, err := webChatPrompt([]byte(`{"messages":[{"role":"user","content":"   "}]}`)); err == nil {
+	if _, _, err := webChatPrompt([]byte(`{"messages":[{"role":"user","content":"   "}]}`)); err == nil {
 		t.Fatal("an empty conversation was accepted")
+	}
+}
+
+// Tools have to be stated in the prompt and recovered from the reply, because the
+// web product has no function calling of its own.
+func TestWebChatCarriesToolsBothWays(t *testing.T) {
+	payload := []byte(`{"messages":[{"role":"user","content":"weather?"}],
+		"tools":[{"type":"function","function":{"name":"get_weather","description":"look up","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}],
+		"tool_choice":"required"}`)
+	prompt, request, err := webChatPrompt(payload)
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	for _, want := range []string{"# Tool Use", "get_weather", "```tool_call", "MUST call at least one tool"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q: %q", want, prompt)
+		}
+	}
+	if len(request.Tools) != 1 {
+		t.Fatalf("tools = %d", len(request.Tools))
+	}
+
+	reply := "```tool_call\n{\"name\": \"get_weather\", \"arguments\": {\"city\": \"Seoul\"}}\n```"
+	raw, err := webChatPayload(webChatModel, reply, true)
+	if err != nil {
+		t.Fatalf("payload: %v", err)
+	}
+	rendered := string(raw)
+	for _, want := range []string{`"tool_calls"`, "get_weather", `\"city\": \"Seoul\"`, `"finish_reason":"tool_calls"`} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("payload missing %s: %s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "```tool_call") {
+		t.Fatalf("the raw block leaked into the reply: %s", rendered)
+	}
+}
+
+// A conversation that already contains a call and its result has to be replayed
+// as text, since the product only accepts one prompt.
+func TestWebChatReplaysToolHistory(t *testing.T) {
+	prompt, _, err := webChatPrompt([]byte(`{"messages":[
+		{"role":"user","content":"weather?"},
+		{"role":"assistant","content":null,"tool_calls":[{"function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}]},
+		{"role":"tool","name":"get_weather","content":"{\"celsius\":24}"}]}`))
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	for _, want := range []string{"[Assistant]:", "```tool_call", "get_weather", "[Tool result for get_weather]:", "celsius"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q: %q", want, prompt)
+		}
 	}
 }
 
@@ -79,7 +131,7 @@ func TestWebLatestAssistantTextPicksTheNewestTurn(t *testing.T) {
 }
 
 func TestWebChatModelIsRoutedAndRendered(t *testing.T) {
-	raw, err := webChatPayload(webChatModel, "answer")
+	raw, err := webChatPayload(webChatModel, "answer", false)
 	if err != nil {
 		t.Fatalf("payload: %v", err)
 	}
