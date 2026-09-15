@@ -15,6 +15,10 @@ refs/*
 plugins/*
 examples/plugin/bin/*
 
+# `go build ./examples/plugin/<name>/go` names its output after the package
+# directory and drops it here.
+/go
+
 # Storage backends
 pgstore/*
 gitstore/*
