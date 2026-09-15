@@ -55,22 +55,25 @@ func openAIPromptForOmni(raw []byte) (string, error) {
 	return prompt, nil
 }
 
-func omniGeminiPayload(prompt string) ([]byte, error) {
-	payload, err := json.Marshal(struct {
-		Contents []struct {
-			Role  string `json:"role"`
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-		} `json:"contents"`
-	}{Contents: []struct {
-		Role  string `json:"role"`
-		Parts []struct {
-			Text string `json:"text"`
-		} `json:"parts"`
-	}{{Role: "user", Parts: []struct {
+// omniGeminiPayload rebuilds the upstream body from the validated prompt and the
+// options the web path honours, so nothing else a caller sent can reach the
+// generation call while the framing still survives the rewrite.
+func omniGeminiPayload(prompt string, options omniOptions) ([]byte, error) {
+	type part struct {
 		Text string `json:"text"`
-	}{{Text: prompt}}}}})
+	}
+	type turn struct {
+		Role  string `json:"role"`
+		Parts []part `json:"parts"`
+	}
+	body := struct {
+		Contents         []turn            `json:"contents"`
+		GenerationConfig map[string]string `json:"generationConfig,omitempty"`
+	}{Contents: []turn{{Role: "user", Parts: []part{{Text: prompt}}}}}
+	if config := options.generationConfig(); len(config) != 0 {
+		body.GenerationConfig = config
+	}
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, failure(500, "unsupported_omni_request")
 	}

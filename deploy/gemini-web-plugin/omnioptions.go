@@ -5,23 +5,29 @@ import (
 	"strings"
 )
 
-// The web video tool carries no structured options on the wire: the app's
-// aspect-ratio control is encoded inside the request the app builds, and that
-// encoding cannot be reproduced without capturing a real submission, so probing
-// for it would burn a generation per attempt. These options are therefore folded
-// into the prompt text - what Google's own guidance tells users to do - and are
-// best-effort exactly like the official control, not a guarantee.
+// webAspectDefault is the framing the web app sends when the user leaves the
+// control alone, and the value slot 55 already carried before it was understood.
+const webAspectDefault = 16
+
+// omniAspectCodes maps the accepted ratios onto the numbers slot 55 of the
+// generation payload carries. An unlisted ratio is rejected rather than silently
+// defaulted, so a caller never believes a framing was applied when it was not.
+var omniAspectCodes = map[string]int{
+	"16:9": 16,
+	"9:16": 9,
+	"1:1":  1,
+}
+
 type omniOptions struct {
 	AspectRatio    string
 	NegativePrompt string
 }
 
-// An unlisted ratio is rejected rather than silently defaulted, so a caller
-// never believes a framing was applied when it was dropped.
-var omniAspectRatios = map[string]string{
-	"16:9": "landscape 16:9",
-	"9:16": "vertical 9:16",
-	"1:1":  "square 1:1",
+func (options omniOptions) aspectCode() int {
+	if code, ok := omniAspectCodes[options.AspectRatio]; ok {
+		return code
+	}
+	return webAspectDefault
 }
 
 func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {
@@ -33,7 +39,7 @@ func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {
 			if json.Unmarshal(value, &ratio) != nil {
 				return omniOptions{}, failure(400, "omni_invalid_aspect_ratio")
 			}
-			if _, ok := omniAspectRatios[ratio]; !ok {
+			if _, ok := omniAspectCodes[ratio]; !ok {
 				return omniOptions{}, failure(400, "omni_invalid_aspect_ratio")
 			}
 			options.AspectRatio = ratio
@@ -44,33 +50,35 @@ func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {
 			}
 			options.NegativePrompt = strings.TrimSpace(negative)
 		case "candidateCount":
-			// One submission produces one video; any other count would be a
-			// promise the web path cannot keep.
 			var count int
 			if json.Unmarshal(value, &count) != nil || count != 1 {
 				return omniOptions{}, failure(400, "omni_single_candidate_only")
 			}
 		default:
 			// durationSeconds, resolution and personGeneration land here: they
-			// have no wire encoding and no prompt equivalent that holds.
+			// have neither a wire slot nor a prompt equivalent that holds.
 			return omniOptions{}, failure(400, "omni_unsupported_generation_option")
 		}
 	}
 	return options, nil
 }
 
-// The rebuilt request carries no generationConfig, so re-parsing it yields no
-// options and leaves the already-folded prompt unchanged.
-func (options omniOptions) apply(prompt string) string {
-	directives := make([]string, 0, 2)
-	if framing, ok := omniAspectRatios[options.AspectRatio]; ok {
-		directives = append(directives, "Frame the video as "+framing+".")
-	}
-	if options.NegativePrompt != "" {
-		directives = append(directives, "Do not include: "+options.NegativePrompt)
-	}
-	if len(directives) == 0 {
+// Unlike the framing, a negative prompt has no slot of its own, so it stays part
+// of the prompt text.
+func (options omniOptions) applyPrompt(prompt string) string {
+	if options.NegativePrompt == "" {
 		return prompt
 	}
-	return prompt + "\n\n" + strings.Join(directives, "\n")
+	return prompt + "\n\nDo not include: " + options.NegativePrompt
+}
+
+func (options omniOptions) generationConfig() map[string]string {
+	config := map[string]string{}
+	if options.AspectRatio != "" {
+		config["aspectRatio"] = options.AspectRatio
+	}
+	if options.NegativePrompt != "" {
+		config["negativePrompt"] = options.NegativePrompt
+	}
+	return config
 }

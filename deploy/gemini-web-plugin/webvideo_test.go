@@ -7,7 +7,7 @@ import (
 // The video submission is the text one with a fixed set of overrides; those
 // slots are what makes the turn produce a video at all.
 func TestWebVideoFieldsApplyTheVideoOverrides(t *testing.T) {
-	fields := webVideoFields("a wave", 1, "conversation")
+	fields := webVideoFields("a wave", 1, "conversation", webAspectDefault)
 	if len(fields) != 102 {
 		t.Fatalf("field count = %d", len(fields))
 	}
@@ -29,6 +29,17 @@ func TestWebVideoFieldsApplyTheVideoOverrides(t *testing.T) {
 	}
 	if depth, ok := thinking[0].([]any); !ok || depth[0] != 0 {
 		t.Fatalf("video turns must not think: %#v", fields[17])
+	}
+	for ratio, code := range map[string]int{"16:9": 16, "9:16": 9, "1:1": 1} {
+		framed := webVideoFields("a wave", 1, "conversation", omniOptions{AspectRatio: ratio}.aspectCode())
+		outer, ok := framed[55].([]any)
+		if !ok || len(outer) != 1 {
+			t.Fatalf("%s: slot 55 = %#v", ratio, framed[55])
+		}
+		inner, ok := outer[0].([]any)
+		if !ok || len(inner) != 1 || inner[0] != code {
+			t.Fatalf("%s: slot 55 carried %#v, want [[%d]]", ratio, framed[55], code)
+		}
 	}
 }
 

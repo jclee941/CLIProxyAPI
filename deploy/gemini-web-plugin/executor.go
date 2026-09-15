@@ -28,7 +28,7 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 		if stream {
 			return nil, failure(400, "omni_native_nonstreaming_only")
 		}
-		prompt, promptErr := omniPrompt(request.Payload)
+		prompt, options, promptErr := omniRequest(request.Payload)
 		if promptErr != nil {
 			return nil, promptErr
 		}
@@ -38,7 +38,7 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 		// The upstream body is rebuilt from the validated prompt, so nothing a
 		// caller or a front-end format translation added can reach the
 		// generation call.
-		payload, payloadErr := omniGeminiPayload(prompt)
+		payload, payloadErr := omniGeminiPayload(prompt, options)
 		if payloadErr != nil {
 			return nil, payloadErr
 		}
@@ -205,12 +205,12 @@ func hasOmniStopRules(rules []stopRule) bool {
 	return true
 }
 
-// omniPrompt validates a Gemini-native omni request and returns the single text
-// prompt it carries. Fixed safety thresholds are accepted because the host's
-// OpenAI-to-Gemini translation adds them; they are dropped rather than
-// forwarded, since the upstream body is rebuilt from the prompt alone. The
-// generation options that path can honour are folded into that prompt.
-func omniPrompt(raw []byte) (string, error) {
+// omniRequest validates a Gemini-native omni request and returns the single text
+// prompt it carries together with the options the web path can honour. Fixed
+// safety thresholds are accepted because the host's OpenAI-to-Gemini translation
+// adds them; they are dropped rather than forwarded, since the upstream body is
+// rebuilt from the prompt and those options alone.
+func omniRequest(raw []byte) (string, omniOptions, error) {
 	var body struct {
 		Model    string `json:"model"`
 		Contents []struct {
@@ -223,36 +223,35 @@ func omniPrompt(raw []byte) (string, error) {
 		SafetySettings   json.RawMessage            `json:"safetySettings"`
 	}
 	if len(raw) > 5*1024*1024 || strictJSON(raw, &body) != nil || body.Model != "" && body.Model != omniModel || len(body.Contents) != 1 {
-		return "", failure(400, "unsupported_omni_request")
+		return "", omniOptions{}, failure(400, "unsupported_omni_request")
 	}
 	options, optionsErr := parseOmniOptions(body.GenerationConfig)
 	if optionsErr != nil {
-		return "", optionsErr
+		return "", omniOptions{}, optionsErr
 	}
 	turn := body.Contents[0]
 	if turn.Role != "" && turn.Role != "user" || len(turn.Parts) == 0 {
-		return "", failure(400, "omni_single_user_turn_required")
+		return "", omniOptions{}, failure(400, "omni_single_user_turn_required")
 	}
 	texts := make([]string, 0, len(turn.Parts))
 	for _, part := range turn.Parts {
 		if part.Text == nil {
-			return "", failure(400, "omni_text_only")
+			return "", omniOptions{}, failure(400, "omni_text_only")
 		}
 		texts = append(texts, *part.Text)
 	}
 	base := strings.Join(texts, "\n")
 	if strings.TrimSpace(base) == "" {
-		return "", failure(400, "omni_prompt_length_invalid")
+		return "", omniOptions{}, failure(400, "omni_prompt_length_invalid")
 	}
-	prompt := options.apply(base)
-	if utf8.RuneCountInString(prompt) > 8000 {
-		return "", failure(400, "omni_prompt_length_invalid")
+	if utf8.RuneCountInString(options.applyPrompt(base)) > 8000 {
+		return "", omniOptions{}, failure(400, "omni_prompt_length_invalid")
 	}
-	return prompt, nil
+	return base, options, nil
 }
 
 func validateOmni(raw []byte) error {
-	_, err := omniPrompt(raw)
+	_, _, err := omniRequest(raw)
 	return err
 }
 
@@ -260,7 +259,7 @@ func validateOmni(raw []byte) error {
 // single-turn omni request in one of the two supported client formats, so that
 // a request the caller did not intend can never burn a generation.
 func omniOriginalAccepted(raw []byte) bool {
-	if _, err := omniPrompt(raw); err == nil {
+	if _, _, err := omniRequest(raw); err == nil {
 		return true
 	}
 	_, err := openAIPromptForOmni(raw)

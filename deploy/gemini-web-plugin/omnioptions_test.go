@@ -10,25 +10,41 @@ func omniRequestWithConfig(config string) []byte {
 	return []byte(`{"contents":[{"role":"user","parts":[{"text":"a balloon"}]}],"generationConfig":` + config + `}`)
 }
 
-func TestOmniFoldsSupportedOptionsIntoPrompt_andLeavesTheRebuiltRequestUnchanged(t *testing.T) {
-	prompt, err := omniPrompt(omniRequestWithConfig(`{"aspectRatio":"9:16","negativePrompt":"text overlays","candidateCount":1}`))
+func TestOmniCarriesTheFramingThroughTheRebuiltRequest(t *testing.T) {
+	prompt, options, err := omniRequest(omniRequestWithConfig(`{"aspectRatio":"9:16","negativePrompt":"text overlays","candidateCount":1}`))
 	if err != nil {
 		t.Fatalf("supported options rejected: %v", err)
 	}
-	if !strings.Contains(prompt, "a balloon") || !strings.Contains(prompt, "vertical 9:16") || !strings.Contains(prompt, "Do not include: text overlays") {
-		t.Fatalf("options did not reach the prompt: %q", prompt)
+	if prompt != "a balloon" {
+		t.Fatalf("prompt = %q, want the caller's text untouched", prompt)
+	}
+	if options.aspectCode() != 9 {
+		t.Fatalf("aspect code = %d, want 9", options.aspectCode())
+	}
+	if !strings.Contains(options.applyPrompt(prompt), "Do not include: text overlays") {
+		t.Fatalf("negative prompt lost: %q", options.applyPrompt(prompt))
 	}
 
-	payload, err := omniGeminiPayload(prompt)
+	payload, err := omniGeminiPayload(prompt, options)
 	if err != nil {
 		t.Fatalf("rebuilt payload rejected: %v", err)
 	}
-	second, err := omniPrompt(payload)
+	second, secondOptions, err := omniRequest(payload)
 	if err != nil {
 		t.Fatalf("rebuilt payload rejected on re-read: %v", err)
 	}
-	if second != prompt {
-		t.Fatalf("re-reading the rebuilt request changed the prompt:\nfirst:  %q\nsecond: %q", prompt, second)
+	if second != prompt || secondOptions != options {
+		t.Fatalf("rebuild lost the request:\nfirst  %q %+v\nsecond %q %+v", prompt, options, second, secondOptions)
+	}
+}
+
+func TestOmniKeepsTheAppDefaultFramingWhenNoneIsAsked(t *testing.T) {
+	_, options, err := omniRequest([]byte(`{"contents":[{"role":"user","parts":[{"text":"a balloon"}]}]}`))
+	if err != nil {
+		t.Fatalf("plain request rejected: %v", err)
+	}
+	if options.aspectCode() != webAspectDefault {
+		t.Fatalf("aspect code = %d, want the app default %d", options.aspectCode(), webAspectDefault)
 	}
 }
 
@@ -43,7 +59,7 @@ func TestOmniRejectsOptionsTheWebPathCannotHonour_beforeSubmitting(t *testing.T)
 		{"multiple_candidates", `{"candidateCount":2}`, "omni_single_candidate_only"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			_, err := omniPrompt(omniRequestWithConfig(scenario.config))
+			_, _, err := omniRequest(omniRequestWithConfig(scenario.config))
 			var public *publicError
 			if !errors.As(err, &public) {
 				t.Fatalf("expected a public rejection, got %v", err)
@@ -55,17 +71,17 @@ func TestOmniRejectsOptionsTheWebPathCannotHonour_beforeSubmitting(t *testing.T)
 	}
 }
 
-func TestOmniCountsFoldedDirectivesAgainstThePromptLimit(t *testing.T) {
+func TestOmniCountsTheNegativePromptAgainstThePromptLimit(t *testing.T) {
 	long := strings.Repeat("a", 7990)
 	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"` + long + `"}]}]}`)
-	if _, err := omniPrompt(body); err != nil {
+	if _, _, err := omniRequest(body); err != nil {
 		t.Fatalf("prompt within the limit rejected: %v", err)
 	}
 
-	withRatio := []byte(`{"contents":[{"role":"user","parts":[{"text":"` + long + `"}]}],"generationConfig":{"aspectRatio":"16:9"}}`)
-	_, err := omniPrompt(withRatio)
+	withNegative := []byte(`{"contents":[{"role":"user","parts":[{"text":"` + long + `"}]}],"generationConfig":{"negativePrompt":"blurry frames and text"}}`)
+	_, _, err := omniRequest(withNegative)
 	var public *publicError
 	if !errors.As(err, &public) || public.Code != "omni_prompt_length_invalid" {
-		t.Fatalf("folded directive escaped the prompt limit: %v", err)
+		t.Fatalf("folded negative prompt escaped the prompt limit: %v", err)
 	}
 }

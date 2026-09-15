@@ -73,10 +73,11 @@ func (service *service) nativeVideo(ctx context.Context, token sessionToken, pay
 	if err != nil {
 		return httpResponse{}, err
 	}
-	prompt, err := omniPrompt(payload)
+	base, options, err := omniRequest(payload)
 	if err != nil {
 		return httpResponse{}, err
 	}
+	prompt := options.applyPrompt(base)
 	session := newWebSession(service.client, credential, service.webOriginOverride)
 	account, err := session.webCapabilities(ctx)
 	if err != nil {
@@ -86,7 +87,7 @@ func (service *service) nativeVideo(ctx context.Context, token sessionToken, pay
 	if !ok {
 		return httpResponse{}, failure(404, "account_model_unavailable")
 	}
-	video, err := session.generateVideo(ctx, prompt, account, model)
+	video, err := session.generateVideo(ctx, prompt, account, model, options.aspectCode())
 	if err != nil {
 		return httpResponse{}, err
 	}
