@@ -7,7 +7,7 @@ import (
 // The video submission is the text one with a fixed set of overrides; those
 // slots are what makes the turn produce a video at all.
 func TestWebVideoFieldsApplyTheVideoOverrides(t *testing.T) {
-	fields := webVideoFields("a wave", 1, "conversation", webFramingLandscape)
+	fields := webVideoFields("a wave", 1, "conversation", webFramingLandscape, nil)
 	if len(fields) != 102 {
 		t.Fatalf("field count = %d", len(fields))
 	}
@@ -33,7 +33,7 @@ func TestWebVideoFieldsApplyTheVideoOverrides(t *testing.T) {
 	// The chip in slot 55 and the orientation inside the turn state the same
 	// framing, and a request that lets them disagree stalls the upstream.
 	for ratio, want := range map[string]omniFraming{"16:9": {16, 1}, "9:16": {17, 2}} {
-		framed := webVideoFields("a wave", 1, "conversation", omniOptions{AspectRatio: ratio}.framing())
+		framed := webVideoFields("a wave", 1, "conversation", omniOptions{AspectRatio: ratio}.framing(), nil)
 		video, ok := jsonField(framed[0], 9, 6, 0).([]any)
 		if !ok || len(video) != 4 || video[3] != want.orientation {
 			t.Fatalf("%s: video options = %#v, want orientation %d", ratio, jsonField(framed[0], 9, 6, 0), want.orientation)

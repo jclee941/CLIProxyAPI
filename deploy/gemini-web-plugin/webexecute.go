@@ -42,14 +42,14 @@ func (service *service) nativeText(ctx context.Context, record storageRecord, to
 	if err != nil {
 		return nil, err
 	}
-	prompt, carriedMedia, err := webContentsToPrompt(payload)
+	prompt, media, err := webContentsToPrompt(payload)
 	if err != nil {
 		return nil, err
 	}
-	if carriedMedia || strings.TrimSpace(prompt) == "" {
+	if strings.TrimSpace(prompt) == "" {
 		return nil, failure(400, "text_only_flash_request")
 	}
-	session := newWebSession(service.client, credential, service.webOriginOverride)
+	session := service.newSession(credential)
 	service.trackJar(record.TokenRef, session)
 	defer service.persistJar(record.TokenRef, session)
 	account, err := session.webCapabilities(ctx)
@@ -60,7 +60,11 @@ func (service *service) nativeText(ctx context.Context, record storageRecord, to
 	if !ok {
 		return nil, failure(404, "account_model_unavailable")
 	}
-	text, err := session.generateText(ctx, prompt, account, model)
+	attachments, err := session.uploadMedia(ctx, media)
+	if err != nil {
+		return nil, err
+	}
+	text, err := session.generateText(ctx, prompt, account, model, attachments)
 	if err != nil {
 		return nil, err
 	}
@@ -79,8 +83,12 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	if err != nil {
 		return httpResponse{}, err
 	}
+	_, media, err := webContentsToPrompt(payload)
+	if err != nil {
+		return httpResponse{}, err
+	}
 	prompt := options.applyPrompt(base)
-	session := newWebSession(service.client, credential, service.webOriginOverride)
+	session := service.newSession(credential)
 	service.trackJar(record.TokenRef, session)
 	defer service.persistJar(record.TokenRef, session)
 	account, err := session.webCapabilities(ctx)
@@ -91,7 +99,11 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	if !ok {
 		return httpResponse{}, failure(404, "account_model_unavailable")
 	}
-	video, err := session.generateVideo(ctx, prompt, account, model, options.framing())
+	attachments, err := session.uploadMedia(ctx, media)
+	if err != nil {
+		return httpResponse{}, err
+	}
+	video, err := session.generateVideo(ctx, prompt, account, model, options.framing(), attachments)
 	if err != nil {
 		return httpResponse{}, err
 	}

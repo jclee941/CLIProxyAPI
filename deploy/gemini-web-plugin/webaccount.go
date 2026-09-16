@@ -76,13 +76,14 @@ type webSession struct {
 	generationFrame func([]byte) error
 	rotated         bool
 	onRotate        func(string)
+	uploadOrigin    string
 }
 
 func newWebSession(client *http.Client, credential webCredential, origin string) *webSession {
 	if origin == "" {
 		origin = webOrigin
 	}
-	session := &webSession{client: client, origin: origin, cookie: credential.Cookie, requestID: 100000}
+	session := &webSession{client: client, origin: origin, cookie: credential.Cookie, requestID: 100000, uploadOrigin: webUploadOrigin}
 	for _, pair := range strings.Split(credential.Cookie, ";") {
 		name, value, found := strings.Cut(strings.TrimSpace(pair), "=")
 		if found && name == "SAPISID" {

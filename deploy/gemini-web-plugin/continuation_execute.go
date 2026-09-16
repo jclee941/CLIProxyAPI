@@ -37,6 +37,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 	}
 	var prompt string
 	var options omniOptions
+	var media []webMedia
 	var err error
 	if execution.control.Action == "submit" {
 		// Both modalities deliberately accept only one new user turn. History and
@@ -52,6 +53,11 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		}
 		prompt, options, err = omniRequest(normalized)
 		if err != nil {
+			return nil, err
+		}
+		// Reference media is validated with the prompt but uploaded later, once
+		// the session that will carry the generation is the final one.
+		if _, media, err = webContentsToPrompt(normalized); err != nil {
 			return nil, err
 		}
 		digest := sha256.Sum256(normalized)
@@ -71,7 +77,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 	if identity != execution.local.Identity {
 		return nil, failure(409, "credential_identity_mismatch")
 	}
-	session := newWebSession(service.client, credential, service.webOriginOverride)
+	session := service.newSession(credential)
 	service.trackJar(execution.local.Target.TokenRef, session)
 	defer service.persistJar(execution.local.Target.TokenRef, session)
 	if turn.State == "prepared" {
@@ -99,7 +105,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			if err != nil {
 				return nil, err
 			}
-			session = newWebSession(service.client, credential, service.webOriginOverride)
+			session = service.newSession(credential)
 			service.trackJar(execution.local.Target.TokenRef, session)
 		}
 		if err := session.bootstrap(ctx); err != nil {
@@ -109,9 +115,13 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		if err != nil {
 			return nil, err
 		}
-		fields := webGenerationFields(prompt, model.Mode, webThinkingDefault, nonce)
+		attachments, err := session.uploadMedia(ctx, media)
+		if err != nil {
+			return nil, err
+		}
+		fields := webGenerationFields(prompt, model.Mode, webThinkingDefault, nonce, attachments)
 		if turn.Model == omniModel {
-			fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing())
+			fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing(), attachments)
 		}
 		if turn.Parent != "" {
 			var metadata []any

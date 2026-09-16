@@ -54,6 +54,7 @@ type service struct {
 	// webRotateOverride redirects cookie rotation, which lives on a different
 	// Google origin than the rest of the native calls.
 	webRotateOverride string
+	webUploadOverride string
 	startedAt         int64
 	quota             quotaCache
 }

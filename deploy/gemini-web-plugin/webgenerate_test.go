@@ -9,7 +9,7 @@ import (
 // The request body is addressed by position, so the slots that carry meaning are
 // pinned here: a shifted index changes what the server is asked for.
 func TestWebGenerationFieldsPinTheProtocolSlots(t *testing.T) {
-	fields := webGenerationFields("hello", 3, 4, "conversation-id")
+	fields := webGenerationFields("hello", 3, 4, "conversation-id", nil)
 	if len(fields) != 102 {
 		t.Fatalf("field count = %d, want 102", len(fields))
 	}

@@ -2,15 +2,30 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 )
 
 // nativeWebServer stands in for the web product: the bootstrap page, the
 // capability RPC and the generation stream, each on the path prefix the
 // credential's auth_user selects.
+var nativeGenerationBody struct {
+	mu   sync.Mutex
+	body string
+}
+
+func nativeLastGeneration(t *testing.T) string {
+	t.Helper()
+	nativeGenerationBody.mu.Lock()
+	defer nativeGenerationBody.mu.Unlock()
+	return nativeGenerationBody.body
+}
+
 func nativeWebServer(t *testing.T, reply string) *httptest.Server {
 	t.Helper()
 	capabilities := slots(16, map[int]any{
@@ -28,6 +43,11 @@ func nativeWebServer(t *testing.T, reply string) *httptest.Server {
 				t.Error(err)
 			}
 		case strings.HasSuffix(request.URL.Path, "/StreamGenerate"):
+			if raw, readErr := io.ReadAll(request.Body); readErr == nil {
+				nativeGenerationBody.mu.Lock()
+				nativeGenerationBody.body = string(raw)
+				nativeGenerationBody.mu.Unlock()
+			}
 			selection := request.Header.Get("x-goog-ext-525001261-jspb")
 			if !strings.Contains(selection, "cap-flash") {
 				t.Errorf("selection header did not carry the capability: %s", selection)
@@ -38,6 +58,13 @@ func nativeWebServer(t *testing.T, reply string) *httptest.Server {
 			if _, err := writer.Write([]byte(")]}'\n" + generationFrame(t, reply) + "\n")); err != nil {
 				t.Error(err)
 			}
+		case strings.HasPrefix(request.URL.Path, "/upload/"):
+			if request.Header.Get("X-Goog-Upload-Command") == "start" {
+				writer.Header().Set("X-Goog-Upload-Url", "http://"+request.Host+"/upload/leg2")
+				writer.WriteHeader(http.StatusOK)
+				return
+			}
+			writeFixture(t, writer, "/contrib_service/ttl_1d/fixture-upload")
 		default:
 			t.Errorf("unexpected path %s", request.URL.Path)
 		}
@@ -53,6 +80,7 @@ func nativeService(t *testing.T, server *httptest.Server) (*service, storageReco
 	seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("SID=a; SAPISID=secret")}})
 	service.config.NativeGeneration = true
 	service.webOriginOverride = server.URL
+	service.webUploadOverride = server.URL
 	return service, record
 }
 
@@ -115,15 +143,74 @@ func TestNativeTextConvertsTheToolBlock(t *testing.T) {
 	}
 }
 
-func TestNativeTextRejectsInlineMedia(t *testing.T) {
-	server := nativeWebServer(t, "unused")
+func TestNativeTextUploadsInlineMediaIntoThePromptSlot(t *testing.T) {
+	server := nativeWebServer(t, "a colour")
 	service, record := nativeService(t, server)
+
 	result := invoke(t, service, "executor.execute", executorRequest{
 		AuthID: record.ID, AuthProvider: provider, Model: flashModel,
 		Format: "gemini", SourceFormat: "gemini", StorageJSON: jsonFixture(t, record),
-		Payload: []byte(`{"contents":[{"role":"user","parts":[{"inlineData":{"mimeType":"image/png","data":"AAAA"}}]}]}`),
+		Payload: []byte(`{"contents":[{"role":"user","parts":[{"text":"look"},{"inlineData":{"mimeType":"image/png","data":"AAAA"}}]}]}`),
 	})
-	if result.OK {
-		t.Fatal("an image request was accepted by the text path")
+
+	if !result.OK {
+		t.Fatalf("an attachment turn was refused: %+v", result.Error)
+	}
+	form, err := url.ParseQuery(nativeLastGeneration(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := form.Get("f.req")
+	if !strings.Contains(body, "/contrib_service/ttl_1d/fixture-upload") {
+		t.Fatalf("the uploaded file never reached the request: %s", body[:min(len(body), 400)])
+	}
+	if !strings.Contains(body, "image/png") {
+		t.Fatalf("the attachment lost its type: %s", body[:min(len(body), 400)])
+	}
+}
+
+// The attachment slot is a list, and a turn that sends several files has to
+// arrive with all of them, each keeping the type and name it was stored under.
+func TestNativeTextCarriesEveryAttachment(t *testing.T) {
+	server := nativeWebServer(t, "read")
+	service, record := nativeService(t, server)
+
+	result := invoke(t, service, "executor.execute", executorRequest{
+		AuthID: record.ID, AuthProvider: provider, Model: flashModel,
+		Format: "gemini", SourceFormat: "gemini", StorageJSON: jsonFixture(t, record),
+		Payload: []byte(`{"contents":[{"role":"user","parts":[{"text":"look"},{"inlineData":{"mimeType":"image/png","data":"AAAA"}},{"inlineData":{"mimeType":"application/pdf","data":"AAAA"}}]}]}`),
+	})
+
+	if !result.OK {
+		t.Fatalf("a turn carrying two attachments was refused: %+v", result.Error)
+	}
+	form, err := url.ParseQuery(nativeLastGeneration(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := form.Get("f.req")
+	if count := strings.Count(body, "/contrib_service/ttl_1d/fixture-upload"); count != 2 {
+		t.Fatalf("the request carried %d attachments, want 2: %s", count, body)
+	}
+	if !strings.Contains(body, "image/png") || !strings.Contains(body, "application/pdf") {
+		t.Fatalf("an attachment lost its type: %s", body)
+	}
+	if !strings.Contains(body, "attachment-2.pdf") {
+		t.Fatalf("the document was not stored under its own suffix: %s", body)
+	}
+}
+
+func TestNativeTextRejectsUndecodableMedia(t *testing.T) {
+	server := nativeWebServer(t, "unused")
+	service, record := nativeService(t, server)
+
+	result := invoke(t, service, "executor.execute", executorRequest{
+		AuthID: record.ID, AuthProvider: provider, Model: flashModel,
+		Format: "gemini", SourceFormat: "gemini", StorageJSON: jsonFixture(t, record),
+		Payload: []byte(`{"contents":[{"role":"user","parts":[{"text":"look"},{"inlineData":{"mimeType":"image/png","data":"!!!not base64!!!"}}]}]}`),
+	})
+
+	if result.OK || result.Error.Code != "gemini_web:attachment_encoding_invalid" && result.Error.Code != "attachment_encoding_invalid" {
+		t.Fatalf("undecodable attachment was not refused: %+v", result.Error)
 	}
 }

@@ -10,6 +10,12 @@ import (
 
 const interactionOmniModel = "gemini-omni-1.1-flash"
 
+// interactionInputLimit bounds the create body. Reference images travel inline
+// as base64, so the text-sized bound this route started with cannot hold them.
+// The prompt stays bounded at 8000 runes and the payload this builds is bounded
+// again at 5MB, both by omniRequest.
+const interactionInputLimit = 4 * 1024 * 1024
+
 type interactionRequest struct {
 	Model          string          `json:"model"`
 	Input          json.RawMessage `json:"input"`
@@ -27,7 +33,7 @@ type interactionRequest struct {
 
 func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 	var request interactionRequest
-	if len(raw) > 40*1024 || strictJSON(raw, &request) != nil || request.Model != interactionOmniModel {
+	if len(raw) > interactionInputLimit || strictJSON(raw, &request) != nil || request.Model != interactionOmniModel {
 		return request, nil, failure(400, "unsupported_interaction_request")
 	}
 	if request.Background {
@@ -41,32 +47,51 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 		return request, nil, failure(400, "interaction_resolution_unsupported")
 	}
 	var prompt string
+	var references []webMedia
 	if json.Unmarshal(request.Input, &prompt) != nil {
 		var parts []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Data     string `json:"data"`
+			MIMEType string `json:"mime_type"`
+			URI      string `json:"uri"`
 		}
 		if strictJSON(request.Input, &parts) != nil || len(parts) == 0 {
 			return request, nil, failure(400, "interaction_text_input_only")
 		}
 		texts := make([]string, 0, len(parts))
 		for _, part := range parts {
-			if part.Type != "text" {
+			switch part.Type {
+			case "text":
+				texts = append(texts, part.Text)
+			case "image":
+				// A uri reference names a Files entry, and the web session has no
+				// Files API to resolve it against, so only inline bytes travel.
+				if part.URI != "" {
+					return request, nil, failure(400, "interaction_uploaded_reference_unsupported")
+				}
+				if part.Data == "" || part.MIMEType == "" {
+					return request, nil, failure(400, "interaction_reference_invalid")
+				}
+				references = append(references, webMedia{MIMEType: part.MIMEType, Data: part.Data})
+			default:
 				return request, nil, failure(400, "interaction_text_input_only")
 			}
-			texts = append(texts, part.Text)
 		}
 		prompt = strings.Join(texts, "\n")
 	}
-	payload, err := json.Marshal(map[string]any{"contents": []any{map[string]any{"role": "user", "parts": []any{map[string]string{"text": prompt}}}}, "generationConfig": map[string]string{"aspectRatio": format.AspectRatio}})
+	parts := make([]any, 0, len(references)+1)
+	parts = append(parts, map[string]string{"text": prompt})
+	for _, reference := range references {
+		parts = append(parts, map[string]any{"inlineData": map[string]string{"mimeType": reference.MIMEType, "data": reference.Data}})
+	}
+	content := map[string]any{"contents": []any{map[string]any{"role": "user", "parts": parts}}}
+	if format.AspectRatio != "" {
+		content["generationConfig"] = map[string]string{"aspectRatio": format.AspectRatio}
+	}
+	payload, err := json.Marshal(content)
 	if err != nil {
 		return request, nil, err
-	}
-	if format.AspectRatio == "" {
-		payload, err = omniGeminiPayload(prompt, omniOptions{})
-		if err != nil {
-			return request, nil, err
-		}
 	}
 	if err := validateOmni(payload); err != nil {
 		return request, nil, err

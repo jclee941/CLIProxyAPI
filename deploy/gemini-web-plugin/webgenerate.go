@@ -27,9 +27,9 @@ const webCapacityFlag = 8
 // webGenerationFields lays out the positional request body. Each index is a
 // protocol slot whose meaning is carried by position alone, so the indexes are
 // reproduced exactly rather than named.
-func webGenerationFields(prompt string, mode, thinking int, conversationID string) []any {
+func webGenerationFields(prompt string, mode, thinking int, conversationID string, attachments []webAttachment) []any {
 	fields := make([]any, 102)
-	fields[0] = []any{prompt, 0, nil, nil, nil, nil, 0}
+	fields[0] = []any{prompt, 0, nil, webAttachmentSlot(attachments), nil, nil, 0}
 	fields[1] = []any{"en"}
 	fields[2] = []any{"", "", "", nil, nil, nil, nil, nil, nil, ""}
 	fields[6] = []any{0}
@@ -73,7 +73,7 @@ func webCapacity(flags []int) int {
 
 // generateText runs one turn against the selected capability and returns the
 // reply text.
-func (session *webSession) generateText(ctx context.Context, prompt string, account webAccount, model capability) (string, error) {
+func (session *webSession) generateText(ctx context.Context, prompt string, account webAccount, model capability, attachments []webAttachment) (string, error) {
 	if session.xsrf == "" {
 		if err := session.bootstrap(ctx); err != nil {
 			return "", err
@@ -83,7 +83,7 @@ func (session *webSession) generateText(ctx context.Context, prompt string, acco
 	if err != nil {
 		return "", err
 	}
-	fields, err := json.Marshal(webGenerationFields(prompt, model.Mode, webThinkingDefault, conversationID))
+	fields, err := json.Marshal(webGenerationFields(prompt, model.Mode, webThinkingDefault, conversationID, attachments))
 	if err != nil {
 		return "", failure(400, "web_request_invalid")
 	}

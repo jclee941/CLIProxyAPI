@@ -123,7 +123,7 @@ func (service *service) rotateCookies(ctx context.Context, credential webCredent
 	updates := map[string]string{}
 	for _, cookie := range response.Cookies() {
 		domain := strings.TrimPrefix(strings.ToLower(cookie.Domain), ".")
-		if cookie.Path != "/" || !cookie.Secure || !webRotatableDomains[domain] {
+		if cookie.Path != "/" || !webRotatableDomains[domain] {
 			continue
 		}
 		updates[cookie.Name] = cookie.Value
@@ -132,7 +132,7 @@ func (service *service) rotateCookies(ctx context.Context, credential webCredent
 }
 
 func (service *service) webIdentity(ctx context.Context, reference string, credential webCredential) (credentialInspection, error) {
-	session := newWebSession(service.client, credential, service.webOriginOverride)
+	session := service.newSession(credential)
 	service.trackJar(reference, session)
 	defer service.persistJar(reference, session)
 	page, err := session.do(ctx, session.prefix+"/app", nil, nil)

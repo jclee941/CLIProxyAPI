@@ -36,3 +36,13 @@ func (service *service) storeJar(reference string, cookie string) {
 		return
 	}
 }
+
+// newSession builds a web session with the overrides tests use to keep every
+// upstream call, including the upload host, inside the fixture.
+func (service *service) newSession(credential webCredential) *webSession {
+	session := newWebSession(service.client, credential, service.webOriginOverride)
+	if service.webUploadOverride != "" {
+		session.uploadOrigin = service.webUploadOverride
+	}
+	return session
+}

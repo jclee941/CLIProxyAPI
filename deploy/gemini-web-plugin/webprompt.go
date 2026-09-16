@@ -106,10 +106,10 @@ func webToolPrompt(definitions []webToolDefinition) string {
 // webContentsToPrompt flattens a Gemini request into the single prompt the web
 // product accepts. It reports whether the request carried inline media, which the
 // text path cannot forward.
-func webContentsToPrompt(raw []byte) (string, bool, error) {
+func webContentsToPrompt(raw []byte) (string, []webMedia, error) {
 	var request map[string]any
 	if json.Unmarshal(raw, &request) != nil {
-		return "", false, failure(400, "invalid_generation_request")
+		return "", nil, failure(400, "invalid_generation_request")
 	}
 	var sections []string
 	definitions := webToolDefinitions(request)
@@ -132,7 +132,7 @@ func webContentsToPrompt(raw []byte) (string, bool, error) {
 		sections = append(sections, instruction)
 	}
 
-	carriedMedia := false
+	media := []webMedia{}
 	for _, content := range webListField(request["contents"]) {
 		entry := webMapField(content)
 		var lines []string
@@ -142,20 +142,26 @@ func webContentsToPrompt(raw []byte) (string, bool, error) {
 			case webStringField(field, "text") != "":
 				lines = append(lines, webStringField(field, "text"))
 			case field["inlineData"] != nil:
-				carriedMedia = true
-				lines = append(lines, "[Image attached]")
+				inline := webMapField(field["inlineData"])
+				mime := webStringField(inline, "mimeType")
+				encoded := webStringField(inline, "data")
+				if mime == "" || encoded == "" {
+					return "", nil, failure(400, "invalid_generation_request")
+				}
+				media = append(media, webMedia{MIMEType: mime, Data: encoded})
+				lines = append(lines, webAttachmentNotice(mime))
 			case field["functionCall"] != nil:
 				call := webMapField(field["functionCall"])
 				encoded, err := json.Marshal(map[string]any{"name": webStringField(call, "name"), "args": call["args"]})
 				if err != nil {
-					return "", false, failure(400, "invalid_generation_request")
+					return "", nil, failure(400, "invalid_generation_request")
 				}
 				lines = append(lines, "```function_call\n"+string(encoded)+"\n```")
 			case field["functionResponse"] != nil:
 				response := webMapField(field["functionResponse"])
 				encoded, err := json.Marshal(response["response"])
 				if err != nil {
-					return "", false, failure(400, "invalid_generation_request")
+					return "", nil, failure(400, "invalid_generation_request")
 				}
 				lines = append(lines, "[Tool result for "+webStringField(response, "name")+"]: "+string(encoded))
 			}
@@ -168,7 +174,7 @@ func webContentsToPrompt(raw []byte) (string, bool, error) {
 			sections = append(sections, text)
 		}
 	}
-	return strings.Join(sections, "\n\n"), carriedMedia, nil
+	return strings.Join(sections, "\n\n"), media, nil
 }
 
 var (

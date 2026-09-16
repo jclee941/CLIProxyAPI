@@ -2,8 +2,33 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
+
+// The documented Omni input carries a reference image as inline bytes beside the
+// text, and the web session uploads exactly that.
+func TestInteractionCarriesAReferenceImage(t *testing.T) {
+	_, payload, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"a cat"},{"type":"image","data":"AAAA","mime_type":"image/png"}]}`))
+
+	if err != nil {
+		t.Fatalf("a documented reference image was refused: %v", err)
+	}
+	if !strings.Contains(string(payload), `"inlineData"`) || !strings.Contains(string(payload), "image/png") {
+		t.Fatalf("the reference never reached the payload: %s", payload)
+	}
+	if !strings.Contains(string(payload), "a cat") {
+		t.Fatalf("the prompt was lost beside the reference: %s", payload)
+	}
+}
+
+// A uri reference names a Files entry, and there is no Files API on the web
+// path to resolve it, so it has to be refused rather than silently dropped.
+func TestInteractionRefusesAnUploadedReference(t *testing.T) {
+	if _, _, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"a cat"},{"type":"image","uri":"files/abc"}]}`)); err == nil {
+		t.Fatal("a Files reference was accepted without a Files API")
+	}
+}
 
 func interactionCall(t *testing.T, service *service, local localSession, body string) envelope {
 	t.Helper()
