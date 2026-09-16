@@ -93,7 +93,7 @@ No `extra_body`, custom SDK, management generation route, Veo operation, or
 | --- | --- |
 | POST `/v1beta/interactions` | Supported subset below |
 | `input` string or list of `{type:"text", text:...}` | Supported; one new prompt, up to the existing 8000-character limit |
-| `previous_interaction_id` | Completed stored interaction only; a new turn and new ID on the original account/conversation |
+| `previous_interaction_id` | Completed stored interaction only; its video is attached to a new turn and new ID on any eligible account |
 | `store:true` or omitted | Keep the bounded local interaction receipt history |
 | `store:false` | Remove the completed receipt; later stateful editing with its ID fails before submission |
 | `response_format.type` | `video` or omitted |
@@ -114,9 +114,11 @@ ID, credential reference, identity digest, auth-user index, and revision through
 authenticated storage. Conversation, reply, candidate, context metadata, and
 submission state are stored there, not accepted as client identifiers.
 
-Before selection, the interceptor derives an internal scheduling header from
-`previous_interaction_id`. The scheduler locates its owner among eligible CPA
-auth candidates (including the host's empty-Provider/multiple-Providers shape).
+Before selection, an official create does not derive an account-pinning header
+from `previous_interaction_id`: the scheduler may choose any eligible CPA auth.
+The plugin locates the caller-bound stored result after selection and uploads its
+video as a reference. Retrieval requests still derive the internal scheduling
+header so GET/recovery stays on the receipt's owning account.
 The executor independently rejects wrong selected accounts, unknown/tampered
 IDs, stale projections, disabled accounts, and identity changes.
 

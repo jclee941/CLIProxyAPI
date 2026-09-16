@@ -34,11 +34,11 @@ func continuationReceipt(t *testing.T, result envelope) continuationView {
 	}
 	return body.View
 }
-func TestContinuationSchedulerSelectsStoredAccount(t *testing.T) {
-	// Given a receipt prepared on one of two accounts.
+func TestInteractionCreateDoesNotPinToStoredAccount(t *testing.T) {
+	// Given an official interaction create that references a stored video.
 	service, local := continuationFixture(t)
 	token := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`)).Token
-	// When the interceptor passes routing data through supported header fields.
+	// When the interceptor prepares the create for ordinary account selection.
 	intercepted := invoke(t, service, "request.intercept_before", struct {
 		SourceFormat, Model string
 		Body                []byte
@@ -51,8 +51,11 @@ func TestContinuationSchedulerSelectsStoredAccount(t *testing.T) {
 	if err := json.Unmarshal(intercepted.Result, &response); err != nil {
 		t.Fatal(err)
 	}
-	picked := invoke(t, service, "scheduler.pick", map[string]any{"Provider": provider, "Model": flashModel, "Options": map[string]any{"Headers": response.Headers, "Metadata": map[string]string{"caller_scope": testCallerScope}}, "Candidates": []any{map[string]string{"ID": "other", "Provider": provider}, map[string]string{"ID": local.Target.ID, "Provider": provider}}})
-	// Then the selected account is the receipt's owner, not the first candidate.
+	if response.Headers.Get(continuationHeader) != "" {
+		t.Fatal("create was pinned to the previous interaction account")
+	}
+	picked := invoke(t, service, "scheduler.pick", map[string]any{"Provider": provider, "Model": flashModel, "Options": map[string]any{"Headers": response.Headers, "Metadata": map[string]string{"caller_scope": testCallerScope}}, "Candidates": []any{map[string]string{"ID": local.Target.ID, "Provider": provider}}})
+	// Then the normal scheduler remains free to select an eligible account.
 	if !picked.OK {
 		t.Fatalf("pick: %+v", picked.Error)
 	}

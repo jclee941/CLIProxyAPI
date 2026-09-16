@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -33,6 +34,8 @@ type continuationWebFixture struct {
 	mu             sync.Mutex
 	fields         [][]any
 	candidates     []any
+	uploads        [][]byte
+	uploadCookies  []string
 	interrupted    bool
 	missingHandles bool
 	replyOnly      bool
@@ -141,6 +144,14 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 			writer.Header().Set("X-Goog-Upload-Url", origin+"/upload/finalize")
 			writer.WriteHeader(http.StatusOK)
 		case request.URL.Path == "/upload/finalize":
+			content, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Error(err)
+				writer.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			fixture.uploads = append(fixture.uploads, content)
+			fixture.uploadCookies = append(fixture.uploadCookies, request.Header.Get("Cookie"))
 			writeFixture(t, writer, "/uploaded/video")
 		default:
 			t.Errorf("unexpected path: %s", request.URL.Path)

@@ -1,10 +1,91 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 )
+
+func TestReferenceChainRoutesAndUploadsOnAnotherAccount(t *testing.T) {
+	service, source := continuationFixture(t)
+	target := localRecordFixture(t)
+	target.Target = recordFixture(t, "b")
+	target.Token, target.State = encodedToken("target-cookie"), localReady
+	auth, err := authFromRecord(target.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target.Projection = string(auth.StorageJSON)
+	if err := service.sessions.write(target); err != nil {
+		t.Fatal(err)
+	}
+	fixture := &continuationWebFixture{video: true}
+	continuationWeb(t, service, fixture)
+	service.host = (&loginHostFixture{
+		records: map[string]json.RawMessage{
+			source.Target.ID: jsonFixture(t, source.Target),
+			target.Target.ID: jsonFixture(t, target.Target),
+		},
+		service: service,
+	}).call
+	first := interactionID(t, interactionCall(t, service, source,
+		`{"model":"gemini-omni-1.1-flash","input":"first"}`))
+	body := `{"model":"gemini-omni-1.1-flash","input":"use the previous video","previous_interaction_id":"` + first + `"}`
+	headers := http.Header{continuationHeader: {first}, interactionRetrieveHeader: {"true"}}
+	response := service.interceptContinuation(jsonFixture(t, map[string]any{
+		"SourceFormat": "interactions", "Model": interactionOmniModel,
+		"Body": []byte(body), "Headers": headers,
+		"Metadata": map[string]string{"caller_scope": testCallerScope},
+	}))
+	if response.Terminate {
+		t.Fatalf("interceptor rejected reference create: %+v", response)
+	}
+	for _, name := range response.ClearHeaders {
+		headers.Del(name)
+	}
+	for name, values := range response.Headers {
+		headers[name] = values
+	}
+	pick, err := service.pickContinuation(jsonFixture(t, map[string]any{
+		"Providers": []string{provider}, "Model": interactionOmniModel,
+		"Options":    map[string]any{"Headers": headers, "Metadata": map[string]string{"caller_scope": testCallerScope}},
+		"Candidates": []any{map[string]string{"ID": target.Target.ID, "Provider": provider}},
+	}))
+	if err != nil || !pick.Handled || pick.AuthID != target.Target.ID {
+		t.Fatalf("source excluded from generation candidates: pick=%+v err=%v", pick, err)
+	}
+	next := interactionID(t, interactionCall(t, service, target, body))
+	stored, err := service.sessions.read(target.Target.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turns, err := continuationTurns(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := turns[continuationKey(next)]
+	if next == first || turn.Parent != "" || turn.State != "complete" || !turn.ResultStored || turn.CallerScope != testCallerScope {
+		t.Fatalf("reference did not create an independent stored turn: %+v", turn)
+	}
+	foreign := interactionExecutorRequest(t, target, body)
+	foreign.Metadata.CallerScope = strings.Repeat("d", 64)
+	if _, err := service.executeInteraction(t.Context(), foreign); safeCredentialCode(err) != "continuation_identity_mismatch" {
+		t.Fatalf("cross-caller reference was not rejected: %v", err)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.fields) != 2 || len(fixture.uploads) != 1 {
+		t.Fatalf("submissions=%d uploads=%d", len(fixture.fields), len(fixture.uploads))
+	}
+	if !bytes.Equal(fixture.uploads[0], []byte("0000ftypvideo")) || fixture.uploadCookies[0] != "target-cookie" {
+		t.Fatal("the source video was not uploaded with the target account")
+	}
+	if jsonField(fixture.fields[1], 2, 0) != "" || jsonField(fixture.fields[1], 0, 3, 0, 0, 0) != "/uploaded/video" {
+		t.Fatal("follow-up used conversation state instead of an uploaded video")
+	}
+}
 
 // The reference the plugin writes for itself has to survive the request it is
 // written into, and nothing a caller can write may be read as one.

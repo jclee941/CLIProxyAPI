@@ -52,14 +52,11 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 		}
 		return requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader}, Headers: http.Header{continuationHeader: {body.ID}, interactionRetrieveHeader: {"true"}}}
 	}
-	body, _, err := parseInteraction(request.Body)
+	_, _, err := parseInteraction(request.Body)
 	if err != nil {
 		return interactionRejection(err)
 	}
 	response := requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader}}
-	if body.Previous != "" {
-		response.Headers = http.Header{continuationHeader: {body.Previous}}
-	}
 	return response
 }
 
