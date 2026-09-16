@@ -21,7 +21,15 @@ func continuationFrame(turn continuationTurn, raw []byte) (continuationTurn, err
 	}
 	payload := false
 	for _, entry := range entries {
-		if jsonField(entry, 0) == "wrb.fr" {
+		if jsonField(entry, 0) != "wrb.fr" {
+			continue
+		}
+		// The decoder also needs the payload slot to hold an encoded body, and
+		// disagreeing with it here is what made one silent frame fatal: a line
+		// that carries no receipt was read as a corrupt stream and discarded a
+		// generation that had run for ten minutes, when the next line along may
+		// still be the one that names the operation.
+		if _, encoded := jsonField(entry, 2).(string); encoded {
 			payload = true
 		}
 	}

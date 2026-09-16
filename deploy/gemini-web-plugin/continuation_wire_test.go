@@ -9,6 +9,31 @@ import (
 	"testing/iotest"
 )
 
+// A generation stream carries frames that hold no receipt. One of them must not
+// end the submission: the operation is named by a later line, and a turn thrown
+// away here is a ten minute render thrown away with it.
+func TestASilentFrameDoesNotDiscardTheSubmission(t *testing.T) {
+	receipt := slots(26, map[int]any{1: []any{"c_chat", "r_turn"}, 4: []any{[]any{"rc_candidate"}}})
+	raw := string(jsonFixture(t, []any{[]any{"wrb.fr", nil, nil, nil, nil, nil, nil, "generic"}})) + "\n" +
+		string(jsonFixture(t, []any{[]any{"wrb.fr", nil, string(jsonFixture(t, receipt))}})) + "\n"
+	turn := continuationTurn{}
+
+	_, err := readContinuationStream(strings.NewReader(raw), func(line []byte) error {
+		updated, frameErr := continuationFrame(turn, line)
+		if frameErr == nil {
+			turn = updated
+		}
+		return frameErr
+	})
+
+	if err != nil {
+		t.Fatalf("a silent frame ended the submission: %v", err)
+	}
+	if turn.Conversation != "c_chat" || turn.Reply != "r_turn" || turn.Candidate != "rc_candidate" {
+		t.Fatalf("receipt lost behind the silent frame: %+v", turn)
+	}
+}
+
 // A cut stream has to keep reading as the same failure every caller already
 // handles, and has to keep what did arrive: the count of delivered frames is
 // what separates a turn recovery can still find from one that was never named.
