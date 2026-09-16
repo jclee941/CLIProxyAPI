@@ -117,5 +117,4 @@ func (service *service) refreshSession(ctx context.Context, local localSession) 
 		return
 	}
 	lease.set(credentialState{state: maintenanceReady, nextDue: service.now().Add(maintenanceReadyInterval)})
-	service.invalidateCredential(reference, sessionToken{local.Token})
 }

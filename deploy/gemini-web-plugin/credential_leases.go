@@ -33,7 +33,6 @@ type credentialLease struct {
 	guard   sync.RWMutex
 	mu      sync.Mutex
 	state   credentialState
-	cache   credentialCache
 	retired map[string]bool
 }
 
@@ -48,7 +47,6 @@ func (lease *credentialLease) set(state credentialState) {
 	defer lease.mu.Unlock()
 	lease.state = state
 	if state.state == maintenanceFenced || state.state == maintenanceOperator {
-		lease.clearCacheLocked()
 	}
 }
 

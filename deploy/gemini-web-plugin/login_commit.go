@@ -175,7 +175,6 @@ func (service *service) commitLogin(ctx context.Context, callbackID string, comm
 		}
 		lease.retired[local.Previous.TokenRef] = true
 	}
-	lease.clearCacheLocked()
 	lease.state = credentialState{state: maintenanceHostPending}
 	lease.mu.Unlock()
 	view, err := service.syncLocalHost(ctx, callbackID, local)

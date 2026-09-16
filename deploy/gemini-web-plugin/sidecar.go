@@ -41,7 +41,6 @@ func (service *service) sidecar(ctx context.Context, request sidecarRequest) (ht
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusUnauthorized {
-		service.invalidateCredential(request.Reference, request.Token)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 128*1024*1024+1))
 	if err != nil || len(body) > 128*1024*1024 {
@@ -110,7 +109,6 @@ func (service *service) accountModels(ctx context.Context, reference string, tok
 		return account, failure(502, "account_response_invalid")
 	}
 	if !account.Available {
-		service.invalidateCredential(reference, token)
 		return account, failure(401, "account_unavailable")
 	}
 	return account, nil

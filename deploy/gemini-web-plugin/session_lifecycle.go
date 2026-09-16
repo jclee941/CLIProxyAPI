@@ -67,7 +67,6 @@ func (service *service) shutdownSessions() error {
 	drained := service.lifecycle.drained
 	service.lifecycle.mu.Unlock()
 	<-drained
-	service.clearCredentials()
 	service.client.CloseIdleConnections()
 	var err error
 	if store := service.localStore(); store != nil {

@@ -107,7 +107,6 @@ func (service *service) configureSessions(config pluginConfig) error {
 			return errors.Join(err, store.close())
 		}
 		lease.mu.Lock()
-		lease.clearCacheLocked()
 		if local.LegacyRef != "" {
 			lease.retired = map[string]bool{local.LegacyRef: true}
 		}

@@ -101,7 +101,7 @@ func (service *service) pickContinuation(raw []byte) (continuationPick, error) {
 	}
 	token := request.Options.Headers.Get(continuationHeader)
 	if token == "" {
-		return service.pickServableAccount(request.Candidates), nil
+		return service.pickServableAccount(request.Model, request.Candidates), nil
 	}
 	if !service.settings().NativeContinuation {
 		return continuationPick{}, nil

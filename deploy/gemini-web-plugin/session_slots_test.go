@@ -21,7 +21,7 @@ func TestSchedulerSkipsAPinnedAccount_whenAnotherSessionCanServe(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pick := service.pickServableAccount(slotCandidates(local.Target.ID, other.ID))
+	pick := service.pickServableAccount(flashModel, slotCandidates(local.Target.ID, other.ID))
 
 	if !pick.Handled || pick.AuthID != other.ID {
 		t.Fatalf("scheduler chose an unusable account: %+v", pick)
@@ -36,7 +36,7 @@ func TestSchedulerDelegates_whenNoSessionCanServe(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pick := service.pickServableAccount(slotCandidates(local.Target.ID))
+	pick := service.pickServableAccount(flashModel, slotCandidates(local.Target.ID))
 
 	if pick.Handled || pick.AuthID != "" {
 		t.Fatalf("scheduler claimed a request it cannot place: %+v", pick)
@@ -51,7 +51,7 @@ func TestSchedulerSpreadsAcrossIdleAccounts(t *testing.T) {
 	chosen := map[string]int{}
 
 	for round := 0; round < 4; round++ {
-		pick := service.pickServableAccount(candidates)
+		pick := service.pickServableAccount(flashModel, candidates)
 		if !pick.Handled {
 			t.Fatalf("round %d was not placed", round)
 		}
@@ -76,9 +76,32 @@ func TestSchedulerPrefersAnIdleAccountOverABusyOne(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pick := service.pickServableAccount(slotCandidates(local.Target.ID, other.ID))
+	pick := service.pickServableAccount(flashModel, slotCandidates(local.Target.ID, other.ID))
 
 	if !pick.Handled || pick.AuthID != other.ID {
 		t.Fatalf("scheduler queued behind an in-flight generation: %+v", pick)
+	}
+}
+
+func TestSchedulerRefusesABusyAccountForAGeneration_butSharesItForText(t *testing.T) {
+	service, local := continuationFixture(t)
+	busy, err := service.acquireCredential(local.Target.TokenRef, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.guard.Unlock()
+	if _, err := service.accountLease(local.Target); err != nil {
+		t.Fatal(err)
+	}
+	candidates := slotCandidates(local.Target.ID)
+
+	generation := service.pickServableAccount(omniModel, candidates)
+	text := service.pickServableAccount(flashModel, candidates)
+
+	if generation.Handled {
+		t.Fatalf("generation queued behind an in-flight one: %+v", generation)
+	}
+	if !text.Handled || text.AuthID != local.Target.ID {
+		t.Fatalf("text turn lost a shareable session: %+v", text)
 	}
 }
