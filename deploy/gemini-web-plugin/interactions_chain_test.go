@@ -53,8 +53,10 @@ func TestReferenceChainRoutesAndUploadsOnAnotherAccount(t *testing.T) {
 		"Options":    map[string]any{"Headers": headers, "Metadata": map[string]string{"caller_scope": testCallerScope}},
 		"Candidates": []any{map[string]string{"ID": target.Target.ID, "Provider": provider}},
 	}))
-	if err != nil || !pick.Handled || pick.AuthID != target.Target.ID {
-		t.Fatalf("source excluded from generation candidates: pick=%+v err=%v", pick, err)
+	// The owner is not among the candidates offered, so the choice is handed
+	// back to the host rather than refused, and the turn runs wherever it lands.
+	if err != nil || pick.Handled {
+		t.Fatalf("a busy owner did not delegate: pick=%+v err=%v", pick, err)
 	}
 	next := interactionID(t, interactionCall(t, service, target, body))
 	stored, err := service.sessions.read(target.Target.TokenRef)

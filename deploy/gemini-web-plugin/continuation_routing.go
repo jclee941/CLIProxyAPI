@@ -52,11 +52,18 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 		}
 		return requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader}, Headers: http.Header{continuationHeader: {body.ID}, interactionRetrieveHeader: {"true"}}}
 	}
-	_, _, err := parseInteraction(request.Body)
+	body, _, err := parseInteraction(request.Body)
 	if err != nil {
 		return interactionRejection(err)
 	}
 	response := requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader}}
+	// A create names the account that holds the previous interaction so the
+	// scheduler can prefer it, which keeps the chain inside one conversation.
+	// It is a preference rather than a pin: the pick below delegates when that
+	// account cannot serve, and the executor then carries the video instead.
+	if body.Previous != "" {
+		response.Headers = http.Header{continuationHeader: {body.Previous}}
+	}
 	return response
 }
 
@@ -131,9 +138,18 @@ func (service *service) pickContinuation(raw []byte) (continuationPick, error) {
 				return continuationPick{AuthID: candidate.ID, Handled: true}, nil
 			}
 		}
-		// Never return an invalid pick: the host treats it as a request to fall
-		// back to its built-in scheduler. An explicit error fails closed instead.
-		return continuationPick{}, failure(409, "continuation_account_unavailable")
+		// Never return an invalid pick: the host treats an AuthID outside the
+		// candidates as a request to fall back to its built-in scheduler.
+		//
+		// A retrieval has to land on the owner, because the result lives in that
+		// account's store and nowhere else, so it fails closed. A create only
+		// prefers the owner: the previous video can travel to another account as
+		// an attachment, so an owner that is busy delegates the choice rather
+		// than answering that no account is available while five are idle.
+		if request.Options.Headers.Get(interactionRetrieveHeader) == "true" {
+			return continuationPick{}, failure(409, "continuation_account_unavailable")
+		}
+		return continuationPick{}, nil
 	}
 	if request.Options.Headers.Get(interactionRetrieveHeader) == "true" {
 		return continuationPick{}, failure(404, "interaction_not_found")

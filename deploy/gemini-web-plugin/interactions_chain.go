@@ -54,8 +54,14 @@ func (service *service) locateChained(request executorRequest, previous string) 
 	if err != nil {
 		return chainedLocation{}, false, err
 	}
+	// The account serving this turn already holds the receipt, so the turn can
+	// continue that conversation instead of uploading its own video back to
+	// itself. That is the extension the documentation describes and the only
+	// path it gives no duration ceiling; carrying the video as an attachment
+	// instead put every chain on the uploaded-video rules, where a measured six
+	// chained turns extended once.
 	if service.holdsInteraction(record.TokenRef, key, caller) {
-		return chainedLocation{Account: record.TokenRef, Key: key, Caller: caller}, true, nil
+		return chainedLocation{}, false, nil
 	}
 	entries, err := service.entries(request.HostCallbackID)
 	if err != nil {

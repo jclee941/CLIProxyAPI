@@ -141,13 +141,14 @@ func TestInteractionsCreateChainsOfficialPreviousID(t *testing.T) {
 	first := interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first","response_format":{"type":"video","aspect_ratio":"16:9"}}`))
 	// When a new official create call references the stored interaction.
 	next := interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"edit","previous_interaction_id":"`+first+`"}`))
-	// Then a new video turn carries the previous video as an attachment.
+	// Then the new turn continues that conversation rather than uploading the
+	// video back to the account that just made it.
 	if next == first {
 		t.Fatal("new turn reused interaction ID")
 	}
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
-	if len(fixture.fields) != 2 || jsonField(fixture.fields[1], 0, 3, 0, 0, 0) != "/uploaded/video" || jsonField(fixture.fields[1], 0, 3, 0, 0, 3) != "video/mp4" {
+	if len(fixture.fields) != 2 || jsonField(fixture.fields[1][2], 0) != "c_chat" || jsonField(fixture.fields[1][2], 1) != "r_1" || jsonField(fixture.fields[1][2], 2) != "rc_1" {
 		t.Fatalf("chaining: %#v", fixture.fields)
 	}
 }

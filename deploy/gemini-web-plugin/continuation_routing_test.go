@@ -34,11 +34,11 @@ func continuationReceipt(t *testing.T, result envelope) continuationView {
 	}
 	return body.View
 }
-func TestInteractionCreateDoesNotPinToStoredAccount(t *testing.T) {
-	// Given an official interaction create that references a stored video.
+func TestInteractionCreatePrefersTheOwnerWithoutRequiringIt(t *testing.T) {
+	// Given a receipt prepared on one account.
 	service, local := continuationFixture(t)
 	token := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`)).Token
-	// When the interceptor prepares the create for ordinary account selection.
+	// When a create names it, the interceptor passes the owner to the scheduler.
 	intercepted := invoke(t, service, "request.intercept_before", struct {
 		SourceFormat, Model string
 		Body                []byte
@@ -51,23 +51,34 @@ func TestInteractionCreateDoesNotPinToStoredAccount(t *testing.T) {
 	if err := json.Unmarshal(intercepted.Result, &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Headers.Get(continuationHeader) != "" {
-		t.Fatal("create was pinned to the previous interaction account")
+	if response.Headers.Get(continuationHeader) != token {
+		t.Fatal("the create did not name the account holding the previous interaction")
 	}
-	picked := invoke(t, service, "scheduler.pick", map[string]any{"Provider": provider, "Model": flashModel, "Options": map[string]any{"Headers": response.Headers, "Metadata": map[string]string{"caller_scope": testCallerScope}}, "Candidates": []any{map[string]string{"ID": local.Target.ID, "Provider": provider}}})
-	// Then the normal scheduler remains free to select an eligible account.
+	// Then the owner is chosen when it can serve, which keeps the chain in one
+	// conversation and off the uploaded-video rules.
+	picked := invoke(t, service, "scheduler.pick", map[string]any{"Provider": provider, "Model": flashModel, "Options": map[string]any{"Headers": response.Headers, "Metadata": map[string]string{"caller_scope": testCallerScope}}, "Candidates": []any{map[string]string{"ID": "other", "Provider": provider}, map[string]string{"ID": local.Target.ID, "Provider": provider}}})
 	if !picked.OK {
 		t.Fatalf("pick: %+v", picked.Error)
 	}
-	var choice struct {
-		Handled bool
-		AuthID  string
-	}
+	var choice continuationPick
 	if err := json.Unmarshal(picked.Result, &choice); err != nil {
 		t.Fatal(err)
 	}
 	if !choice.Handled || choice.AuthID != local.Target.ID {
 		t.Fatalf("choice: %+v", choice)
+	}
+	// And when it cannot, the choice is handed back rather than refused: the
+	// video can travel to another account, so a busy owner must not read as no
+	// account being available at all.
+	delegated := invoke(t, service, "scheduler.pick", map[string]any{"Provider": provider, "Model": flashModel, "Options": map[string]any{"Headers": response.Headers, "Metadata": map[string]string{"caller_scope": testCallerScope}}, "Candidates": []any{map[string]string{"ID": "other", "Provider": provider}}})
+	if !delegated.OK {
+		t.Fatalf("a busy owner refused the create instead of delegating: %+v", delegated.Error)
+	}
+	if err := json.Unmarshal(delegated.Result, &choice); err != nil {
+		t.Fatal(err)
+	}
+	if choice.Handled {
+		t.Fatalf("the pick claimed an account it was not offered: %+v", choice)
 	}
 }
 func TestContinuationRejectsUntrustedIdentifiersBeforeNetwork(t *testing.T) {

@@ -73,15 +73,28 @@ func webVideoFields(prompt string, mode int, conversationID string, framing omni
 // Reference-declared turns produced a video every time. This follows what the
 // product does rather than what the document says it should.
 func webReferenceDeclaration(prompt string, attachments []webAttachment) string {
-	for _, attachment := range attachments {
-		if !strings.HasPrefix(attachment.MIMEType, "video/") {
-			continue
-		}
-		if strings.Contains(prompt, "<VIDEO_") || strings.Contains(prompt, "[# Sources") || strings.Contains(prompt, "[# References") {
+	// A caller who wrote their own role means it. The tag vocabulary is the
+	// product's own prompt syntax, so every spelling of it is left alone -
+	// including the frame tags, which this used to overwrite because it only
+	// looked for the two tags it injects itself.
+	for _, written := range []string{"<VIDEO_", "<IMAGE_", "<FIRST_FRAME>", "<LAST_FRAME>", "[# Sources", "[# References"} {
+		if strings.Contains(prompt, written) {
 			return prompt
 		}
-		return "[# References <VIDEO_REF_0>@Video1] " + prompt +
-			"\n\nUse the given video as a reference for the video generation."
+	}
+	// An image needs no declaration: the tool takes one as a starting frame
+	// without being asked, measured as a reference image driving the first frame
+	// of the result. Declaring it as a reference instead tells the model not to
+	// use it as an initial frame, which is the opposite of what already works.
+	//
+	// A video is ambiguous between an edit source, an extension target and a
+	// reference, and an undeclared one is uploaded, accepted and then ignored:
+	// the generation answers no_video_generated.
+	for _, attachment := range attachments {
+		if strings.HasPrefix(attachment.MIMEType, "video/") {
+			return "[# References <VIDEO_REF_0>@Video1] " + prompt +
+				"\n\nUse the given video as a reference for the video generation."
+		}
 	}
 	return prompt
 }
