@@ -147,7 +147,15 @@ func (service *service) localAuthModels(ctx context.Context, record storageRecor
 	if err != nil {
 		return nil, err
 	}
-	if latest != local {
+	// Google rotates the cookie on the very call that reads the capabilities, and
+	// the plugin stores that rotation the moment it happens. That rewrites the
+	// stored token, so comparing whole records read a healthy rotation as the
+	// credential being swapped underneath and published no models at all. What
+	// must not change during the read is which account this is and what state it
+	// is in; a fresher cookie for the same account is the good outcome.
+	if latest.State != local.State || latest.Identity != local.Identity ||
+		latest.ContinuationActive != local.ContinuationActive ||
+		latest.Target.SessionRevision != local.Target.SessionRevision {
 		return nil, failure(409, "credential_changed")
 	}
 	if account.AccountSHA256 != "" && account.AccountSHA256 != local.Identity.AccountSHA256 {

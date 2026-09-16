@@ -97,8 +97,38 @@ func TestLocalModelsUseCommittedRevision_whenHostSaveMarkerClosedBeforeWriterRel
 	}
 }
 
+// Reading the capabilities is itself a call Google rotates the cookie on, and
+// the plugin stores that rotation as it happens. Treating the fresher token as a
+// swapped credential published no models at all, which took the whole fleet out
+// of routing while every account was healthy.
+func TestLocalModelsSurviveACookieRotationDuringDiscovery(t *testing.T) {
+	service, _ := loginFixture(t)
+	local := localRecordFixture(t)
+	local.State = localReady
+	store := service.localStore()
+	if err := store.write(local); err != nil {
+		t.Fatal(err)
+	}
+	service.client.Transport = sessionModelObserver{base: service.client.Transport, observe: func() error {
+		local.Token = encodedToken("rotated-during-discovery")
+		return store.write(local)
+	}}
+
+	models, err := service.localAuthModels(t.Context(), local.Target)
+
+	if err != nil {
+		t.Fatalf("a rotation during discovery was read as a credential change: %v", err)
+	}
+	if len(models) == 0 {
+		t.Fatal("a rotation during discovery published no models")
+	}
+}
+
 func TestLocalModelsDiscardEntitlements_whenSnapshotChangesDuringHTTP(t *testing.T) {
-	for _, change := range []string{"revision", "token", "state", "renewal_intent", "submission_intent", "durability", "operator", "fence"} {
+	// "token" is deliberately absent: a token that changes without the revision
+	// moving is Google rotating the cookie on the very call being made, which is
+	// the good outcome and is covered by the test below.
+	for _, change := range []string{"revision", "state", "renewal_intent", "submission_intent", "durability", "operator", "fence"} {
 		t.Run(change, func(t *testing.T) {
 			service, _ := loginFixture(t)
 			local := localRecordFixture(t)
