@@ -66,6 +66,9 @@ func (service *service) mediaSource(ctx context.Context, item webMedia) (webSour
 	if item.Reference == "" {
 		return inlineSource(item)
 	}
+	if location, chained := parseChainedReference(item.Reference); chained {
+		return service.chainedSource(location)
+	}
 	return service.driveSource(ctx, item.Reference)
 }
 

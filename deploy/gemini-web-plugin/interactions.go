@@ -130,7 +130,23 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 	native.Model, native.Format, native.SourceFormat = omniModel, "gemini", "gemini"
 	native.Stream = false
 	native.freshContinuation = true
-	native.Payload, err = json.Marshal(map[string]any{continuationField: continuationControl{Action: "prepare", Token: body.Previous}})
+	// A chain continues the conversation when the account serving it is the one
+	// that holds it, and carries the video as a reference when it is not. Either
+	// way the caller names only the interaction it is continuing.
+	previous := body.Previous
+	if previous != "" {
+		location, carried, locateErr := service.locateChained(request, previous)
+		if locateErr != nil {
+			return nil, locateErr
+		}
+		if carried {
+			if payload, err = withChainedReference(payload, location); err != nil {
+				return nil, err
+			}
+			previous = ""
+		}
+	}
+	native.Payload, err = json.Marshal(map[string]any{continuationField: continuationControl{Action: "prepare", Token: previous}})
 	if err != nil {
 		return nil, err
 	}

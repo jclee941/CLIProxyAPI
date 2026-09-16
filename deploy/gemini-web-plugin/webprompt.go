@@ -184,7 +184,9 @@ func webContentsToPrompt(raw []byte) (string, []webMedia, error) {
 			case webStringField(field, "text") != "":
 				lines = append(lines, webStringField(field, "text"))
 			case namesFile:
-				if _, ok := driveFileID(reference); !ok {
+				_, drive := driveFileID(reference)
+				_, chained := parseChainedReference(reference)
+				if !drive && !chained {
 					return "", nil, failure(400, "attachment_reference_unsupported")
 				}
 				media = append(media, webMedia{Reference: reference})
