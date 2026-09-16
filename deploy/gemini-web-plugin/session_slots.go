@@ -33,19 +33,32 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 	// scheduler that knows nothing about sessions.
 	shared := model != omniModel && model != interactionOmniModel
 	start := int(slotCursor.Add(1) % uint64(len(candidates)))
-	busy := ""
+	busy, chosen, best := "", "", -1.0
 	for offset := range candidates {
 		candidate := candidates[(start+offset)%len(candidates)]
 		reference, ok := servable[candidate.ID]
 		if !ok || candidate.Provider != provider {
 			continue
 		}
-		if service.slotIsIdle(reference) {
-			return continuationPick{AuthID: candidate.ID, Handled: true}
+		// An account whose five hour window is spent answers every turn with a
+		// quota error, so it is skipped until the window resets rather than kept
+		// in the rotation for a request that cannot succeed.
+		headroom, usable := service.quotaHeadroom(candidate.ID)
+		if !usable {
+			continue
 		}
-		if busy == "" {
-			busy = candidate.ID
+		if !service.slotIsIdle(reference) {
+			if busy == "" {
+				busy = candidate.ID
+			}
+			continue
 		}
+		if headroom > best {
+			chosen, best = candidate.ID, headroom
+		}
+	}
+	if chosen != "" {
+		return continuationPick{AuthID: chosen, Handled: true}
 	}
 	if busy == "" || !shared {
 		return continuationPick{}

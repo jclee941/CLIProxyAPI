@@ -74,6 +74,7 @@ type webSession struct {
 	sessionID       string
 	requestID       int
 	generationFrame func([]byte) error
+	rotated         bool
 }
 
 func newWebSession(client *http.Client, credential webCredential, origin string) *webSession {
@@ -135,6 +136,7 @@ func (session *webSession) do(ctx context.Context, path string, body []byte, ove
 	if err != nil {
 		return nil, failure(502, "web_transport_failed")
 	}
+	session.absorb(response)
 	defer func() {
 		if closeErr := response.Body.Close(); closeErr != nil {
 			_ = closeErr
@@ -161,6 +163,34 @@ func (session *webSession) do(ctx context.Context, path string, body []byte, ove
 
 // bootstrap reads the XSRF token and build id the RPC endpoint requires. They are
 // embedded in the application page rather than served by an API.
+// absorb takes the cookies Google hands back on an ordinary response. It rotates
+// the session cookie opportunistically, not only through the rotation endpoint,
+// so a jar that ignores these goes stale while upstream has already moved on.
+func (session *webSession) absorb(response *http.Response) {
+	updates := map[string]string{}
+	for _, cookie := range response.Cookies() {
+		domain := strings.TrimPrefix(strings.ToLower(cookie.Domain), ".")
+		if cookie.Path != "/" || !cookie.Secure || !webRotatableDomains[domain] || cookie.Value == "" {
+			continue
+		}
+		updates[cookie.Name] = cookie.Value
+	}
+	if len(updates) == 0 {
+		return
+	}
+	merged := webMergeCookies(session.cookie, updates)
+	if merged == session.cookie {
+		return
+	}
+	session.cookie, session.rotated = merged, true
+	for _, pair := range strings.Split(merged, ";") {
+		name, value, found := strings.Cut(strings.TrimSpace(pair), "=")
+		if found && name == "SAPISID" {
+			session.sapisid = value
+		}
+	}
+}
+
 func (session *webSession) bootstrap(ctx context.Context) error {
 	page, err := session.do(ctx, session.prefix+"/app", nil, nil)
 	if err != nil {

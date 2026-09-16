@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"time"
 )
 
@@ -18,7 +19,13 @@ const (
 
 // The caller holds the lifecycle lock while configuring sessions, so the
 // closing signal is read inside the goroutine rather than at the call site.
+// Rotation is off by default. Measured on 2026-09-16: sessions rotated by the
+// sweep died with auth_error even when no restart cut them, so the sweep may
+// only run where an operator has asked for it explicitly.
 func (service *service) startKeepAlive() {
+	if os.Getenv("GEMINI_WEB_KEEPALIVE") != "on" {
+		return
+	}
 	go func() { service.keepSessionsAlive(service.lifecycle.closingSignal()) }()
 }
 
@@ -142,5 +149,6 @@ func (service *service) refreshSession(ctx context.Context, local localSession) 
 	if err := service.localStore().write(current); err != nil {
 		return
 	}
+	service.refreshQuota(ctx, current.Target, renewed)
 	lease.set(credentialState{state: maintenanceReady, nextDue: service.now().Add(maintenanceReadyInterval)})
 }

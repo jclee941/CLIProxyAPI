@@ -55,6 +55,7 @@ type service struct {
 	// Google origin than the rest of the native calls.
 	webRotateOverride string
 	startedAt         int64
+	quota             quotaCache
 }
 
 func newService(host hostCall) *service {

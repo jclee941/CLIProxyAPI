@@ -103,7 +103,7 @@ export async function listAccounts(): Promise<readonly Account[]> {
 const registeredModelsSchema = z.object({ models: z.array(z.object({ id: z.string().trim().min(1), display_name: z.string().nullish() })) });
 
 async function confirmRegisteredModels(account: Account, transport: ReturnType<typeof readHostRequest> | null): Promise<Account> {
-  if (!account.enabled || account.status !== 'ready') return account;
+  if (!account.enabled || account.status !== 'ready' && account.status !== 'generating') return account;
   try {
     const parsed = registeredModelsSchema.safeParse(await readJson(await request({ modelsFor: account.id }, undefined, transport)));
     if (parsed.success && parsed.data.models.length) {
@@ -126,12 +126,12 @@ export async function refreshAccount(id: AccountId): Promise<Account> {
   const transport = readHostRequest() ?? null;
   const parsed = accountSchema.safeParse(await readJson(await request('refresh', { id }, transport)));
   if (!parsed.success || parsed.data.id !== id) throw new PluginApiError(0);
-  if (parsed.data.status !== 'ready') {
+  if (parsed.data.status !== 'ready' && parsed.data.status !== 'generating') {
     const error = errorResponseSchema.safeParse({ error: parsed.data.error });
     throw new PluginApiError(200, parsed.data.status === 'expired' ? 'account_unavailable' : error.success ? error.data.error : undefined);
   }
   const confirmed = await confirmRegisteredModels(parsed.data, transport);
-  if (confirmed.status !== 'ready') throw new PluginApiError(200);
+  if (confirmed.status !== 'ready' && confirmed.status !== 'generating') throw new PluginApiError(200);
   return confirmed;
 }
 

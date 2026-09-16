@@ -37,7 +37,7 @@ func webSelectCapability(account webAccount, requested string) (capability, bool
 // nativeText runs one text turn directly against the web product and renders the
 // Gemini-native response the host expects, including any function calls the reply
 // carried.
-func (service *service) nativeText(ctx context.Context, token sessionToken, requested string, payload []byte) ([]byte, error) {
+func (service *service) nativeText(ctx context.Context, record storageRecord, token sessionToken, requested string, payload []byte) ([]byte, error) {
 	credential, err := decodeWebCredential(token)
 	if err != nil {
 		return nil, err
@@ -50,6 +50,7 @@ func (service *service) nativeText(ctx context.Context, token sessionToken, requ
 		return nil, failure(400, "text_only_flash_request")
 	}
 	session := newWebSession(service.client, credential, service.webOriginOverride)
+	defer service.persistJar(record, session)
 	account, err := session.webCapabilities(ctx)
 	if err != nil {
 		return nil, err
@@ -68,7 +69,7 @@ func (service *service) nativeText(ctx context.Context, token sessionToken, requ
 // nativeVideo produces the same response body the sidecar would, so the caller's
 // submission bookkeeping and validation stay untouched when only the transport
 // changes.
-func (service *service) nativeVideo(ctx context.Context, token sessionToken, payload []byte) (httpResponse, error) {
+func (service *service) nativeVideo(ctx context.Context, record storageRecord, token sessionToken, payload []byte) (httpResponse, error) {
 	credential, err := decodeWebCredential(token)
 	if err != nil {
 		return httpResponse{}, err
@@ -79,6 +80,7 @@ func (service *service) nativeVideo(ctx context.Context, token sessionToken, pay
 	}
 	prompt := options.applyPrompt(base)
 	session := newWebSession(service.client, credential, service.webOriginOverride)
+	defer service.persistJar(record, session)
 	account, err := session.webCapabilities(ctx)
 	if err != nil {
 		return httpResponse{}, err

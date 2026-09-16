@@ -72,6 +72,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		return nil, failure(409, "credential_identity_mismatch")
 	}
 	session := newWebSession(service.client, credential, service.webOriginOverride)
+	defer service.persistJar(execution.local.Target, session)
 	if turn.State == "prepared" {
 		account, err := session.webCapabilities(ctx)
 		if err != nil {

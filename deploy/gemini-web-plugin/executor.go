@@ -112,7 +112,7 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 		}
 	}
 	if request.Model == flashModel && service.settings().NativeGeneration {
-		body, errNative := service.nativeText(ctx, token, request.Model, request.Payload)
+		body, errNative := service.nativeText(ctx, record, token, request.Model, request.Payload)
 		if errNative != nil {
 			return nil, executionFailure(request.Model, errNative)
 		}
@@ -146,7 +146,7 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	}
 	var response httpResponse
 	if request.Model == omniModel && service.settings().NativeGeneration {
-		response, err = service.nativeVideo(ctx, token, request.Payload)
+		response, err = service.nativeVideo(ctx, record, token, request.Payload)
 	} else {
 		response, err = service.sidecar(ctx, sidecarRequest{Method: "POST", Path: "/v1beta/models/" + model + ":generateContent", Token: token, Body: body, Reference: record.TokenRef})
 	}

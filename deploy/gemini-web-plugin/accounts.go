@@ -162,6 +162,7 @@ func (service *service) inspectAccount(ctx context.Context, record storageRecord
 	if err != nil {
 		return failedAccount(view, err)
 	}
+	service.observeQuota(record.ID, view.Usage)
 	return view
 }
 
