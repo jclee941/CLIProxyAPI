@@ -171,7 +171,10 @@ func (session *webSession) absorb(response *http.Response) {
 	updates := map[string]string{}
 	for _, cookie := range response.Cookies() {
 		domain := strings.TrimPrefix(strings.ToLower(cookie.Domain), ".")
-		if cookie.Path != "/" || !cookie.Secure || !webRotatableDomains[domain] || cookie.Value == "" {
+		// SIDCC comes back without the Secure attribute while its __Secure- twins
+		// carry it. Dropping the plain one leaves a half-rotated jar that Google
+		// rejects, so the domain is the boundary here, not the flag.
+		if cookie.Path != "/" || !webRotatableDomains[domain] || cookie.Value == "" {
 			continue
 		}
 		updates[cookie.Name] = cookie.Value

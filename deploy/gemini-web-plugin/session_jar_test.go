@@ -91,3 +91,16 @@ func TestJarIsStoredTheMomentGoogleRotatesMidCall(t *testing.T) {
 		t.Fatalf("a rotation during the call was not stored until it ended: %s", credential.Cookie)
 	}
 }
+
+func TestSessionAbsorbsSidccWhichArrivesWithoutSecure(t *testing.T) {
+	session := newWebSession(http.DefaultClient, webCredential{Cookie: "SAPISID=old; SIDCC=stale", AuthUser: 0}, "https://gemini.google.com")
+
+	session.absorb(&http.Response{Header: http.Header{"Set-Cookie": {
+		"SIDCC=fresh; Path=/; Domain=.google.com",
+		"__Secure-1PSIDCC=fresh1p; Path=/; Secure; Domain=.google.com",
+	}}})
+
+	if !contains(session.cookie, "SIDCC=fresh") || !contains(session.cookie, "__Secure-1PSIDCC=fresh1p") {
+		t.Fatalf("a half-rotated jar was stored: %s", session.cookie)
+	}
+}
