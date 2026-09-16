@@ -162,7 +162,21 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		if submitErr != nil {
 			view.State, view.Error = "pending", safeCredentialCode(submitErr)
 			if turn.Conversation == "" || turn.Reply == "" || turn.Candidate == "" {
+				// The stream died before it named an operation, so there is
+				// nothing for recovery to find and nothing to protect. Holding
+				// the account until the generation budget expires only takes it
+				// out of rotation for ten minutes on a turn already known to be
+				// unobservable, which is how a healthy fleet runs out of accounts.
 				view.State = "outcome_unknown"
+				turn.State = "no_operation"
+				execution.turns[execution.key] = turn
+				if execution.local.ContinuationActive == execution.key {
+					execution.local.State, execution.local.ContinuationActive = localReady, ""
+				}
+				if saveErr := service.saveContinuations(execution.local, execution.turns); saveErr != nil {
+					return nil, saveErr
+				}
+				execution.lease.set(credentialState{state: maintenanceReady})
 			}
 			return continuationResponse(turn.Model, view, nil)
 		}

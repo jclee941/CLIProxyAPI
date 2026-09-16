@@ -50,6 +50,30 @@ func TestContinuationDoesNotReleaseIntentFromAccountListing(t *testing.T) {
 	}
 }
 
+// A submit whose stream dies before it names an operation leaves nothing for
+// recovery to find. Holding the account until the generation budget expires only
+// takes a working account out of rotation for ten minutes over a turn already
+// known to be unobservable, which is how a healthy fleet answers that it has no
+// account to serve with.
+func TestSubmitReleasesTheAccountWhenTheStreamDiesUnnamed(t *testing.T) {
+	service, local := continuationFixture(t)
+	continuationWeb(t, service, &continuationWebFixture{interrupted: true, missingHandles: true})
+	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
+
+	unknown := continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+
+	if unknown.State != "outcome_unknown" {
+		t.Fatalf("an unnamed dead stream was not reported as unknown: %+v", unknown)
+	}
+	stored, err := service.sessions.read(local.Target.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != localReady || stored.ContinuationActive != "" {
+		t.Fatalf("account still pinned: state=%s active=%s", stored.State, stored.ContinuationActive)
+	}
+}
+
 func TestAccountListingEndsATurnRecoveryCanNeverObserve(t *testing.T) {
 	service, local := continuationFixture(t)
 	continuationWeb(t, service, &continuationWebFixture{missingHandles: true})
