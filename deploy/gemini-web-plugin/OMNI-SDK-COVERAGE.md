@@ -16,6 +16,14 @@ request it cannot honour.
 | Document | `inlineData` pdf / txt / csv / md | live | read by the model, not just carried |
 | Uploaded reference | `[{type:image,uri}]` | unexpressible | names a Files entry; no Files API on this path |
 | Video input | `[{type:video,data}]` or `{type:video,uri}` | live | inline bytes or a Drive file; the SDK takes video only through Files |
+
+An attached video also has to be declared. The video tool treats an image as a
+starting frame without being asked, but a video is ambiguous between an edit
+source, an extension target and a reference, and an undeclared one is uploaded,
+accepted and then ignored - the generation answers `no_video_generated`. The
+plugin states `[# References <VIDEO_REF_0>@Video1]` for a video attachment,
+which is the syntax the omni prompt guide documents, and leaves a caller who
+wrote their own declaration alone.
 | Audio input | - | not in the SDK | the docs list uploading audio references as unsupported |
 
 The SDK accepts video input only as `{"type":"video","uri":...}`, resolved through

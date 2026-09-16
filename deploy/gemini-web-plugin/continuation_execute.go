@@ -139,6 +139,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			return nil, err
 		}
 		turn.State, turn.StartedAt = "submitting", service.now().Unix()
+		turn.Summary = webTurnSummary(prompt, attachments)
 		execution.local.State, execution.local.ContinuationActive = localSubmitting, execution.key
 		execution.turns[execution.key] = turn
 		if err := service.saveContinuations(execution.local, execution.turns); err != nil {

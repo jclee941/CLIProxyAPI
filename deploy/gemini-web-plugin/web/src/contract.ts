@@ -17,7 +17,7 @@ export const accountSchema = z.object({
   label: z.string(),
   enabled: z.boolean(),
   status: statusSchema,
-  activity: z.object({ model: z.string(), started_at: z.number().optional() }).optional(),
+  activity: z.object({ model: z.string(), started_at: z.number().optional(), summary: z.string().optional() }).optional(),
   models: z.array(z.object({ id: z.string(), name: z.string() }).readonly()).readonly(),
   usage: z.object({
     tier: z.string().nullable(),

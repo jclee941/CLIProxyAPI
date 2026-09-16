@@ -110,7 +110,7 @@ func (service *service) runningTurn(record storageRecord) *accountActivity {
 	if !found || turn.State != "submitting" || turn.StartedAt <= service.startedAt {
 		return nil
 	}
-	return &accountActivity{Model: turn.Model, StartedAt: turn.StartedAt}
+	return &accountActivity{Model: turn.Model, StartedAt: turn.StartedAt, Summary: turn.Summary}
 }
 
 // busySessionToken reads the credential of a session that is mid-turn. Only the

@@ -58,29 +58,61 @@ func webVideoFields(prompt string, mode int, conversationID string, framing omni
 	return fields
 }
 
-// webReferenceDeclaration states that an attached video is a reference, which the
-// video tool requires before it will look at one. Without the declaration the
-// upload is accepted and then ignored, and the generation answers
-// no_video_generated - measured, and measured fixed by exactly this text. An
-// image needs nothing, because the tool already takes an image as the starting
-// frame, and a caller who wrote their own declaration is left alone.
+// webReferenceDeclaration names an attached video as the source the turn works
+// from, which the video tool requires before it will look at one at all: an
+// undeclared video is uploaded, accepted and then ignored, and the generation
+// answers no_video_generated. Sending a video means "work from this video", so
+// it is declared as the source to edit and extend rather than as a likeness to
+// borrow. An image needs nothing, because the tool already takes one as the
+// starting frame, and a caller who wrote their own declaration is left alone.
+// Only the first video is named; the docs state that referencing across several
+// videos is unsupported.
 func webReferenceDeclaration(prompt string, attachments []webAttachment) string {
-	videos := 0
 	for _, attachment := range attachments {
-		if strings.HasPrefix(attachment.MIMEType, "video/") {
+		if !strings.HasPrefix(attachment.MIMEType, "video/") {
+			continue
+		}
+		if strings.Contains(prompt, "<VIDEO_") || strings.Contains(prompt, "[# Sources") || strings.Contains(prompt, "[# References") {
+			return prompt
+		}
+		return "[# Sources <VIDEO_0>@Video1] " + prompt +
+			"\n\nUse Video1 as the source video to continue from."
+	}
+	return prompt
+}
+
+// webTurnSummary is what an operator sees about work already in flight. The
+// prompt is cut short because the turn record is bounded and because the point
+// is to recognise the request, not to read it back.
+func webTurnSummary(prompt string, attachments []webAttachment) string {
+	summary := strings.Join(strings.Fields(prompt), " ")
+	if runes := []rune(summary); len(runes) > 120 {
+		summary = strings.TrimSpace(string(runes[:120])) + "..."
+	}
+	images, videos, files := 0, 0, 0
+	for _, attachment := range attachments {
+		switch kind, _, _ := strings.Cut(attachment.MIMEType, "/"); kind {
+		case "image":
+			images++
+		case "video":
 			videos++
+		default:
+			files++
 		}
 	}
-	if videos == 0 || strings.Contains(prompt, "<VIDEO_REF_") || strings.Contains(prompt, "[# References") || strings.Contains(prompt, "[# Sources") {
-		return prompt
+	for _, carried := range []struct {
+		count int
+		name  string
+	}{{images, "image"}, {videos, "video"}, {files, "file"}} {
+		if carried.count == 0 {
+			continue
+		}
+		summary += " +" + strconv.Itoa(carried.count) + " " + carried.name
+		if carried.count > 1 {
+			summary += "s"
+		}
 	}
-	references := make([]string, 0, videos)
-	for index := range videos {
-		position := strconv.Itoa(index)
-		references = append(references, "<VIDEO_REF_"+position+">@Video"+strconv.Itoa(index+1))
-	}
-	return "[# References " + strings.Join(references, " ") + "] " + prompt +
-		"\n\nUse the given video(s) as references for the video generation."
+	return summary
 }
 
 // webJSPBField reads an index that the encoder may have moved into a trailing

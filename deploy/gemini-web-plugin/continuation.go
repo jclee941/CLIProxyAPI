@@ -28,6 +28,7 @@ type continuationTurn struct {
 	Digest       [32]byte `json:"digest"`
 	Sequence     uint64   `json:"sequence"`
 	StartedAt    int64    `json:"started_at,omitempty"`
+	Summary      string   `json:"summary,omitempty"`
 	NextToken    string   `json:"next_token,omitempty"`
 	ResultStored bool     `json:"result_stored,omitempty"`
 }

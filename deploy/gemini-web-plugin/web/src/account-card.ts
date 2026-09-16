@@ -87,7 +87,12 @@ export function accountCard(account: Account, state: CardState, actions: CardAct
 
   if (account.activity) {
     const since = account.activity.started_at ? `${elapsed(account.activity.started_at)} 경과` : '진행 중';
-    card.append(element('p', 'notice notice-info', `${account.activity.model} 생성 중 · ${since}. 이 계정은 끝날 때까지 새 작업을 받지 않습니다.`));
+    const running = element('div', 'notice notice-info');
+    running.append(element('p', '', `${account.activity.model} 생성 중 · ${since}. 이 계정은 끝날 때까지 새 작업을 받지 않습니다.`));
+    if (account.activity.summary) {
+      running.append(element('p', '', `요청: ${account.activity.summary}`));
+    }
+    card.append(running);
   }
   if (account.status === 'expired') {
     card.append(element('p', 'notice notice-warning', '웹 세션이 만료되었습니다. Google 로그인을 다시 연결하거나 기존 방식으로 토큰을 업데이트하세요.'));

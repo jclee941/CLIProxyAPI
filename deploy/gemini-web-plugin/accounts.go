@@ -43,6 +43,7 @@ type accountView struct {
 type accountActivity struct {
 	Model     string `json:"model"`
 	StartedAt int64  `json:"started_at,omitempty"`
+	Summary   string `json:"summary,omitempty"`
 }
 
 type accountListResponse struct {
