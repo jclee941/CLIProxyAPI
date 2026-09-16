@@ -188,7 +188,12 @@ func (service *service) finishInteraction(ctx context.Context, native executorRe
 	if err != nil {
 		return nil, err
 	}
-	deadline := service.now().Add(webVideoBudget)
+	// The submit can hold the stream for the whole budget, and a turn that comes
+	// back pending is the one recovery exists for. Measuring the wait from before
+	// the submit spends it on the submit itself, so the first deadline check ends
+	// the turn without a single observation; generateVideo already measures its
+	// budget from the submit that ended, and this path measures it the same way.
+	var deadline time.Time
 	for {
 		executed, err := service.executeContinuation(ctx, native)
 		if err != nil {
@@ -204,6 +209,9 @@ func (service *service) finishInteraction(ctx context.Context, native executorRe
 		native.StorageJSON = []byte(latest.Projection)
 		if err := json.Unmarshal(result.Payload, &receipt); err != nil {
 			return nil, err
+		}
+		if deadline.IsZero() {
+			deadline = service.now().Add(webVideoBudget)
 		}
 		if receipt.View.State != "pending" || receipt.View.Error != "" || !service.now().Before(deadline) {
 			break

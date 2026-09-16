@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestInteractionsPollRetainsRotatedProjectionWithoutResubmit(t *testing.T) {
@@ -108,6 +110,47 @@ func TestInterruptedNamedTurnWithoutCandidateRecoversThroughGET(t *testing.T) {
 	defer fixture.mu.Unlock()
 	if len(fixture.fields) != 1 {
 		t.Fatalf("GET resubmitted: %d submissions", len(fixture.fields))
+	}
+}
+
+// The submit and the wait that follows it share one budget, so a submit that
+// spends the budget leaves nothing for the recovery it just made possible: the
+// loop breaks on its first deadline check and answers in_progress for a video
+// the upstream may be moments from finishing. generateVideo starts its budget
+// once the submit is done, and this path has to measure the same way.
+func TestSubmitSpendingTheBudgetStillLeavesRecoveryItsOwn(t *testing.T) {
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{video: true, lateCandidate: true, pending: true}
+	continuationWeb(t, service, fixture)
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+	var submitted atomic.Bool
+	started := service.now()
+	service.now = func() time.Time {
+		if submitted.Load() {
+			return started.Add(webVideoBudget + time.Minute)
+		}
+		return started
+	}
+	fixture.beforeSubmit = func() { submitted.Store(true) }
+	observed := 0
+	service.continuationWait = func(context.Context) error {
+		// The observation itself makes the video ready; no delay and no timing luck.
+		observed++
+		fixture.mu.Lock()
+		fixture.pending = false
+		fixture.mu.Unlock()
+		return nil
+	}
+
+	interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`))
+
+	if observed != 1 {
+		t.Fatalf("recovery observations: %d, want the wait budget measured from the submit", observed)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.fields) != 1 {
+		t.Fatalf("submissions: %d, want the turn recovered rather than repeated", len(fixture.fields))
 	}
 }
 
