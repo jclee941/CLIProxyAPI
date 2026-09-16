@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -47,38 +47,44 @@ func driveFileID(reference string) (string, bool) {
 	return "", false
 }
 
-// resolveMedia turns every Drive reference into bytes and leaves inline media
-// untouched, so the upload path sees one kind of attachment.
-func (service *service) resolveMedia(ctx context.Context, media []webMedia) ([]webMedia, error) {
-	for index, item := range media {
-		if item.Reference == "" {
-			continue
-		}
-		fetched, err := service.fetchDrive(ctx, item.Reference)
+// mediaSources describes every attachment to the upload path without moving any
+// bytes yet. A Drive reference contributes its type and length from metadata, so
+// the file itself only ever travels once, straight into the upload.
+func (service *service) mediaSources(ctx context.Context, media []webMedia) ([]webSource, error) {
+	sources := make([]webSource, 0, len(media))
+	for _, item := range media {
+		source, err := service.mediaSource(ctx, item)
 		if err != nil {
 			return nil, err
 		}
-		media[index] = fetched
+		sources = append(sources, source)
 	}
-	return media, nil
+	return sources, nil
+}
+
+func (service *service) mediaSource(ctx context.Context, item webMedia) (webSource, error) {
+	if item.Reference == "" {
+		return inlineSource(item)
+	}
+	return service.driveSource(ctx, item.Reference)
 }
 
 // fetchDrive reads one shared file. The metadata call names the media type the
 // attachment path needs, which Drive knows and the caller would otherwise have
 // to repeat, and the media call carries the bytes under the same bound an
 // inline attachment gets.
-func (service *service) fetchDrive(ctx context.Context, reference string) (webMedia, error) {
+func (service *service) driveSource(ctx context.Context, reference string) (webSource, error) {
 	identifier, ok := driveFileID(reference)
 	if !ok {
-		return webMedia{}, failure(400, "attachment_reference_unsupported")
+		return webSource{}, failure(400, "attachment_reference_unsupported")
 	}
 	bearer, err := service.driveAuthorization(ctx)
 	if err != nil {
-		return webMedia{}, err
+		return webSource{}, err
 	}
 	key := service.driveSecret(service.settings().DriveAPIKey, "GOOGLE_DRIVE_API_KEY")
 	if bearer == "" && key == "" {
-		return webMedia{}, failure(400, "drive_credentials_missing")
+		return webSource{}, failure(400, "drive_credentials_missing")
 	}
 	origin := driveOrigin
 	if service.driveOverride != "" {
@@ -91,18 +97,47 @@ func (service *service) fetchDrive(ctx context.Context, reference string) (webMe
 	}
 	var metadata struct {
 		MIMEType string `json:"mimeType"`
+		Size     string `json:"size"`
 	}
-	if err := service.driveMetadata(ctx, endpoint+"?fields=mimeType"+credential, bearer, &metadata); err != nil {
-		return webMedia{}, err
+	if err := service.driveMetadata(ctx, endpoint+"?fields=mimeType,size"+credential, bearer, &metadata); err != nil {
+		return webSource{}, err
 	}
-	if metadata.MIMEType == "" {
-		return webMedia{}, failure(502, "drive_metadata_invalid")
+	size, err := strconv.ParseInt(metadata.Size, 10, 64)
+	if metadata.MIMEType == "" || err != nil || size <= 0 {
+		// A Google Doc and a folder have no byte length, and neither is a file
+		// this can hand to an upload that must declare one.
+		return webSource{}, failure(400, "drive_file_not_downloadable")
 	}
-	content, err := service.driveDownload(ctx, endpoint+"?alt=media"+credential, bearer)
+	media := endpoint + "?alt=media" + credential
+	return webSource{MIMEType: metadata.MIMEType, Size: size, Open: func(ctx context.Context) (io.ReadCloser, error) {
+		return service.driveStream(ctx, media, bearer)
+	}}, nil
+}
+
+// driveStream opens the file without reading it, so the bytes go straight into
+// the upload instead of being held here in full and again as base64.
+func (service *service) driveStream(ctx context.Context, endpoint, bearer string) (io.ReadCloser, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return webMedia{}, err
+		return nil, failure(400, "drive_request_invalid")
 	}
-	return webMedia{MIMEType: metadata.MIMEType, Data: base64.StdEncoding.EncodeToString(content)}, nil
+	if bearer != "" {
+		request.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	response, err := service.client.Do(request)
+	if err != nil {
+		return nil, failure(502, "drive_unreachable")
+	}
+	if response.StatusCode != http.StatusOK {
+		if drainErr := drainResponse(response); drainErr != nil {
+			_ = drainErr
+		}
+		if response.StatusCode == http.StatusNotFound {
+			return nil, failure(404, "drive_file_not_shared")
+		}
+		return nil, failure(502, "drive_rejected")
+	}
+	return response.Body, nil
 }
 
 const driveTokenEndpoint = "https://oauth2.googleapis.com/token"

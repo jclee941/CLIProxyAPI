@@ -52,9 +52,17 @@ Drive types its files by extension, so its metadata is checked against the same
 allowlist as an inline attachment: a `.mts` config file it reports as
 `video/mp2t` is refused rather than uploaded as a video.
 
-The 20MB attachment bound applies to a fetched file too. The bytes are held in
-memory end to end, so raising it means streaming the fetch into the upload
-rather than buffering both.
+A fetched file streams from Drive straight into the upload: metadata supplies
+the type and the length the resumable protocol must declare, and the bytes are
+opened only once the upload is ready for them, so memory does not track file
+size. An attachment the caller inlined is decoded up front instead, because
+those bytes arrived with the request anyway and a malformed encoding should be
+the caller's error rather than a transfer that dies halfway.
+
+The bound on one attachment is therefore a bound on one transfer, not on the
+process. A file Drive reports no length for, such as a folder or a Google Doc,
+is refused because the upload has to declare a length before it may send
+anything.
 
 ### Inline media spellings
 

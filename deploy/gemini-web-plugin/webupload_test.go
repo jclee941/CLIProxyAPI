@@ -12,7 +12,12 @@ import (
 func TestUploadRefusesATypeTheWebProductCannotTake(t *testing.T) {
 	session := &webSession{}
 
-	if _, err := session.uploadMedia(context.Background(), []webMedia{{MIMEType: "application/x-msdownload", Data: "AAAA"}}); err == nil {
+	source, err := inlineSource(webMedia{MIMEType: "application/x-msdownload", Data: "AAAA"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := session.uploadSources(context.Background(), []webSource{source}); err == nil {
 		t.Fatal("an unsupported attachment type was accepted")
 	}
 }

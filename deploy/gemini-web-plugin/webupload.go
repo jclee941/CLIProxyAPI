@@ -62,17 +62,27 @@ type webAttachment struct {
 	ClientID string
 }
 
-// webUploadLimit bounds a single attachment. The generation request is rejected
-// upstream well before this, and an unbounded read would let one caller hold the
-// whole process in memory.
-const webUploadLimit = 20 * 1024 * 1024
+// webUploadLimit bounds a single attachment. The bytes stream from their source
+// into the upload rather than being held, so this bounds one transfer rather
+// than the process, and an inline attachment is bounded long before it by the
+// request size the caller is allowed to send at all.
+const webUploadLimit = 100 * 1024 * 1024
+
+// webSource is one attachment as the upload path consumes it: the media type and
+// the length the resumable protocol has to declare before the bytes move, and
+// the bytes themselves, opened only once the upload is ready to take them.
+type webSource struct {
+	MIMEType string
+	Size     int64
+	Open     func(context.Context) (io.ReadCloser, error)
+}
 
 // upload stores one file with Google's resumable protocol: the first call
 // declares the size and answers with a per-upload URL, the second sends the
 // bytes and finalises. The reply body is the contrib_service path the
 // generation request references.
-func (session *webSession) upload(ctx context.Context, name, mimeType string, content []byte) (webAttachment, error) {
-	if len(content) == 0 || len(content) > webUploadLimit {
+func (session *webSession) upload(ctx context.Context, name, mimeType string, size int64, content io.Reader) (webAttachment, error) {
+	if size <= 0 || size > webUploadLimit {
 		return webAttachment{}, failure(400, "attachment_size_rejected")
 	}
 	start, err := http.NewRequestWithContext(ctx, http.MethodPost, session.uploadOrigin+"/upload/", strings.NewReader("File name: "+name))
@@ -82,7 +92,7 @@ func (session *webSession) upload(ctx context.Context, name, mimeType string, co
 	start.Header = session.uploadHeaders()
 	start.Header.Set("X-Goog-Upload-Command", "start")
 	start.Header.Set("X-Goog-Upload-Protocol", "resumable")
-	start.Header.Set("X-Goog-Upload-Header-Content-Length", strconv.Itoa(len(content)))
+	start.Header.Set("X-Goog-Upload-Header-Content-Length", strconv.FormatInt(size, 10))
 	start.Header.Set("X-Tenant-Id", "bard-storage")
 	start.Header.Set("Push-ID", webUploadFeed)
 	start.Header.Set("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
@@ -97,10 +107,14 @@ func (session *webSession) upload(ctx context.Context, name, mimeType string, co
 	if started.StatusCode != http.StatusOK || location == "" {
 		return webAttachment{}, failure(502, "attachment_upload_rejected")
 	}
-	finalise, err := http.NewRequestWithContext(ctx, http.MethodPost, location, bytes.NewReader(content))
+	// The source is trusted for the length it declared, never for the length it
+	// delivers: the reader is cut at the declared size so a source that keeps
+	// talking cannot stretch the transfer past what upstream was told to expect.
+	finalise, err := http.NewRequestWithContext(ctx, http.MethodPost, location, io.LimitReader(content, size))
 	if err != nil {
 		return webAttachment{}, failure(400, "web_request_invalid")
 	}
+	finalise.ContentLength = size
 	finalise.Header = session.uploadHeaders()
 	finalise.Header.Set("X-Tenant-Id", "bard-storage")
 	finalise.Header.Set("Push-ID", webUploadFeed)
@@ -175,29 +189,54 @@ func webAttachmentSlot(attachments []webAttachment) []any {
 // uploadMedia stores each inline part the caller sent so the generation request
 // can reference them. A base64 part is decoded once here rather than carried
 // through the prompt path.
-func (session *webSession) uploadMedia(ctx context.Context, media []webMedia) ([]webAttachment, error) {
-	if len(media) > webUploadCount {
+func (session *webSession) uploadSources(ctx context.Context, sources []webSource) ([]webAttachment, error) {
+	if len(sources) > webUploadCount {
 		return nil, failure(400, "attachment_count_rejected")
 	}
-	attachments := make([]webAttachment, 0, len(media))
-	for index, item := range media {
-		mimeType := webBaseMIME(item.MIMEType)
+	attachments := make([]webAttachment, 0, len(sources))
+	for index, source := range sources {
+		mimeType := webBaseMIME(source.MIMEType)
 		kind, supported := webUploadKinds[mimeType]
 		if !supported {
 			return nil, failure(400, "attachment_type_unsupported")
 		}
-		content, err := base64.StdEncoding.DecodeString(item.Data)
-		if err != nil {
-			return nil, failure(400, "attachment_encoding_invalid")
+		if source.Size <= 0 || source.Size > webUploadLimit {
+			return nil, failure(400, "attachment_size_rejected")
 		}
-		name := "attachment-" + strconv.Itoa(index+1) + kind.extension
-		attachment, err := session.upload(ctx, name, mimeType, content)
+		attachment, err := session.uploadSource(ctx, "attachment-"+strconv.Itoa(index+1)+kind.extension, mimeType, source)
 		if err != nil {
 			return nil, err
 		}
 		attachments = append(attachments, attachment)
 	}
 	return attachments, nil
+}
+
+func (session *webSession) uploadSource(ctx context.Context, name, mimeType string, source webSource) (webAttachment, error) {
+	content, err := source.Open(ctx)
+	if err != nil {
+		return webAttachment{}, err
+	}
+	defer func() {
+		if closeErr := content.Close(); closeErr != nil {
+			_ = closeErr
+		}
+	}()
+	return session.upload(ctx, name, mimeType, source.Size, content)
+}
+
+// inlineSource carries an attachment the caller wrote into the request. Those
+// bytes arrived in memory with the request already, so they are decoded here,
+// where a malformed encoding is still the caller's error rather than a transfer
+// that dies halfway through with nothing useful to say.
+func inlineSource(item webMedia) (webSource, error) {
+	content, err := base64.StdEncoding.DecodeString(item.Data)
+	if err != nil {
+		return webSource{}, failure(400, "attachment_encoding_invalid")
+	}
+	return webSource{MIMEType: item.MIMEType, Size: int64(len(content)), Open: func(context.Context) (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(content)), nil
+	}}, nil
 }
 
 // webUploadCount bounds the uploads one request can start. Each attachment costs
