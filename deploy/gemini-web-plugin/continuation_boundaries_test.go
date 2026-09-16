@@ -37,6 +37,40 @@ func TestContinuationPendingAccountRemainsRoutableAfterRestart(t *testing.T) {
 	}
 }
 
+func TestNamedTurnWithoutCandidateDefersAccountRelease(t *testing.T) {
+	for _, automatic := range []bool{false, true} {
+		name := "operator"
+		if automatic {
+			name = "automatic"
+		}
+		t.Run(name, func(t *testing.T) {
+			service, local := continuationFixture(t)
+			continuationWeb(t, service, &continuationWebFixture{})
+			key := continuationKey(strings.Repeat("a", 64))
+			local.State, local.ContinuationActive = localSubmitting, key
+			if err := service.saveContinuations(local, map[string]continuationTurn{
+				key: {CallerScope: testCallerScope, Model: omniModel, State: "submitting",
+					Conversation: "c_chat", Reply: "r_turn", StartedAt: service.now().Unix()},
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			_, _, err := service.releaseInterruptedSession(t.Context(), local.Target, automatic)
+
+			if safeCredentialCode(err) != "continuation_recovery_required" {
+				t.Fatalf("named turn released without candidate: %v", err)
+			}
+			stored, err := service.sessions.read(local.Target.TokenRef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored.State != localSubmitting || stored.ContinuationActive != key {
+				t.Fatal("recoverable turn lost its submission intent")
+			}
+		})
+	}
+}
+
 func TestContinuationDoesNotReleaseIntentFromAccountListing(t *testing.T) {
 	service, local := continuationFixture(t)
 	continuationWeb(t, service, &continuationWebFixture{interrupted: true})

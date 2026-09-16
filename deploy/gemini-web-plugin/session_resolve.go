@@ -80,7 +80,7 @@ func (service *service) releaseInterruptedSession(ctx context.Context, record st
 	observable := false
 	if active != "" {
 		turn, found := turns[active]
-		observable = found && turn.Conversation != "" && turn.Reply != "" && turn.Candidate != ""
+		observable = found && turn.Conversation != "" && turn.Reply != ""
 		// A turn past the generation budget has already answered its caller,
 		// whatever it answered, so nothing is waiting on it. Holding the account
 		// for a recovery that can only confirm the same thing is how a restart

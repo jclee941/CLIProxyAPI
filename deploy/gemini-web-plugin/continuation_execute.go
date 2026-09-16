@@ -196,9 +196,13 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		session.generationFrame = nil
 		if submitErr != nil {
 			view.State, view.Error = "pending", safeCredentialCode(submitErr)
-			if turn.Conversation == "" || turn.Reply == "" || turn.Candidate == "" {
+			if turn.Conversation == "" || turn.Reply == "" {
 				// The stream died before it named an operation, so there is
-				// nothing for recovery to find and nothing to protect. Holding
+				// nothing for recovery to find and nothing to protect. An
+				// operation is named by its conversation and its reply alone:
+				// recovery matches the reply and reads whichever candidate the
+				// reply currently carries, so a candidate that had not arrived
+				// before the stream closed is not a missing operation. Holding
 				// the account until the generation budget expires only takes it
 				// out of rotation for ten minutes on a turn already known to be
 				// unobservable, which is how a healthy fleet runs out of accounts.
@@ -211,7 +215,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			return continuationResponse(turn.Model, view, nil)
 		}
 	}
-	if turn.Conversation == "" || turn.Reply == "" || turn.Candidate == "" {
+	if turn.Conversation == "" || turn.Reply == "" {
 		service.reportUnnamed("missing_upstream_operation", turn, lines, shapes)
 		// A reply means the product answered, so there is no submission still in
 		// flight to protect, and without a conversation there is nothing any

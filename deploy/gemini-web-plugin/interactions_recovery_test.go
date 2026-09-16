@@ -40,6 +40,77 @@ func TestInteractionsPollRetainsRotatedProjectionWithoutResubmit(t *testing.T) {
 	}
 }
 
+// A conversation and reply identify the turn even before a candidate arrives.
+func TestATurnNamedWithoutItsVideoIsRecoveredNotDiscarded(t *testing.T) {
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{video: true, lateCandidate: true}
+	continuationWeb(t, service, fixture)
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+
+	interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`))
+
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.fields) != 1 {
+		t.Fatalf("submissions: %d, want the turn recovered rather than repeated", len(fixture.fields))
+	}
+}
+
+func TestInterruptedNamedTurnWithoutCandidateRecoversThroughGET(t *testing.T) {
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{video: true, lateCandidate: true, interrupted: true}
+	continuationWeb(t, service, fixture)
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+	result := interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`)
+	if !result.OK {
+		t.Fatal(result.Error)
+	}
+	var response struct{ Payload []byte }
+	if err := json.Unmarshal(result.Result, &response); err != nil {
+		t.Fatal(err)
+	}
+	var pending struct{ ID, Status string }
+	if err := json.Unmarshal(response.Payload, &pending); err != nil {
+		t.Fatal(err)
+	}
+	if pending.Status != "in_progress" {
+		t.Fatalf("named interrupted turn: %s", response.Payload)
+	}
+	stored, err := service.sessions.read(local.Target.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != localSubmitting || stored.ContinuationActive != continuationKey(pending.ID) {
+		t.Fatalf("recoverable turn lost its intent: state=%s active=%s", stored.State, stored.ContinuationActive)
+	}
+	turns, err := continuationTurns(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := turns[continuationKey(pending.ID)]
+	if turn.Conversation == "" || turn.Reply == "" || turn.Candidate != "" {
+		t.Fatalf("unexpected stored receipt: %+v", turn)
+	}
+	get := interactionExecutorRequest(t, local, `{"model":"gemini-omni-1.1-flash","id":"`+pending.ID+`"}`)
+	get.Alt = interactionRetrieveAlt
+	recovered := interactionID(t, invoke(t, service, "executor.execute", get))
+	if recovered != pending.ID {
+		t.Fatalf("recovery replaced receipt: %s != %s", recovered, pending.ID)
+	}
+	stored, err = service.sessions.read(local.Target.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != localReady || stored.ContinuationActive != "" {
+		t.Fatal("completed recovery kept the account pinned")
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.fields) != 1 {
+		t.Fatalf("GET resubmitted: %d submissions", len(fixture.fields))
+	}
+}
+
 func TestInteractionsExpiredAuthenticationIsNotAnUnknownSubmission(t *testing.T) {
 	service, local := continuationFixture(t)
 	fixture := &continuationWebFixture{expired: true}

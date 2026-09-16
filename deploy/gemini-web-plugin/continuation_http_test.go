@@ -39,6 +39,7 @@ type continuationWebFixture struct {
 	interrupted    bool
 	missingHandles bool
 	replyOnly      bool
+	lateCandidate  bool
 	rotate         bool
 	expired        bool
 	video          bool
@@ -104,6 +105,11 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 			// a reply of its own, no conversation to continue, no candidate.
 			if fixture.replyOnly {
 				frame[1], frame[4] = []any{nil, fmt.Sprintf("r_%d", n)}, nil
+			}
+			// What the product sends when the render is still running as the
+			// submit stream closes: the turn is named, the video is not there yet.
+			if fixture.lateCandidate {
+				frame[4] = nil
 			}
 			raw := string(jsonFixture(t, []any{[]any{"wrb.fr", nil, string(jsonFixture(t, frame))}})) + "\n"
 			if fixture.interrupted {
