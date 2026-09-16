@@ -82,7 +82,15 @@ func continuationFrame(turn continuationTurn, raw []byte) (continuationTurn, err
 		if json.Unmarshal([]byte(turn.Parent), &parent) != nil {
 			return turn, failure(503, "continuation_store_corrupt")
 		}
-		if turn.Conversation != "" && jsonField(parent, 0) != turn.Conversation {
+		inherited, named := jsonField(parent, 0).(string)
+		switch {
+		case turn.Conversation == "" && named:
+			// A turn appended to a conversation that already exists is answered
+			// without one: the product names a conversation when it opens one,
+			// and this turn opened nothing. Read as an operation that went
+			// missing, every chained turn failed after its video was made.
+			turn.Conversation, metadata[0] = inherited, inherited
+		case turn.Conversation != "" && jsonField(parent, 0) != turn.Conversation:
 			return turn, failure(502, "continuation_operation_mismatch")
 		}
 	}

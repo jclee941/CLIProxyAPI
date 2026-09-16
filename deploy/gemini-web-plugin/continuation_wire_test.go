@@ -32,6 +32,49 @@ func TestTheFrameLayoutNamesSlotsAndNeverTheirContent(t *testing.T) {
 	}
 }
 
+// A turn appended to a conversation that already exists comes back naming only
+// its reply: the product names a conversation when it opens one, and this turn
+// opened nothing. Read as an operation that went missing, every chained turn
+// failed after its video had already been made.
+func TestAChainedTurnInheritsTheConversationItWasAppendedTo(t *testing.T) {
+	parent := jsonFixture(t, []any{"c_chat", "r_first", "rc_first"})
+	frame := slots(26, map[int]any{1: []any{nil, "r_second"}, 4: []any{[]any{"rc_second"}}})
+	raw := jsonFixture(t, []any{[]any{"wrb.fr", nil, string(jsonFixture(t, frame))}})
+
+	turn, err := continuationFrame(continuationTurn{Parent: string(parent)}, raw)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if turn.Conversation != "c_chat" {
+		t.Fatalf("conversation = %q, want the one the turn was appended to", turn.Conversation)
+	}
+	if turn.Reply != "r_second" || turn.Candidate != "rc_second" {
+		t.Fatalf("the turn lost its own operation: %+v", turn)
+	}
+	var metadata []any
+	if err := json.Unmarshal([]byte(turn.Metadata), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata[0] != "c_chat" {
+		t.Fatalf("metadata = %v, want the inherited conversation carried forward", metadata[0])
+	}
+}
+
+// A chained turn answering in a different conversation is still a mismatch: the
+// inheritance fills a gap, it does not paper over a turn landing elsewhere.
+func TestAChainedTurnStillRefusesADifferentConversation(t *testing.T) {
+	parent := jsonFixture(t, []any{"c_chat", "r_first", "rc_first"})
+	frame := slots(26, map[int]any{1: []any{"c_other", "r_second"}, 4: []any{[]any{"rc_second"}}})
+	raw := jsonFixture(t, []any{[]any{"wrb.fr", nil, string(jsonFixture(t, frame))}})
+
+	_, err := continuationFrame(continuationTurn{Parent: string(parent)}, raw)
+
+	if safeCredentialCode(err) != "continuation_operation_mismatch" {
+		t.Fatalf("code = %q, want the mismatch kept", safeCredentialCode(err))
+	}
+}
+
 // A generation stream carries frames that hold no receipt. One of them must not
 // end the submission: the operation is named by a later line, and a turn thrown
 // away here is a ten minute render thrown away with it.
