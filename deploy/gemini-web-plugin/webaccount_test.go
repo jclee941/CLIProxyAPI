@@ -13,6 +13,33 @@ import (
 	"unicode/utf16"
 )
 
+// A submission that carried no frame at all is the case the report exists for,
+// so it must not be the case the report stays quiet about.
+func TestASubmissionThatCarriedNoFrameIsStillReported(t *testing.T) {
+	var reported []byte
+	service := newService(func(method string, raw []byte) ([]byte, error) {
+		if method == "host.log" {
+			reported = raw
+		}
+		return []byte(`{"ok":true,"result":{}}`), nil
+	})
+
+	service.reportUnnamed("missing_upstream_operation", continuationTurn{}, 0, nil)
+
+	if reported == nil {
+		t.Fatal("a submission with nothing to show reported nothing")
+	}
+	var entry struct {
+		Fields map[string]any `json:"fields"`
+	}
+	if err := json.Unmarshal(reported, &entry); err != nil {
+		t.Fatal(err)
+	}
+	if budget, _ := entry.Fields["budget"].(string); !strings.Contains(budget, "0 frames from 0 lines") {
+		t.Fatalf("budget = %q, want the emptiness spelled out", budget)
+	}
+}
+
 // A cut stream is the only record of who ended a generation early, and the host
 // log is where an operator reads. The names are the host formatter's own allow
 // list in internal/logging/global_logger.go: anything else is dropped before it

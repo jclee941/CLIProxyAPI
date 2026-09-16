@@ -58,11 +58,15 @@ func (service *service) newSession(credential webCredential) *webSession {
 // recover. Which slots the stream actually carried is the whole difference
 // between fixing where the receipt is read and guessing at it for another ten
 // minutes, so the layout goes out with it; the content never does.
-func (service *service) reportUnnamed(code string, turn continuationTurn, shapes []string) {
-	if len(shapes) == 0 {
-		return
-	}
+func (service *service) reportUnnamed(code string, turn continuationTurn, lines int, shapes []string) {
+	// No frame at all is the loudest answer this can give, not a reason to say
+	// nothing: it separates a stream that carried no payload from one whose
+	// payload moved. Counting the lines alongside separates both of those from a
+	// stream that carried nothing whatsoever.
 	layout := strings.Join(shapes, " | ")
+	if layout == "" {
+		layout = "no payload frame"
+	}
 	if len(layout) > 400 {
 		layout = layout[:400]
 	}
@@ -70,8 +74,8 @@ func (service *service) reportUnnamed(code string, turn continuationTurn, shapes
 		"provider": provider,
 		"state":    "submission_unnamed",
 		"error":    code,
-		"budget": fmt.Sprintf("%d frames, conversation=%t reply=%t candidate=%t",
-			len(shapes), turn.Conversation != "", turn.Reply != "", turn.Candidate != ""),
+		"budget": fmt.Sprintf("%d frames from %d lines, conversation=%t reply=%t candidate=%t",
+			len(shapes), lines, turn.Conversation != "", turn.Reply != "", turn.Candidate != ""),
 		"reason": layout,
 	}, "gemini-web: submission named no operation")
 }
