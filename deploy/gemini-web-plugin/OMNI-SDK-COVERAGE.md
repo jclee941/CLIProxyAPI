@@ -15,7 +15,15 @@ request it cannot honour.
 | Several references | repeated image blocks | live | two attachments returned in the order sent |
 | Document | `inlineData` pdf / txt / csv / md | live | read by the model, not just carried |
 | Uploaded reference | `[{type:image,uri}]` | unexpressible | names a Files entry; no Files API on this path |
-| Video input | `[{type:video}]` | unexpressible | refused, upload is not a video-edit source |
+| Video input | `inlineData` mp4 / webm | live | see below: the web session reads a video the SDK would only take by uri |
+| Audio input | - | not in the SDK | the docs list uploading audio references as unsupported |
+
+The SDK accepts video input only as `{"type":"video","uri":...}`, resolved through
+the Files API; no inline video input form is documented. The web session has no
+Files API, but it does take a video as an ordinary attachment and read it: a
+three second clip attached to a text turn was described correctly. So video input
+works here by a different route than the SDK's, and only for callers who send the
+bytes inline.
 | Chaining | `previous_interaction_id` | live | account stays pinned across the chain |
 | Storage opt-out | `store:false` | live | |
 | Background | `background:true` | unexpressible | web has no detached job handle |
@@ -24,6 +32,29 @@ request it cannot honour.
 Accepted attachment types are listed in `webUploadKinds`. Anything else is
 refused before the upload, because upstream answers an unsupported file with a
 reference error that names neither the file nor the reason.
+
+### Attachments named by uri
+
+A part may name a Google Drive file instead of carrying bytes, through
+`fileData.fileUri` on the Gemini path or `{"type":"image","uri":...}` on
+interactions. The share link, the `open`/`uc` query links and a bare
+`drive:<id>` all resolve. The plugin fetches the file and uploads it like any
+other attachment, so the outbound host is the Drive API alone rather than
+whatever a caller pastes.
+
+An API key reaches only files shared with anyone holding the link. With an OAuth
+client configured the fetch carries a bearer token instead and reaches the
+operator's own private files; credentials come from the plugin configuration
+first and the environment second, because the configuration is hot reloaded and
+the environment is not.
+
+Drive types its files by extension, so its metadata is checked against the same
+allowlist as an inline attachment: a `.mts` config file it reports as
+`video/mp2t` is refused rather than uploaded as a video.
+
+The 20MB attachment bound applies to a fetched file too. The bytes are held in
+memory end to end, so raising it means streaming the fetch into the upload
+rather than buffering both.
 
 ### Inline media spellings
 
@@ -46,12 +77,11 @@ turn in which the model never saw the file.
 | Capability | SDK field | Status | Notes |
 | --- | --- | --- | --- |
 | Aspect ratio | `response_format.aspect_ratio` | live | `16:9` and `9:16`; the wire holds an orientation, not a free ratio |
-| Negative prompt | `negativePrompt` | live | folded into the prompt |
+| Negative prompt | `negativePrompt` | live, extra | the SDK has no such field and tells you to write negatives into the prompt, which is exactly what this does |
 | Candidate count | `candidateCount` | unexpressible | the web product returns one candidate |
-| Resolution | `response_format.resolution` | unexpressible | no slot; refused |
+| Resolution | `response_format.resolution` | gap | the SDK offers 360p/720p/1080p; the web product exposes no slot, so it is refused |
 | Duration | `response_format.duration` | unexpressible | a chip exists in the bundle but the product never sets it |
-| Person generation | `person_generation` | unexpressible | server-side policy |
-| Seed | `seed` | unexpressible | |
+| Seed, temperature, top_p, stop | - | not in the SDK | the docs list these, and system instructions, as unsupported for this model |
 
 ## Output
 

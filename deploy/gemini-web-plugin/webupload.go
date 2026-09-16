@@ -18,6 +18,9 @@ const webUploadOrigin = "https://push.clients6.google.com"
 type webMedia struct {
 	MIMEType string
 	Data     string
+	// Reference names a file whose bytes are fetched before upload instead of
+	// arriving inline. It is resolved away by resolveMedia.
+	Reference string
 }
 
 // webInlinePart is the typed form of the media a request part carries. The media
@@ -27,6 +30,22 @@ type webInlinePart struct {
 	MIMEType  string `json:"mimeType"`
 	MIMESnake string `json:"mime_type"`
 	Data      string `json:"data"`
+}
+
+// webFilePart is the typed form of a part that names a file instead of carrying
+// it, under either spelling of the uri.
+type webFilePart struct {
+	FileURI   string `json:"fileUri"`
+	FileSnake string `json:"file_uri"`
+	MIMEType  string `json:"mimeType"`
+	MIMESnake string `json:"mime_type"`
+}
+
+func (part webFilePart) uri() string {
+	if part.FileURI != "" {
+		return part.FileURI
+	}
+	return part.FileSnake
 }
 
 func (part webInlinePart) mimeType() string {
@@ -200,6 +219,8 @@ var webUploadKinds = map[string]struct {
 	"text/plain":      {".txt", "[Document attached]"},
 	"text/csv":        {".csv", "[Document attached]"},
 	"text/markdown":   {".md", "[Document attached]"},
+	"video/mp4":       {".mp4", "[Video attached]"},
+	"video/webm":      {".webm", "[Video attached]"},
 }
 
 // webBaseMIME drops the parameters a caller may hang off a media type, so that

@@ -115,7 +115,11 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		if err != nil {
 			return nil, err
 		}
-		attachments, err := session.uploadMedia(ctx, media)
+		resolved, err := service.resolveMedia(ctx, media)
+		if err != nil {
+			return nil, err
+		}
+		attachments, err := session.uploadMedia(ctx, resolved)
 		if err != nil {
 			return nil, err
 		}

@@ -125,6 +125,24 @@ func webInlineMIME(inline map[string]any) string {
 	return webStringField(inline, "mime_type")
 }
 
+// webFileReference reads the uri a part names in place of carrying bytes. It has
+// two spellings for the same reason inline media does.
+func webFileReference(field map[string]any) (string, bool) {
+	for _, key := range []string{"fileData", "file_data"} {
+		value, present := field[key]
+		if !present || value == nil {
+			continue
+		}
+		data := webMapField(value)
+		uri := webStringField(data, "fileUri")
+		if uri == "" {
+			uri = webStringField(data, "file_uri")
+		}
+		return uri, uri != ""
+	}
+	return "", false
+}
+
 // webContentsToPrompt flattens a Gemini request into the single prompt the web
 // product accepts. It reports whether the request carried inline media, which the
 // text path cannot forward.
@@ -161,9 +179,16 @@ func webContentsToPrompt(raw []byte) (string, []webMedia, error) {
 		for _, part := range webListField(entry["parts"]) {
 			field := webMapField(part)
 			inline, carriesMedia := webInlineData(field)
+			reference, namesFile := webFileReference(field)
 			switch {
 			case webStringField(field, "text") != "":
 				lines = append(lines, webStringField(field, "text"))
+			case namesFile:
+				if _, ok := driveFileID(reference); !ok {
+					return "", nil, failure(400, "attachment_reference_unsupported")
+				}
+				media = append(media, webMedia{Reference: reference})
+				lines = append(lines, "[File attached]")
 			case carriesMedia:
 				mime := webInlineMIME(inline)
 				encoded := webStringField(inline, "data")

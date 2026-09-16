@@ -65,10 +65,14 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 			case "text":
 				texts = append(texts, part.Text)
 			case "image":
-				// A uri reference names a Files entry, and the web session has no
-				// Files API to resolve it against, so only inline bytes travel.
+				// A uri names either a Drive file, which is fetched, or a Files
+				// entry, which has no API on this path to resolve it against.
 				if part.URI != "" {
-					return request, nil, failure(400, "interaction_uploaded_reference_unsupported")
+					if _, ok := driveFileID(part.URI); !ok {
+						return request, nil, failure(400, "interaction_uploaded_reference_unsupported")
+					}
+					references = append(references, webMedia{Reference: part.URI})
+					continue
 				}
 				if part.Data == "" || part.MIMEType == "" {
 					return request, nil, failure(400, "interaction_reference_invalid")
@@ -83,6 +87,10 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 	parts := make([]any, 0, len(references)+1)
 	parts = append(parts, map[string]string{"text": prompt})
 	for _, reference := range references {
+		if reference.Reference != "" {
+			parts = append(parts, map[string]any{"fileData": map[string]string{"fileUri": reference.Reference}})
+			continue
+		}
 		parts = append(parts, map[string]any{"inlineData": map[string]string{"mimeType": reference.MIMEType, "data": reference.Data}})
 	}
 	content := map[string]any{"contents": []any{map[string]any{"role": "user", "parts": parts}}}

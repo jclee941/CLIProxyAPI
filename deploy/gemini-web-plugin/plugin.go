@@ -28,6 +28,13 @@ type pluginConfig struct {
 	// compared against the sidecar on a real account.
 	NativeGeneration   bool `yaml:"native_generation"`
 	NativeContinuation bool `yaml:"native_continuation"`
+	// Drive credentials live here as well as in the environment because the
+	// configuration is mounted and hot reloaded, while the environment can only
+	// change by recreating the container.
+	DriveAPIKey       string `yaml:"drive_api_key"`
+	DriveClientID     string `yaml:"drive_client_id"`
+	DriveClientSecret string `yaml:"drive_client_secret"`
+	DriveRefreshToken string `yaml:"drive_refresh_token"`
 }
 type hostCall func(string, []byte) ([]byte, error)
 type service struct {
@@ -55,8 +62,14 @@ type service struct {
 	// Google origin than the rest of the native calls.
 	webRotateOverride string
 	webUploadOverride string
-	startedAt         int64
-	quota             quotaCache
+	// driveOverride redirects the Drive fetch, which lives on a Google API origin
+	// none of the other native calls use, and driveTokenOverride does the same for
+	// the OAuth exchange, which lives on a third.
+	driveOverride      string
+	driveTokenOverride string
+	driveAccess        driveToken
+	startedAt          int64
+	quota              quotaCache
 }
 
 func newService(host hostCall) *service {

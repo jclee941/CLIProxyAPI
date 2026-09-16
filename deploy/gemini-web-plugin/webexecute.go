@@ -60,6 +60,10 @@ func (service *service) nativeText(ctx context.Context, record storageRecord, to
 	if !ok {
 		return nil, failure(404, "account_model_unavailable")
 	}
+	media, err = service.resolveMedia(ctx, media)
+	if err != nil {
+		return nil, err
+	}
 	attachments, err := session.uploadMedia(ctx, media)
 	if err != nil {
 		return nil, err
@@ -98,6 +102,10 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	model, ok := webVideoCapability(account)
 	if !ok {
 		return httpResponse{}, failure(404, "account_model_unavailable")
+	}
+	media, err = service.resolveMedia(ctx, media)
+	if err != nil {
+		return httpResponse{}, err
 	}
 	attachments, err := session.uploadMedia(ctx, media)
 	if err != nil {

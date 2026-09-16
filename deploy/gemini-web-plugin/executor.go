@@ -228,6 +228,8 @@ func omniRequest(raw []byte) (string, omniOptions, error) {
 				Text            *string        `json:"text"`
 				InlineData      *webInlinePart `json:"inlineData"`
 				InlineDataSnake *webInlinePart `json:"inline_data"`
+				FileData        *webFilePart   `json:"fileData"`
+				FileDataSnake   *webFilePart   `json:"file_data"`
 				// The OpenAI bridge hangs a thought signature off an image part,
 				// and unknown fields are refused, so it has to be named here.
 				ThoughtSignature string `json:"thoughtSignature"`
@@ -253,9 +255,17 @@ func omniRequest(raw []byte) (string, omniOptions, error) {
 		if inline == nil {
 			inline = part.InlineDataSnake
 		}
+		file := part.FileData
+		if file == nil {
+			file = part.FileDataSnake
+		}
 		switch {
 		case part.Text != nil:
 			texts = append(texts, *part.Text)
+		case file != nil:
+			if _, ok := driveFileID(file.uri()); !ok {
+				return "", omniOptions{}, failure(400, "attachment_reference_unsupported")
+			}
 		case inline != nil:
 			// A reference image is uploaded and referenced beside the prompt
 			// rather than carried inside it, so the bytes are only checked here.
