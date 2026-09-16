@@ -76,10 +76,11 @@ func (service *service) releaseInterruptedSession(ctx context.Context, record st
 	// nothing left to observe, so recovery would answer outcome_unknown forever and
 	// only the consenting operator route can end it. The automatic run never does.
 	active := local.ContinuationActive
+	observable := false
 	if active != "" {
 		turn, found := turns[active]
-		observable := found && turn.Conversation != "" && turn.Reply != "" && turn.Candidate != ""
-		if automatic || observable {
+		observable = found && turn.Conversation != "" && turn.Reply != "" && turn.Candidate != ""
+		if automatic {
 			return "", "", failure(409, "continuation_recovery_required")
 		}
 	}
@@ -88,6 +89,13 @@ func (service *service) releaseInterruptedSession(ctx context.Context, record st
 	rejected := errors.As(probe, &authentication)
 	if probe != nil && !rejected {
 		return "", "", failure(409, "session_outcome_still_unknown")
+	}
+	// Recovery reads the turn with this credential. Once the credential is
+	// definitively rejected no recovery can ever observe it again, so deferring
+	// would strand the account for good; a live credential still belongs to
+	// recovery.
+	if observable && !rejected {
+		return "", "", failure(409, "continuation_recovery_required")
 	}
 	if probe == nil && identity != local.Identity {
 		return "", "", failure(409, "credential_identity_mismatch")

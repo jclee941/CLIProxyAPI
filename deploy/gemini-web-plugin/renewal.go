@@ -12,7 +12,7 @@ import (
 func (service *service) renewCredential(ctx context.Context, reference string, token sessionToken) (sessionToken, credentialInspection, error) {
 	credentialContext, cancel := context.WithTimeout(ctx, credentialFenceDuration)
 	defer cancel()
-	renewed, identity, err := service.nativeRenew(credentialContext, token)
+	renewed, identity, err := service.nativeRenew(credentialContext, reference, token)
 	if err != nil && reference != "" {
 		service.credentialFailure(reference, err)
 	}
@@ -39,7 +39,7 @@ func (service *service) credentialHTTP(ctx context.Context, reference string, re
 func (service *service) inspectCredential(ctx context.Context, reference string, token sessionToken) (credentialInspection, error) {
 	credentialContext, cancel := context.WithTimeout(ctx, credentialFenceDuration)
 	defer cancel()
-	identity, err := service.nativeInspect(credentialContext, token)
+	identity, err := service.nativeInspect(credentialContext, reference, token)
 	if err != nil {
 		if reference != "" {
 			service.credentialFailure(reference, err)

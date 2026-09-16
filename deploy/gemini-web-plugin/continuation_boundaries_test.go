@@ -137,3 +137,32 @@ func TestContinuationReceiptRejectsDifferentAccount(t *testing.T) {
 		t.Fatalf("cross-account: %+v", result.Error)
 	}
 }
+
+func TestOperatorEndsAPinWhoseCredentialIsDefinitivelyRejected(t *testing.T) {
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{interrupted: true}
+	continuationWeb(t, service, fixture)
+	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
+	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+	// The credential behind the pinned turn is now rejected, so recovery can
+	// never read that turn again.
+	fixture.mu.Lock()
+	fixture.expired = true
+	fixture.mu.Unlock()
+
+	state, _, err := service.releaseInterruptedSession(context.Background(), local.Target, false)
+
+	if err != nil {
+		t.Fatalf("a dead credential stranded the account: %v", err)
+	}
+	if state != maintenanceCooldown {
+		t.Fatalf("release did not fence the rejected credential: %s", state)
+	}
+	stored, err := service.sessions.read(local.Target.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != localReady || stored.ContinuationActive != "" {
+		t.Fatalf("intent still pinned: state=%s active=%s", stored.State, stored.ContinuationActive)
+	}
+}

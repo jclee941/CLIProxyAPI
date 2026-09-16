@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	quotaFreshness = 10 * time.Minute
-	quotaExhausted = 0.98
+	quotaFreshness  = 10 * time.Minute
+	quotaExhausted  = 0.98
+	quotaDivergence = 0.20
 )
 
 type quotaSnapshot struct {

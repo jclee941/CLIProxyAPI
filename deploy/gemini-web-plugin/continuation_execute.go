@@ -64,7 +64,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 	if err != nil {
 		return nil, err
 	}
-	identity, err := service.webIdentity(ctx, credential)
+	identity, err := service.webIdentity(ctx, execution.local.Target.TokenRef, credential)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,8 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		return nil, failure(409, "credential_identity_mismatch")
 	}
 	session := newWebSession(service.client, credential, service.webOriginOverride)
-	defer service.persistJar(execution.local.Target, session)
+	service.trackJar(execution.local.Target.TokenRef, session)
+	defer service.persistJar(execution.local.Target.TokenRef, session)
 	if turn.State == "prepared" {
 		account, err := session.webCapabilities(ctx)
 		if err != nil {
@@ -99,6 +100,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 				return nil, err
 			}
 			session = newWebSession(service.client, credential, service.webOriginOverride)
+			service.trackJar(execution.local.Target.TokenRef, session)
 		}
 		if err := session.bootstrap(ctx); err != nil {
 			return nil, err

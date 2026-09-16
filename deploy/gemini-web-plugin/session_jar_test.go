@@ -44,7 +44,7 @@ func TestPersistJarStoresTheRotatedCredential(t *testing.T) {
 	session := newWebSession(http.DefaultClient, webCredential{Cookie: "SAPISID=old", AuthUser: 0}, "https://gemini.google.com")
 	session.cookie, session.rotated = "SAPISID=old; __Secure-1PSIDTS=fresh", true
 
-	service.persistJar(local.Target, session)
+	service.persistJar(local.Target.TokenRef, session)
 
 	stored, err := service.sessions.read(local.Target.TokenRef)
 	if err != nil {
@@ -70,4 +70,24 @@ func indexOf(haystack, needle string) int {
 		}
 	}
 	return -1
+}
+
+func TestJarIsStoredTheMomentGoogleRotatesMidCall(t *testing.T) {
+	service, local := continuationFixture(t)
+	session := newWebSession(http.DefaultClient, webCredential{Cookie: "SAPISID=old", AuthUser: 0}, "https://gemini.google.com")
+	service.trackJar(local.Target.TokenRef, session)
+
+	session.absorb(&http.Response{Header: http.Header{"Set-Cookie": {"__Secure-1PSIDTS=mid; Path=/; Secure; Domain=.google.com"}}})
+
+	stored, err := service.sessions.read(local.Target.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := decodeWebCredential(sessionToken{stored.Token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(credential.Cookie, "__Secure-1PSIDTS=mid") {
+		t.Fatalf("a rotation during the call was not stored until it ended: %s", credential.Cookie)
+	}
 }

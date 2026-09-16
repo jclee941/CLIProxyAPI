@@ -50,7 +50,8 @@ func (service *service) nativeText(ctx context.Context, record storageRecord, to
 		return nil, failure(400, "text_only_flash_request")
 	}
 	session := newWebSession(service.client, credential, service.webOriginOverride)
-	defer service.persistJar(record, session)
+	service.trackJar(record.TokenRef, session)
+	defer service.persistJar(record.TokenRef, session)
 	account, err := session.webCapabilities(ctx)
 	if err != nil {
 		return nil, err
@@ -80,7 +81,8 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	}
 	prompt := options.applyPrompt(base)
 	session := newWebSession(service.client, credential, service.webOriginOverride)
-	defer service.persistJar(record, session)
+	service.trackJar(record.TokenRef, session)
+	defer service.persistJar(record.TokenRef, session)
 	account, err := session.webCapabilities(ctx)
 	if err != nil {
 		return httpResponse{}, err

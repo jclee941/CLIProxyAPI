@@ -183,6 +183,24 @@ func TestSchedulerSkipsAnExhaustedAccount_untilItsWindowResets(t *testing.T) {
 	}
 }
 
+func TestSchedulerSpreadsBetweenComparablyFreshAccounts(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("second")})
+	service.observeQuota(local.Target.ID, quotaUsage(0.10, 0))
+	service.observeQuota(other.ID, quotaUsage(0.02, 0))
+	candidates := slotCandidates(local.Target.ID, other.ID)
+	chosen := map[string]int{}
+
+	for round := 0; round < 4; round++ {
+		chosen[service.pickServableAccount(flashModel, candidates).AuthID]++
+	}
+
+	if len(chosen) != 2 {
+		t.Fatalf("a small quota gap concentrated the fleet: %+v", chosen)
+	}
+}
+
 func TestSchedulerPrefersTheAccountWithMoreHeadroom(t *testing.T) {
 	service, local := continuationFixture(t)
 	other := recordFixture(t, "b")

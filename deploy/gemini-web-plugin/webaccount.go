@@ -75,6 +75,7 @@ type webSession struct {
 	requestID       int
 	generationFrame func([]byte) error
 	rotated         bool
+	onRotate        func(string)
 }
 
 func newWebSession(client *http.Client, credential webCredential, origin string) *webSession {
@@ -183,6 +184,12 @@ func (session *webSession) absorb(response *http.Response) {
 		return
 	}
 	session.cookie, session.rotated = merged, true
+	// A generation runs for minutes and Google rotates during it, so the jar is
+	// stored the moment it changes. Waiting until the call returns loses the
+	// rotation whenever the process goes down mid-turn.
+	if session.onRotate != nil {
+		session.onRotate(merged)
+	}
 	for _, pair := range strings.Split(merged, ";") {
 		name, value, found := strings.Cut(strings.TrimSpace(pair), "=")
 		if found && name == "SAPISID" {

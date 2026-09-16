@@ -131,8 +131,10 @@ func (service *service) rotateCookies(ctx context.Context, credential webCredent
 	return webMergeCookies(credential.Cookie, updates), nil
 }
 
-func (service *service) webIdentity(ctx context.Context, credential webCredential) (credentialInspection, error) {
+func (service *service) webIdentity(ctx context.Context, reference string, credential webCredential) (credentialInspection, error) {
 	session := newWebSession(service.client, credential, service.webOriginOverride)
+	service.trackJar(reference, session)
+	defer service.persistJar(reference, session)
 	page, err := session.do(ctx, session.prefix+"/app", nil, nil)
 	if err != nil {
 		return credentialInspection{}, err
@@ -144,23 +146,23 @@ func (service *service) webIdentity(ctx context.Context, credential webCredentia
 	return credentialInspection{AccountSHA256: digest, AuthUser: uint64(credential.AuthUser)}, nil
 }
 
-func (service *service) nativeInspect(ctx context.Context, token sessionToken) (credentialInspection, error) {
+func (service *service) nativeInspect(ctx context.Context, reference string, token sessionToken) (credentialInspection, error) {
 	credential, err := decodeWebCredential(token)
 	if err != nil {
 		return credentialInspection{}, err
 	}
-	return service.webIdentity(ctx, credential)
+	return service.webIdentity(ctx, reference, credential)
 }
 
 // nativeRenew rotates the jar and then proves the rotated credential still
 // reaches the same account, so a rotation that silently moved accounts is
 // refused rather than persisted.
-func (service *service) nativeRenew(ctx context.Context, token sessionToken) (sessionToken, credentialInspection, error) {
+func (service *service) nativeRenew(ctx context.Context, reference string, token sessionToken) (sessionToken, credentialInspection, error) {
 	credential, err := decodeWebCredential(token)
 	if err != nil {
 		return sessionToken{}, credentialInspection{}, err
 	}
-	before, err := service.webIdentity(ctx, credential)
+	before, err := service.webIdentity(ctx, reference, credential)
 	if err != nil {
 		return sessionToken{}, credentialInspection{}, err
 	}
@@ -169,7 +171,7 @@ func (service *service) nativeRenew(ctx context.Context, token sessionToken) (se
 		return sessionToken{}, credentialInspection{}, err
 	}
 	rotated := webCredential{Cookie: cookie, AuthUser: credential.AuthUser}
-	after, err := service.webIdentity(ctx, rotated)
+	after, err := service.webIdentity(ctx, reference, rotated)
 	if err != nil {
 		return sessionToken{}, credentialInspection{}, err
 	}

@@ -53,7 +53,14 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 			}
 			continue
 		}
-		if headroom > best {
+		if chosen == "" {
+			chosen, best = candidate.ID, headroom
+			continue
+		}
+		// Rotation decides between accounts that are comparably fresh; headroom
+		// only overrides it when one is materially more used than another, so a
+		// newly linked account does not absorb the whole fleet's traffic.
+		if headroom-best > quotaDivergence {
 			chosen, best = candidate.ID, headroom
 		}
 	}
