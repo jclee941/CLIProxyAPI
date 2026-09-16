@@ -84,8 +84,25 @@ func (service *service) runningTurn(record storageRecord) *accountActivity {
 		return nil
 	}
 	turn, found := turns[local.ContinuationActive]
-	if !found || turn.State != "submitting" {
+	// A submitted turn only streams inside the process that started it. One that
+	// predates this process cannot be running, however recent it looks, so it is
+	// an interrupted turn for recovery rather than progress to report.
+	if !found || turn.State != "submitting" || turn.StartedAt <= service.startedAt {
 		return nil
 	}
 	return &accountActivity{Model: turn.Model, StartedAt: turn.StartedAt}
+}
+
+// busySessionToken reads the credential of a session that is mid-turn. Only the
+// read-only account inspection uses it: execution still goes through resolveLocal,
+// which refuses a session that is not ready.
+func (service *service) busySessionToken(record storageRecord) (sessionToken, error) {
+	local, err := service.localRecord(record)
+	if err != nil {
+		return sessionToken{}, err
+	}
+	if local.State != localSubmitting || local.ContinuationActive == "" {
+		return sessionToken{}, failure(409, "needs_operator")
+	}
+	return sessionToken{local.Token}, nil
 }

@@ -134,11 +134,13 @@ func (service *service) findRecord(callbackID, id string) (storageRecord, bool, 
 func (service *service) inspectAccount(ctx context.Context, record storageRecord, enabled bool) accountView {
 	view := accountView{ID: record.ID, Label: record.Label, Enabled: enabled, Status: "unknown", Models: []accountModelView{}, ObservedAt: float64(service.now().UnixMilli()) / 1000}
 	view.AutoResolvedAt = float64(service.autoReleaseIfInterrupted(ctx, record))
-	if activity := service.runningTurn(record); activity != nil {
-		view.Status, view.Activity = "generating", activity
-		return view
-	}
+	view.Activity = service.runningTurn(record)
+	// A running turn locks the session against new work, but the credential
+	// behind it still answers, so models and usage are read the same way.
 	token, err := service.inspectLocalAccount(ctx, record)
+	if view.Activity != nil && err != nil {
+		token, err = service.busySessionToken(record)
+	}
 	if err != nil {
 		return failedAccount(view, err)
 	}
@@ -147,6 +149,9 @@ func (service *service) inspectAccount(ctx context.Context, record storageRecord
 		return failedAccount(view, err)
 	}
 	view.Status = "ready"
+	if view.Activity != nil {
+		view.Status = "generating"
+	}
 	if account.ObservedAt > 0 {
 		view.ObservedAt = account.ObservedAt
 	}

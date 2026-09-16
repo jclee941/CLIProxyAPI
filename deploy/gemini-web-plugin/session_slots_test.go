@@ -108,6 +108,7 @@ func TestSchedulerRefusesABusyAccountForAGeneration_butSharesItForText(t *testin
 
 func TestAccountListingReportsAGenerationInsteadOfAnOperatorError(t *testing.T) {
 	service, local := continuationFixture(t)
+	service.startedAt = 0
 	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
 	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
 	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
@@ -124,5 +125,39 @@ func TestAccountListingReportsNoActivity_whenTheSessionIsIdle(t *testing.T) {
 
 	if activity := service.runningTurn(local.Target); activity != nil {
 		t.Fatalf("idle session reported a generation: %+v", activity)
+	}
+}
+
+func TestBusySessionStillReportsModelsAndUsage_whileGenerating(t *testing.T) {
+	service, local := continuationFixture(t)
+	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
+	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
+	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+
+	token, err := service.busySessionToken(local.Target)
+
+	if err != nil || token.value == "" {
+		t.Fatalf("a generating session hid its credential from inspection: %v", err)
+	}
+}
+
+func TestBusySessionTokenRefusesAnIdleSession(t *testing.T) {
+	service, local := continuationFixture(t)
+
+	if _, err := service.busySessionToken(local.Target); safeCredentialCode(err) != "needs_operator" {
+		t.Fatalf("idle session exposed a credential through the busy path: %v", err)
+	}
+}
+
+func TestActivityIsNotClaimedForATurnFromABeforeRestart(t *testing.T) {
+	service, local := continuationFixture(t)
+	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
+	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
+	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+	// The process restarted after the turn was submitted.
+	service.startedAt = service.now().Unix() + 1
+
+	if activity := service.runningTurn(local.Target); activity != nil {
+		t.Fatalf("an interrupted turn was reported as progress: %+v", activity)
 	}
 }

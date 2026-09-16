@@ -54,10 +54,11 @@ type service struct {
 	// webRotateOverride redirects cookie rotation, which lives on a different
 	// Google origin than the rest of the native calls.
 	webRotateOverride string
+	startedAt         int64
 }
 
 func newService(host hostCall) *service {
-	return &service{config: pluginConfig{DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html"}, host: host, client: newSidecarClient(), now: time.Now}
+	return &service{config: pluginConfig{DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html"}, startedAt: time.Now().Unix(), host: host, client: newSidecarClient(), now: time.Now}
 }
 
 func (service *service) handle(ctx context.Context, method string, raw []byte) []byte {

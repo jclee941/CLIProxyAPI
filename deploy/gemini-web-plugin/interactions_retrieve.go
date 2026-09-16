@@ -82,7 +82,7 @@ func (service *service) retrieveInteraction(ctx context.Context, request executo
 		if err != nil {
 			return nil, err
 		}
-		result, err := renderInteraction(continuationResult{Payload: payload}, continuationView{Token: body.ID, State: "complete"})
+		result, err := renderInteraction(record.ID, continuationResult{Payload: payload}, continuationView{Token: body.ID, State: "complete"})
 		if err != nil {
 			return nil, err
 		}
@@ -112,7 +112,7 @@ func (service *service) retrieveInteraction(ctx context.Context, request executo
 		return service.subscribeInteraction(request.StreamID, body.ID, cursor, operation)
 	}
 	if operation != nil {
-		return renderInteraction(continuationResult{}, continuationView{Token: body.ID, State: "pending"})
+		return renderInteraction(record.ID, continuationResult{}, continuationView{Token: body.ID, State: "pending"})
 	}
 	result, err := service.executeContinuation(ctx, native)
 	if err != nil {
@@ -125,5 +125,5 @@ func (service *service) retrieveInteraction(ctx context.Context, request executo
 	if err := json.Unmarshal(response.Payload, &receipt); err != nil {
 		return nil, err
 	}
-	return renderInteraction(response, receipt.View)
+	return renderInteraction(record.ID, response, receipt.View)
 }

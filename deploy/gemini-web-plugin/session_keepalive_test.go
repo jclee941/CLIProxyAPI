@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"net/http"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestKeepAliveRotatesIdleSession_withoutChangingTheHostProjection(t *testing.T) {
@@ -70,4 +73,75 @@ func TestKeepAliveSkipsBusyAndInterruptedSessions(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestKeepAliveLeavesRenewalIntent_whenRotationNeverAnswers(t *testing.T) {
+	service, record, _ := maintenanceFixture(t)
+	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		if sidecarPath(request) == "/v1/session/renew" {
+			rejectionFixture(t, writer, 500, `{"error":{"code":500,"message":"renew_unavailable"}}`)
+			return
+		}
+		writeIdentityFixture(t, writer)
+	})
+
+	service.refreshIdleSessions(t.Context())
+
+	after, err := service.localStore().read(record.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.State != localReady {
+		t.Fatalf("an ambiguous rotation left the session unusable: %s", after.State)
+	}
+}
+
+func TestKeepAliveSkipsASessionRotatedRecently(t *testing.T) {
+	service, record, _ := maintenanceFixture(t)
+	local, err := service.localStore().read(record.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local.RotatedAt = service.now().Unix()
+	if err := service.localStore().write(local); err != nil {
+		t.Fatal(err)
+	}
+	localSidecarAll(t, service, func(http.ResponseWriter, *http.Request) { t.Error("a freshly rotated session was rotated again") })
+
+	service.refreshIdleSessions(t.Context())
+}
+
+func TestKeepAliveIsDrainedByShutdown_soARestartCannotCutARotation(t *testing.T) {
+	service, record, _ := maintenanceFixture(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	defer close(release)
+	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		if sidecarPath(request) == "/v1/session/renew" {
+			once.Do(func() { close(entered) })
+			<-release
+			writeRotationFixture(writer, request)
+			return
+		}
+		writeIdentityFixture(t, writer)
+	})
+	go service.refreshIdleSessions(context.Background())
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("rotation never reached the wire")
+	}
+
+	drained := make(chan struct{})
+	go func() {
+		_ = service.shutdownSessions()
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+		t.Fatal("shutdown finished while a rotation was still in flight")
+	case <-time.After(300 * time.Millisecond):
+	}
+	_ = record
 }

@@ -13,6 +13,7 @@ import (
 const (
 	keepAliveInterval = 8 * time.Minute
 	keepAliveWorkers  = 4
+	keepAliveAge      = 20 * time.Minute
 )
 
 // The caller holds the lifecycle lock while configuring sessions, so the
@@ -73,6 +74,9 @@ func (service *service) refreshIdleSessions(ctx context.Context) {
 		if local.State != localReady {
 			continue
 		}
+		if ctx.Err() != nil {
+			break
+		}
 		select {
 		case <-ctx.Done():
 			close(work)
@@ -90,6 +94,13 @@ func (service *service) refreshIdleSessions(ctx context.Context) {
 }
 
 func (service *service) refreshSession(ctx context.Context, local localSession) {
+	// Google retires the old cookie the instant it issues a new one, so a
+	// shutdown that cuts a rotation leaves nothing usable behind. Joining the
+	// lifecycle makes the host drain this the way it drains a request.
+	if err := service.lifecycle.enter(); err != nil {
+		return
+	}
+	defer service.lifecycle.leave()
 	reference := local.Target.TokenRef
 	lease, err := service.acquireCredential(reference, true)
 	if err != nil {
@@ -101,18 +112,33 @@ func (service *service) refreshSession(ctx context.Context, local localSession) 
 	if err != nil || current.State != localReady || current.Token != local.Token {
 		return
 	}
+	if service.now().Unix()-current.RotatedAt < int64(keepAliveAge/time.Second) {
+		return
+	}
+	// Google invalidates the old cookie the moment it issues a new one, so the
+	// intent is durable before the call: a process that dies mid-rotation leaves
+	// renewal_intent, which the operator can see, instead of a stored cookie that
+	// upstream has already retired.
+	intent := current
+	intent.State = localRenewing
+	if err := service.localStore().write(intent); err != nil {
+		return
+	}
 	renewed, identity, err := service.renewCredential(ctx, reference, sessionToken{current.Token})
 	if err != nil {
+		if restore := service.localStore().write(current); restore != nil {
+			return
+		}
 		var authentication *AuthenticationFailure
 		if errors.As(err, &authentication) {
 			lease.set(credentialState{state: maintenanceCooldown, nextDue: service.now().Add(maintenanceAuthCooldown), errCode: safeCredentialCode(err)})
 		}
 		return
 	}
-	if identity != current.Identity || renewed.value == current.Token {
+	if identity != current.Identity {
 		return
 	}
-	current.Token = renewed.value
+	current.Token, current.RotatedAt = renewed.value, service.now().Unix()
 	if err := service.localStore().write(current); err != nil {
 		return
 	}

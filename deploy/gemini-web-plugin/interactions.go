@@ -173,7 +173,7 @@ func (service *service) finishInteraction(ctx context.Context, native executorRe
 			return nil, err
 		}
 	}
-	return renderInteraction(result, receipt.View)
+	return renderInteraction(record.ID, result, receipt.View)
 }
 
 func (service *service) waitInteraction(ctx context.Context) error {
@@ -190,7 +190,7 @@ func (service *service) waitInteraction(ctx context.Context) error {
 	}
 }
 
-func renderInteraction(result continuationResult, view continuationView) (interface{}, error) {
+func renderInteraction(account string, result continuationResult, view continuationView) (interface{}, error) {
 	status := "in_progress"
 	steps := make([]any, 0, 1)
 	if view.State == "complete" {
@@ -219,7 +219,7 @@ func renderInteraction(result continuationResult, view continuationView) (interf
 	if view.State == "outcome_unknown" {
 		status = "failed"
 	}
-	payload, err := json.Marshal(map[string]any{"id": view.Token, "object": "interaction", "model": interactionOmniModel, "status": status, "steps": steps})
+	payload, err := json.Marshal(map[string]any{"id": view.Token, "object": "interaction", "model": interactionOmniModel, "account": account, "status": status, "steps": steps})
 	if err != nil {
 		return nil, err
 	}

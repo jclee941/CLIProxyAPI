@@ -42,6 +42,7 @@ type localSession struct {
 	LegacyUserBound    bool                 `json:"legacy_user_bound,omitempty"`
 	LegacyDetached     bool                 `json:"legacy_detached,omitempty"`
 	AutoResolvedAt     int64                `json:"auto_resolved_at,omitempty"`
+	RotatedAt          int64                `json:"rotated_at,omitempty"`
 	Continuations      string               `json:"continuations,omitempty"`
 	ContinuationActive string               `json:"continuation_active,omitempty"`
 }
