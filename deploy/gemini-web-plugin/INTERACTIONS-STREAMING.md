@@ -46,7 +46,8 @@ existing continuation scheduler remain required.
 POST `/v1beta/interactions` accepts the existing text input and video response
 format, plus `stream:true`. `store:true` (the default) retains the receipt and
 result. `previous_interaction_id` names a completed caller-bound receipt and
-creates exactly one new turn in that receipt's upstream conversation. A POST
+creates exactly one new turn carrying that receipt's video as an uploaded
+reference, on whichever eligible account the scheduler selects. A POST
 retry is still a new generation request: never reconnect by repeating POST.
 Synchronous POST remains available. Background execution is not exposed.
 
