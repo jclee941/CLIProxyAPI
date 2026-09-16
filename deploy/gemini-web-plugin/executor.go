@@ -225,11 +225,12 @@ func omniRequest(raw []byte) (string, omniOptions, error) {
 		Contents []struct {
 			Role  string `json:"role"`
 			Parts []struct {
-				Text       *string `json:"text"`
-				InlineData *struct {
-					MIMEType string `json:"mimeType"`
-					Data     string `json:"data"`
-				} `json:"inlineData"`
+				Text            *string        `json:"text"`
+				InlineData      *webInlinePart `json:"inlineData"`
+				InlineDataSnake *webInlinePart `json:"inline_data"`
+				// The OpenAI bridge hangs a thought signature off an image part,
+				// and unknown fields are refused, so it has to be named here.
+				ThoughtSignature string `json:"thoughtSignature"`
 			} `json:"parts"`
 		} `json:"contents"`
 		GenerationConfig map[string]json.RawMessage `json:"generationConfig"`
@@ -248,13 +249,17 @@ func omniRequest(raw []byte) (string, omniOptions, error) {
 	}
 	texts := make([]string, 0, len(turn.Parts))
 	for _, part := range turn.Parts {
+		inline := part.InlineData
+		if inline == nil {
+			inline = part.InlineDataSnake
+		}
 		switch {
 		case part.Text != nil:
 			texts = append(texts, *part.Text)
-		case part.InlineData != nil:
+		case inline != nil:
 			// A reference image is uploaded and referenced beside the prompt
 			// rather than carried inside it, so the bytes are only checked here.
-			if part.InlineData.MIMEType == "" || part.InlineData.Data == "" {
+			if inline.mimeType() == "" || inline.Data == "" {
 				return "", omniOptions{}, failure(400, "omni_reference_invalid")
 			}
 		default:

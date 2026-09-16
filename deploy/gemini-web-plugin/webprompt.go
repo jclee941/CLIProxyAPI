@@ -103,6 +103,28 @@ func webToolPrompt(definitions []webToolDefinition) string {
 		"Available tools:\n" + string(encoded)
 }
 
+// webInlineData reads the media a part carries. The host spells this three ways
+// by the time a request reaches here - a Gemini caller sends inlineData with
+// mimeType, the OpenAI bridge sends inlineData with mime_type and the Claude
+// bridge sends inline_data with mime_type - and all three are valid Gemini REST.
+// Reading only one spelling meant an OpenAI image was refused as malformed and a
+// Claude image was dropped without a word, which is the worse of the two.
+func webInlineData(field map[string]any) (map[string]any, bool) {
+	for _, key := range []string{"inlineData", "inline_data"} {
+		if value, present := field[key]; present && value != nil {
+			return webMapField(value), true
+		}
+	}
+	return nil, false
+}
+
+func webInlineMIME(inline map[string]any) string {
+	if mime := webStringField(inline, "mimeType"); mime != "" {
+		return mime
+	}
+	return webStringField(inline, "mime_type")
+}
+
 // webContentsToPrompt flattens a Gemini request into the single prompt the web
 // product accepts. It reports whether the request carried inline media, which the
 // text path cannot forward.
@@ -138,12 +160,12 @@ func webContentsToPrompt(raw []byte) (string, []webMedia, error) {
 		var lines []string
 		for _, part := range webListField(entry["parts"]) {
 			field := webMapField(part)
+			inline, carriesMedia := webInlineData(field)
 			switch {
 			case webStringField(field, "text") != "":
 				lines = append(lines, webStringField(field, "text"))
-			case field["inlineData"] != nil:
-				inline := webMapField(field["inlineData"])
-				mime := webStringField(inline, "mimeType")
+			case carriesMedia:
+				mime := webInlineMIME(inline)
 				encoded := webStringField(inline, "data")
 				if mime == "" || encoded == "" {
 					return "", nil, failure(400, "invalid_generation_request")

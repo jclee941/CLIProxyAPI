@@ -22,6 +22,22 @@ func TestInteractionCarriesAReferenceImage(t *testing.T) {
 	}
 }
 
+// The omni parser refuses unknown fields, so every spelling a bridge may use has
+// to be named or a reference image dies in validation before it is ever uploaded.
+func TestOmniRequestAcceptsBothInlineSpellings(t *testing.T) {
+	for name, part := range map[string]string{
+		"gemini": `{"inlineData":{"mimeType":"image/png","data":"AAAA"}}`,
+		"openai": `{"inlineData":{"mime_type":"image/png","data":"AAAA"},"thoughtSignature":"sig"}`,
+		"claude": `{"inline_data":{"mime_type":"image/png","data":"AAAA"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := omniRequest([]byte(`{"contents":[{"role":"user","parts":[{"text":"a cat"},` + part + `]}]}`)); err != nil {
+				t.Fatalf("the %s spelling was refused: %v", name, err)
+			}
+		})
+	}
+}
+
 // A uri reference names a Files entry, and there is no Files API on the web
 // path to resolve it, so it has to be refused rather than silently dropped.
 func TestInteractionRefusesAnUploadedReference(t *testing.T) {

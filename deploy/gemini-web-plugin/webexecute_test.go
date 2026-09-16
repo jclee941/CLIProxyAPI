@@ -200,6 +200,39 @@ func TestNativeTextCarriesEveryAttachment(t *testing.T) {
 	}
 }
 
+// Each bridge spells inline media differently by the time it reaches the plugin.
+// Reading one spelling meant an OpenAI image was refused as malformed and a
+// Claude image was dropped without a word, which is the worse of the two.
+func TestNativeTextAcceptsEveryBridgeSpellingOfInlineMedia(t *testing.T) {
+	for name, parts := range map[string]string{
+		"gemini": `{"inlineData":{"mimeType":"image/png","data":"AAAA"}}`,
+		"openai": `{"inlineData":{"mime_type":"image/png","data":"AAAA"},"thoughtSignature":"sig"}`,
+		"claude": `{"inline_data":{"mime_type":"image/png","data":"AAAA"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := nativeWebServer(t, "a colour")
+			service, record := nativeService(t, server)
+
+			result := invoke(t, service, "executor.execute", executorRequest{
+				AuthID: record.ID, AuthProvider: provider, Model: flashModel,
+				Format: "gemini", SourceFormat: "gemini", StorageJSON: jsonFixture(t, record),
+				Payload: []byte(`{"contents":[{"role":"user","parts":[{"text":"look"},` + parts + `]}]}`),
+			})
+
+			if !result.OK {
+				t.Fatalf("the %s spelling was refused: %+v", name, result.Error)
+			}
+			form, err := url.ParseQuery(nativeLastGeneration(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if body := form.Get("f.req"); !strings.Contains(body, "/contrib_service/ttl_1d/fixture-upload") {
+				t.Fatalf("the %s spelling never reached the request: %s", name, body)
+			}
+		})
+	}
+}
+
 func TestNativeTextRejectsUndecodableMedia(t *testing.T) {
 	server := nativeWebServer(t, "unused")
 	service, record := nativeService(t, server)

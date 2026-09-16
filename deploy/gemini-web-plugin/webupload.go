@@ -20,6 +20,22 @@ type webMedia struct {
 	Data     string
 }
 
+// webInlinePart is the typed form of the media a request part carries. The media
+// type travels under either spelling depending on which bridge built the
+// request, and both are valid Gemini REST.
+type webInlinePart struct {
+	MIMEType  string `json:"mimeType"`
+	MIMESnake string `json:"mime_type"`
+	Data      string `json:"data"`
+}
+
+func (part webInlinePart) mimeType() string {
+	if part.MIMEType != "" {
+		return part.MIMEType
+	}
+	return part.MIMESnake
+}
+
 type webAttachment struct {
 	Path     string
 	Name     string

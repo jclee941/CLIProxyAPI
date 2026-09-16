@@ -25,6 +25,22 @@ Accepted attachment types are listed in `webUploadKinds`. Anything else is
 refused before the upload, because upstream answers an unsupported file with a
 reference error that names neither the file nor the reason.
 
+### Inline media spellings
+
+A request reaches the plugin in whichever spelling the host bridge produced, and
+all of them are valid Gemini REST:
+
+| Caller | Spelling |
+| --- | --- |
+| Gemini | `inlineData` / `mimeType` |
+| OpenAI chat completions | `inlineData` / `mime_type`, plus a sibling `thoughtSignature` |
+| OpenAI responses | `inline_data` / `mime_type` |
+| Claude messages | `inline_data` / `mime_type` |
+
+All four are read. Accepting only the first meant an OpenAI image was refused as
+malformed and a Claude image was dropped in silence, so the caller paid for a
+turn in which the model never saw the file.
+
 ## Generation options
 
 | Capability | SDK field | Status | Notes |
