@@ -22,6 +22,9 @@ type continuationExecution struct {
 func (service *service) runContinuation(ctx context.Context, execution continuationExecution) (interface{}, error) {
 	turn := execution.turn
 	view := continuationView{Token: execution.control.Token, State: turn.State}
+	// Kept for the report a submission that never names its operation owes an
+	// operator, and empty on every path that does not submit.
+	var shapes []string
 	if execution.control.Action == "recover" && turn.State == "prepared" {
 		return continuationResponse(turn.Model, view, nil)
 	}
@@ -146,6 +149,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			return nil, err
 		}
 		session.generationFrame = func(raw []byte) error {
+			shapes = frameShapes(shapes, raw)
 			updated, err := continuationFrame(turn, raw)
 			if err != nil {
 				return err
@@ -169,6 +173,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 				// unobservable, which is how a healthy fleet runs out of accounts.
 				view.State = "outcome_unknown"
 				turn.State = "no_operation"
+				service.reportUnnamed(view.Error, turn, shapes)
 				execution.turns[execution.key] = turn
 				if execution.local.ContinuationActive == execution.key {
 					execution.local.State, execution.local.ContinuationActive = localReady, ""
@@ -182,6 +187,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		}
 	}
 	if turn.Conversation == "" || turn.Reply == "" || turn.Candidate == "" {
+		service.reportUnnamed("missing_upstream_operation", turn, shapes)
 		return continuationResponse(turn.Model, continuationView{Token: view.Token, State: "outcome_unknown", Error: "missing_upstream_operation"}, nil)
 	}
 	// One observation per request: recovery never calls StreamGenerate and never

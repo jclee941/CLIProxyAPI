@@ -9,6 +9,29 @@ import (
 	"testing/iotest"
 )
 
+// The layout report exists to end a guess, so it has to name the slot a value
+// sits in and the shape holding it, and carry none of the value itself.
+func TestTheFrameLayoutNamesSlotsAndNeverTheirContent(t *testing.T) {
+	frame := slots(26, map[int]any{1: []any{"c_chat", "r_turn"}, 4: []any{[]any{"rc_candidate"}}, 25: "context"})
+	raw := jsonFixture(t, []any{[]any{"wrb.fr", nil, string(jsonFixture(t, frame))}})
+
+	shapes := frameShapes(nil, raw)
+
+	if len(shapes) != 1 {
+		t.Fatalf("shapes = %v, want one per decoded frame", shapes)
+	}
+	for _, secret := range []string{"c_chat", "r_turn", "rc_candidate", "context"} {
+		if strings.Contains(shapes[0], secret) {
+			t.Fatalf("layout leaked content %q: %s", secret, shapes[0])
+		}
+	}
+	for _, slot := range []string{"1:[str,str]", "4:[[str]]", "25:str"} {
+		if !strings.Contains(shapes[0], slot) {
+			t.Fatalf("layout = %q, want it to name %s", shapes[0], slot)
+		}
+	}
+}
+
 // A generation stream carries frames that hold no receipt. One of them must not
 // end the submission: the operation is named by a later line, and a turn thrown
 // away here is a ten minute render thrown away with it.

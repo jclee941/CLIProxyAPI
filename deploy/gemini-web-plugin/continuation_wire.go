@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
@@ -122,6 +123,66 @@ func continuationCandidate(turn continuationTurn, body any) (any, error) {
 		return candidates[0], nil
 	}
 	return nil, failure(502, "continuation_operation_mismatch")
+}
+
+// frameShapes describes the layout of a generation frame and none of its
+// content: which slots carry something, and what kind of value each one is. A
+// submission that ends without naming its operation otherwise says nothing about
+// which slot moved, and the only alternative is another blind ten minute round.
+func frameShapes(shapes []string, raw []byte) []string {
+	const limit = 12
+	if len(shapes) >= limit {
+		return shapes
+	}
+	frames, err := webResponseFrames(raw)
+	if err != nil {
+		return shapes
+	}
+	for _, frame := range frames {
+		values, ok := frame.([]any)
+		if !ok {
+			continue
+		}
+		slots := make([]string, 0, 8)
+		for index, value := range values {
+			if value != nil {
+				slots = append(slots, fmt.Sprintf("%d:%s", index, jsonKind(value, 3)))
+			}
+		}
+		if shapes = append(shapes, strings.Join(slots, " ")); len(shapes) >= limit {
+			break
+		}
+	}
+	return shapes
+}
+
+// jsonKind names the kind of a decoded value, descending into lists only far
+// enough to tell an identifier apart from the structure holding it.
+func jsonKind(value any, depth int) string {
+	switch typed := value.(type) {
+	case string:
+		return "str"
+	case float64:
+		return "num"
+	case bool:
+		return "bool"
+	case map[string]any:
+		return "obj"
+	case []any:
+		if depth == 0 {
+			return "[…]"
+		}
+		kinds := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if len(kinds) == 4 {
+				kinds = append(kinds, "…")
+				break
+			}
+			kinds = append(kinds, jsonKind(item, depth-1))
+		}
+		return "[" + strings.Join(kinds, ",") + "]"
+	}
+	return "-"
 }
 
 // webStreamCut says a generation stream ended before its body did. The public
