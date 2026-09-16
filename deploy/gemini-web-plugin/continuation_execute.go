@@ -121,7 +121,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		if err != nil {
 			return nil, err
 		}
-		turn.State = "submitting"
+		turn.State, turn.StartedAt = "submitting", service.now().Unix()
 		execution.local.State, execution.local.ContinuationActive = localSubmitting, execution.key
 		execution.turns[execution.key] = turn
 		if err := service.saveContinuations(execution.local, execution.turns); err != nil {

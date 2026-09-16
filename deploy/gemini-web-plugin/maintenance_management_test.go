@@ -56,7 +56,11 @@ func TestMaintenanceRegistrationAdvertisesAuthenticatedRouteAndObjectConfig(t *t
 			found = true
 		}
 	}
-	if !found || len(management.Resources) != 1 || management.Resources[0].Path != "/index" {
+	resources := map[string]bool{}
+	for _, resource := range management.Resources {
+		resources[resource.Path] = true
+	}
+	if !found || len(management.Resources) != 2 || !resources["/index"] || !resources["/extension"] {
 		t.Fatal("maintenance was not authenticated management-only")
 	}
 }

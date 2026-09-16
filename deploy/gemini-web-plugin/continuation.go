@@ -27,6 +27,7 @@ type continuationTurn struct {
 	Candidate    string   `json:"candidate,omitempty"`
 	Digest       [32]byte `json:"digest"`
 	Sequence     uint64   `json:"sequence"`
+	StartedAt    int64    `json:"started_at,omitempty"`
 	NextToken    string   `json:"next_token,omitempty"`
 	ResultStored bool     `json:"result_stored,omitempty"`
 }

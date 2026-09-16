@@ -6,6 +6,7 @@ const statuses = {
   ready: { label: '사용 가능', tone: 'success' },
   expired: { label: '토큰 만료', tone: 'warning' },
   error: { label: '오류', tone: 'danger' },
+  generating: { label: '생성 중', tone: 'info' },
   unknown: { label: '미확인', tone: 'neutral' },
 } as const;
 const windows = { '5h': '5시간', weekly: '주간', ai_credit: 'AI 크레딧', unknown: '기타 사용량' } as const;
@@ -84,6 +85,10 @@ export function accountCard(account: Account, state: CardState, actions: CardAct
   modelSection.append(models);
   card.append(modelSection);
 
+  if (account.activity) {
+    const since = account.activity.started_at ? `${elapsed(account.activity.started_at)} 경과` : '진행 중';
+    card.append(element('p', 'notice notice-info', `${account.activity.model} 생성 중 · ${since}. 이 계정은 끝날 때까지 새 작업을 받지 않습니다.`));
+  }
   if (account.status === 'expired') {
     card.append(element('p', 'notice notice-warning', '웹 세션이 만료되었습니다. Google 로그인을 다시 연결하거나 기존 방식으로 토큰을 업데이트하세요.'));
   }
@@ -133,7 +138,7 @@ export function accountCard(account: Account, state: CardState, actions: CardAct
   if (state.pending === '확인 중') refresh.classList.add('is-loading');
   update.disabled = state.locked;
   refresh.disabled = state.locked;
-  if (account.error === 'needs_operator') {
+  if (account.error === 'needs_operator' && !account.activity) {
     const recover = button('중단된 작업 복구', () => actions.recover(account));
     recover.id = `recover-${account.id}`;
     recover.setAttribute('aria-label', `${account.label} 중단된 작업 복구`);
@@ -144,4 +149,11 @@ export function accountCard(account: Account, state: CardState, actions: CardAct
   footer.append(controls);
   card.append(footer);
   return card;
+}
+
+function elapsed(startedAt: number): string {
+  const seconds = Math.max(0, Math.floor(Date.now() / 1000) - startedAt);
+  if (seconds < 60) return `${seconds}초`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes < 60 ? `${minutes}분` : `${Math.floor(minutes / 60)}시간 ${minutes % 60}분`;
 }

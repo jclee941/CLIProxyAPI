@@ -277,7 +277,9 @@ func TestLoginRoutesAreManagementOnly_whenRegistered(t *testing.T) {
 			t.Errorf("missing authenticated route %s", operation)
 		}
 	}
-	if len(registration.Resources) != 1 || registration.Resources[0].Path != "/index" {
-		t.Fatal("login must not introduce public credential resources")
+	for _, resource := range registration.Resources {
+		if resource.Path != "/index" && resource.Path != "/extension" {
+			t.Fatalf("login introduced an unexpected resource %q", resource.Path)
+		}
 	}
 }

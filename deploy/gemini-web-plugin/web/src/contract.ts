@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const accountIdSchema = z.string().min(1).brand('AccountId');
-export const statusSchema = z.enum(['ready', 'expired', 'error', 'unknown']);
+export const statusSchema = z.enum(['ready', 'expired', 'error', 'unknown', 'generating']);
 export const metricSchema = z.object({
   remaining_units: z.number().nullable(),
   usage_fraction: z.number().nullable(),
@@ -17,6 +17,7 @@ export const accountSchema = z.object({
   label: z.string(),
   enabled: z.boolean(),
   status: statusSchema,
+  activity: z.object({ model: z.string(), started_at: z.number().optional() }).optional(),
   models: z.array(z.object({ id: z.string(), name: z.string() }).readonly()).readonly(),
   usage: z.object({
     tier: z.string().nullable(),

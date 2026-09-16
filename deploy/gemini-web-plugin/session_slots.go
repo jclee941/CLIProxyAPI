@@ -63,3 +63,29 @@ func (service *service) slotIsIdle(reference string) bool {
 	lease.guard.Unlock()
 	return true
 }
+
+// runningTurn reports the generation an account is currently on. A submitted
+// turn locks the session, and the account listing used to render that lock as
+// needs_operator, which is the same thing a stranded account shows.
+func (service *service) runningTurn(record storageRecord) *accountActivity {
+	if !localReferencePattern.MatchString(record.TokenRef) {
+		return nil
+	}
+	store := service.localStore()
+	if store == nil {
+		return nil
+	}
+	local, err := store.read(record.TokenRef)
+	if err != nil || local.State != localSubmitting || local.ContinuationActive == "" {
+		return nil
+	}
+	turns, err := continuationTurns(local)
+	if err != nil {
+		return nil
+	}
+	turn, found := turns[local.ContinuationActive]
+	if !found || turn.State != "submitting" {
+		return nil
+	}
+	return &accountActivity{Model: turn.Model, StartedAt: turn.StartedAt}
+}

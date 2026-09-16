@@ -11,6 +11,7 @@ const (
 	maintenanceAuthCooldown  = 30 * time.Minute
 	maintenanceReadyInterval = 30 * time.Minute
 	maintainPath             = "/plugins/gemini-web/maintain"
+	extensionArchive         = "gemini-web-login-companion.zip"
 )
 
 var (

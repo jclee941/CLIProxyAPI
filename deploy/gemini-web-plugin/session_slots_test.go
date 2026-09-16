@@ -105,3 +105,24 @@ func TestSchedulerRefusesABusyAccountForAGeneration_butSharesItForText(t *testin
 		t.Fatalf("text turn lost a shareable session: %+v", text)
 	}
 }
+
+func TestAccountListingReportsAGenerationInsteadOfAnOperatorError(t *testing.T) {
+	service, local := continuationFixture(t)
+	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
+	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
+	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+
+	activity := service.runningTurn(local.Target)
+
+	if activity == nil || activity.Model == "" || activity.StartedAt == 0 {
+		t.Fatalf("a submitted turn was not reported as activity: %+v", activity)
+	}
+}
+
+func TestAccountListingReportsNoActivity_whenTheSessionIsIdle(t *testing.T) {
+	service, local := continuationFixture(t)
+
+	if activity := service.runningTurn(local.Target); activity != nil {
+		t.Fatalf("idle session reported a generation: %+v", activity)
+	}
+}

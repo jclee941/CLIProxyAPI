@@ -36,6 +36,12 @@ type accountView struct {
 	Error          string             `json:"error,omitempty"`
 	ObservedAt     float64            `json:"observed_at"`
 	AutoResolvedAt float64            `json:"auto_resolved_at,omitempty"`
+	Activity       *accountActivity   `json:"activity,omitempty"`
+}
+
+type accountActivity struct {
+	Model     string `json:"model"`
+	StartedAt int64  `json:"started_at,omitempty"`
 }
 
 type accountListResponse struct {
@@ -128,6 +134,10 @@ func (service *service) findRecord(callbackID, id string) (storageRecord, bool, 
 func (service *service) inspectAccount(ctx context.Context, record storageRecord, enabled bool) accountView {
 	view := accountView{ID: record.ID, Label: record.Label, Enabled: enabled, Status: "unknown", Models: []accountModelView{}, ObservedAt: float64(service.now().UnixMilli()) / 1000}
 	view.AutoResolvedAt = float64(service.autoReleaseIfInterrupted(ctx, record))
+	if activity := service.runningTurn(record); activity != nil {
+		view.Status, view.Activity = "generating", activity
+		return view
+	}
 	token, err := service.inspectLocalAccount(ctx, record)
 	if err != nil {
 		return failedAccount(view, err)

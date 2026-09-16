@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -31,6 +32,15 @@ func (service *service) management(ctx context.Context, raw []byte) (httpRespons
 			return httpResponse{StatusCode: 503, Headers: http.Header{"Content-Type": {"text/plain"}, "Cache-Control": {"no-store"}}, Body: []byte("Dashboard asset unavailable")}, nil
 		}
 		return httpResponse{StatusCode: 200, Headers: http.Header{"Content-Type": {"text/html; charset=utf-8"}, "Cache-Control": {"no-store"}, "X-Content-Type-Options": {"nosniff"}, "Referrer-Policy": {"no-referrer"}}, Body: body}, nil
+	}
+	if request.Method == "GET" && request.Path == extensionPath {
+		// The companion is what a browser needs before it can hand a session over,
+		// so it is served from the same place the operator already authenticates.
+		body, err := os.ReadFile(filepath.Join(filepath.Dir(service.settings().DashboardPath), extensionArchive))
+		if err != nil {
+			return httpResponse{StatusCode: 503, Headers: http.Header{"Content-Type": {"text/plain"}, "Cache-Control": {"no-store"}}, Body: []byte("Companion extension unavailable")}, nil
+		}
+		return httpResponse{StatusCode: 200, Headers: http.Header{"Content-Type": {"application/zip"}, "Cache-Control": {"no-store"}, "Content-Disposition": {`attachment; filename="` + extensionArchive + `"`}, "X-Content-Type-Options": {"nosniff"}}, Body: body}, nil
 	}
 	result, err := service.managementOperation(ctx, request)
 	if err != nil {
