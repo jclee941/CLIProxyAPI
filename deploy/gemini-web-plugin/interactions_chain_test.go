@@ -65,3 +65,50 @@ func TestACarriedChainNamesTheVideoAndSurvivesValidation(t *testing.T) {
 		t.Fatalf("carried body grew by %d bytes, want a name rather than the video", len(carried)-len(payload))
 	}
 }
+
+func TestLocateChainedFindsACompletedInteractionOnAnotherAccount(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := localRecordFixture(t)
+	other.Target = recordFixture(t, "b")
+	otherAuth, err := authFromRecord(other.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.Projection = string(otherAuth.StorageJSON)
+	other.Continuations = string(jsonFixture(t, map[string]continuationTurn{
+		continuationKey("previous"): {
+			CallerScope:  "caller-b",
+			State:        "complete",
+			ResultStored: true,
+		},
+	}))
+	if err := service.sessions.write(other); err != nil {
+		t.Fatal(err)
+	}
+	host := &loginHostFixture{
+		records: map[string]json.RawMessage{
+			local.Target.ID: jsonFixture(t, local.Target),
+			other.Target.ID: jsonFixture(t, other.Target),
+		},
+		service: service,
+	}
+	service.host = host.call
+	currentAuth, err := authFromRecord(local.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := executorRequest{
+		StorageJSON:    currentAuth.StorageJSON,
+		HostCallbackID: "fixture-chain",
+	}
+	request.Metadata.CallerScope = "caller-b"
+
+	location, found, err := service.locateChained(request, "previous")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || location.Account != other.Target.TokenRef || location.Key != continuationKey("previous") || location.Caller != "caller-b" {
+		t.Fatalf("location=%+v found=%t, want the other account's completed turn", location, found)
+	}
+}
