@@ -162,7 +162,12 @@ func (service *service) inspectAccount(ctx context.Context, record storageRecord
 	}
 	view.Usage, err = service.usage(ctx, record.TokenRef, token)
 	if err != nil {
-		return failedAccount(view, err)
+		// A usage figure that could not be read says nothing about whether the
+		// account can serve a turn, and failing the whole card over it took six
+		// working accounts out of rotation at once. The dashboard already has a
+		// state for an absent reading, and the scheduler treats an unmeasured
+		// account as full rather than as spent.
+		return view
 	}
 	service.observeQuota(record.ID, view.Usage)
 	return view

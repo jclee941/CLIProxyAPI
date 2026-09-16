@@ -99,7 +99,34 @@ type accountModels struct {
 	ObservedAt    float64      `json:"observed_at"`
 }
 
+// accountModels reports what an account can serve. It asks the web product
+// directly whenever native generation is on, because an account's health had no
+// business depending on a second process: the sidecar answering slowly, or
+// answering an error of its own, turned six working accounts into six unusable
+// ones and the operator was told there was no account at all.
 func (service *service) accountModels(ctx context.Context, reference string, token sessionToken) (accountModels, error) {
+	if service.settings().NativeGeneration {
+		return service.nativeAccountModels(ctx, reference, token)
+	}
+	return service.sidecarAccountModels(ctx, reference, token)
+}
+
+func (service *service) nativeAccountModels(ctx context.Context, reference string, token sessionToken) (accountModels, error) {
+	credential, err := decodeWebCredential(token)
+	if err != nil {
+		return accountModels{}, err
+	}
+	session := service.newSession(credential)
+	service.trackJar(reference, session)
+	defer service.persistJar(reference, session)
+	account, err := session.webCapabilities(ctx)
+	if err != nil {
+		return accountModels{}, err
+	}
+	return accountModels{Available: true, Models: account.Capabilities, ObservedAt: float64(service.now().Unix())}, nil
+}
+
+func (service *service) sidecarAccountModels(ctx context.Context, reference string, token sessionToken) (accountModels, error) {
 	response, err := service.sidecar(ctx, sidecarRequest{Method: "GET", Path: "/v1/account-models", Token: token, Reference: reference})
 	if err != nil {
 		return accountModels{}, err

@@ -22,6 +22,24 @@ func TestInteractionCarriesAReferenceImage(t *testing.T) {
 	}
 }
 
+// A caller that is told only "failed" has nothing to act on, and the plugin
+// already knows why.
+func TestRenderedInteractionCarriesTheFailureReason(t *testing.T) {
+	result, err := renderInteraction("account.json", continuationResult{},
+		continuationView{Token: "t", State: "outcome_unknown", Error: "no_video_generated"})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := string(result.(continuationResult).Payload)
+	if !strings.Contains(payload, `"status":"failed"`) {
+		t.Fatalf("a failed turn was not reported as failed: %s", payload)
+	}
+	if !strings.Contains(payload, "no_video_generated") {
+		t.Fatalf("the reason was dropped on the way out: %s", payload)
+	}
+}
+
 // The omni parser refuses unknown fields, so every spelling a bridge may use has
 // to be named or a reference image dies in validation before it is ever uploaded.
 func TestOmniRequestAcceptsBothInlineSpellings(t *testing.T) {

@@ -252,7 +252,15 @@ func renderInteraction(account string, result continuationResult, view continuat
 	if view.State == "outcome_unknown" {
 		status = "failed"
 	}
-	payload, err := json.Marshal(map[string]any{"id": view.Token, "object": "interaction", "model": interactionOmniModel, "account": account, "status": status, "steps": steps})
+	body := map[string]any{"id": view.Token, "object": "interaction", "model": interactionOmniModel, "account": account, "status": status, "steps": steps}
+	// A failure the plugin can name was being dropped here, so a caller saw only
+	// that the turn failed and had nothing to act on - the same blank answer
+	// whether the product declined the prompt, ran out of daily video, or
+	// returned something unreadable.
+	if view.Error != "" {
+		body["error"] = map[string]string{"code": view.Error, "message": view.Error}
+	}
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
