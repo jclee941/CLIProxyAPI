@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"sync"
@@ -72,6 +73,33 @@ func (leases *credentialLeases) getLocked(reference string) *credentialLease {
 		leases.refs[reference] = lease
 	}
 	return lease
+}
+
+// A generation holds its account for minutes, so a caller that arrives during
+// one is not wrong, it is early. Refusing it the instant the slot is taken is
+// what made six linked accounts answer "no account": every one of them was
+// working. These bound how long a turn waits for a slot, and they are variables
+// so a test does not have to sit through the wait. Credential acquisition is the
+// one place this plugin is allowed to wait on a clock.
+var (
+	credentialWaitAttempts = 45
+	credentialWaitPoll     = 2 * time.Second
+)
+
+// waitForSlot takes the exclusive guard, waiting for a turn already in flight to
+// end rather than reporting the account as unusable.
+func waitForSlot(ctx context.Context, lease *credentialLease) bool {
+	for attempt := 0; attempt < credentialWaitAttempts; attempt++ {
+		if lease.guard.TryLock() {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(credentialWaitPoll):
+		}
+	}
+	return lease.guard.TryLock()
 }
 
 func (service *service) acquireCredential(reference string, exclusive bool) (*credentialLease, error) {

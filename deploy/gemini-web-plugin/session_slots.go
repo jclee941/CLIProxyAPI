@@ -28,10 +28,6 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 		}
 		servable[local.Target.ID] = local.Target.TokenRef
 	}
-	// A generation holds the lease exclusively while a text turn shares it, so a
-	// busy account is still servable for text and must not be handed back to a
-	// scheduler that knows nothing about sessions.
-	shared := model != omniModel && model != interactionOmniModel
 	start := int(slotCursor.Add(1) % uint64(len(candidates)))
 	busy, chosen, best := "", "", -1.0
 	for offset := range candidates {
@@ -67,7 +63,11 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 	if chosen != "" {
 		return continuationPick{AuthID: chosen, Handled: true}
 	}
-	if busy == "" || !shared {
+	// Every account being mid-generation is a queue, not an outage. Returning
+	// nothing here made the host answer "no credential", which reads as an
+	// account problem and sends the operator to re-link six healthy accounts;
+	// handing the busy one back lets the turn wait for the slot it needs.
+	if busy == "" {
 		return continuationPick{}
 	}
 	return continuationPick{AuthID: busy, Handled: true}

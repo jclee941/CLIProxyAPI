@@ -205,7 +205,7 @@ func (service *service) executeContinuation(ctx context.Context, request executo
 	if err != nil {
 		return nil, err
 	}
-	if !lease.guard.TryLock() {
+	if !waitForSlot(ctx, lease) {
 		return nil, failure(409, "session_busy")
 	}
 	defer lease.guard.Unlock()

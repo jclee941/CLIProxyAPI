@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -118,7 +119,34 @@ func TestSchedulerPrefersAnIdleAccountOverABusyOne(t *testing.T) {
 	}
 }
 
-func TestSchedulerRefusesABusyAccountForAGeneration_butSharesItForText(t *testing.T) {
+// A turn waits for a slot rather than being told the account cannot serve it.
+func TestWaitForSlotTakesTheGuardOnceTheTurnAheadEnds(t *testing.T) {
+	lease := &credentialLease{}
+	lease.guard.Lock()
+	taken := make(chan bool, 1)
+	go func() { taken <- waitForSlot(context.Background(), lease) }()
+
+	lease.guard.Unlock()
+
+	if !<-taken {
+		t.Fatal("a turn gave up on a slot that freed")
+	}
+	lease.guard.Unlock()
+}
+
+func TestWaitForSlotStopsWhenTheCallerIsGone(t *testing.T) {
+	lease := &credentialLease{}
+	lease.guard.Lock()
+	defer lease.guard.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if waitForSlot(ctx, lease) {
+		t.Fatal("a cancelled caller still waited for the slot")
+	}
+}
+
+func TestSchedulerQueuesAGenerationBehindABusyAccount_andSharesItForText(t *testing.T) {
 	service, local := continuationFixture(t)
 	busy, err := service.acquireCredential(local.Target.TokenRef, true)
 	if err != nil {
@@ -133,8 +161,11 @@ func TestSchedulerRefusesABusyAccountForAGeneration_butSharesItForText(t *testin
 	generation := service.pickServableAccount(omniModel, candidates)
 	text := service.pickServableAccount(flashModel, candidates)
 
-	if generation.Handled {
-		t.Fatalf("generation queued behind an in-flight one: %+v", generation)
+	// The only account being mid-generation is a queue, not an outage. Refusing
+	// the turn here is what made a fleet of healthy accounts answer that there
+	// was no account at all; it is placed, and waits for the slot instead.
+	if !generation.Handled || generation.AuthID != local.Target.ID {
+		t.Fatalf("generation was refused while the fleet was merely busy: %+v", generation)
 	}
 	if !text.Handled || text.AuthID != local.Target.ID {
 		t.Fatalf("text turn lost a shareable session: %+v", text)
