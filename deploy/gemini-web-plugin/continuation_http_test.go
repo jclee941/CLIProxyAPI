@@ -40,7 +40,6 @@ type continuationWebFixture struct {
 	missingHandles bool
 	replyOnly      bool
 	lateCandidate  bool
-	holdOpen       chan struct{}
 	rotate         bool
 	expired        bool
 	video          bool
@@ -117,18 +116,6 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 				writer.Header().Set("Content-Length", strconv.Itoa(len(raw)+100))
 			}
 			writeFixture(t, writer, raw)
-			// What a real generation looks like while it renders: the receipt is
-			// on the wire and the response never ends. The lock is handed back
-			// first so the poll that follows can be served.
-			if fixture.holdOpen != nil {
-				if flusher, ok := writer.(http.Flusher); ok {
-					flusher.Flush()
-				}
-				hold := fixture.holdOpen
-				fixture.mu.Unlock()
-				<-hold
-				fixture.mu.Lock()
-			}
 		case strings.HasSuffix(request.URL.Path, "/batchexecute"):
 			if request.URL.Query().Get("rpcids") == accountCapabilityRPC {
 				writeFixture(t, writer, rpcEnvelope(t, accountCapabilityRPC, slots(16, map[int]any{14: 1000, 15: []any{slots(18, map[int]any{0: "cap-flash", 11: "3.8 Flash", 17: 1})}})))
@@ -221,18 +208,15 @@ func TestContinuationFollowupUsesSameChatAndAccount(t *testing.T) {
 }
 
 func TestContinuationInterruptedReceiptSurvivesRestartWithoutResubmission(t *testing.T) {
-	// Given a candidate that is still rendering after a durable receipt frame.
+	// Given a truncated HTTP response after a durable receipt frame.
 	service, local := continuationFixture(t)
-	fixture := &continuationWebFixture{pending: true}
+	fixture := &continuationWebFixture{interrupted: true}
 	continuationWeb(t, service, fixture)
 	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
 	pending := continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
-	if pending.State != "pending" || pending.Error != "" {
+	if pending.State != "pending" || pending.Error != "web_response_failed" {
 		t.Fatalf("pending: %+v", pending)
 	}
-	fixture.mu.Lock()
-	fixture.pending = false
-	fixture.mu.Unlock()
 	path := service.sessions.directory.Name()
 	if err := service.sessions.close(); err != nil {
 		t.Fatal(err)

@@ -32,14 +32,9 @@ func recoverCall(t *testing.T, service *service, body string) (recoverView, int)
 
 func TestOperatorRecoveryFinishesAPinnedTurn_whenTheReceiptIsLost(t *testing.T) {
 	service, local := continuationFixture(t)
-	fixture := &continuationWebFixture{video: true}
-	server := continuationWeb(t, service, fixture)
-	candidate := videoCandidate(server.URL+"/video", false).([]any)
-	candidate[0] = "rc_1"
-	fixture.mu.Lock()
-	fixture.candidates = append(fixture.candidates, candidate)
-	fixture.mu.Unlock()
-	pinnedGeneration(t, service, local)
+	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
+	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
+	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
 	pinned, err := service.sessions.read(local.Target.TokenRef)
 	if err != nil || pinned.ContinuationActive == "" {
 		t.Fatalf("fixture did not pin a turn: %v", err)

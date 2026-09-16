@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -205,11 +204,6 @@ type webStreamCut struct {
 
 func (cut *webStreamCut) Unwrap() error { return cut.publicError }
 
-// errReceiptComplete ends the read because of what arrived, not because time
-// passed: the observer returns it once the stream has named the turn. It is not
-// a deadline and not a failure, and the bytes already read are the answer.
-var errReceiptComplete = errors.New("receipt complete")
-
 // Observe each complete generation line before reading the next. A transport
 // interruption after a receipt frame therefore cannot erase its durable handle.
 func readContinuationStream(reader io.Reader, observe func([]byte) error) ([]byte, error) {
@@ -222,12 +216,7 @@ func readContinuationStream(reader io.Reader, observe func([]byte) error) ([]byt
 			return nil, failure(502, "web_response_too_large")
 		}
 		if err := observe(line); err != nil {
-			if !errors.Is(err, errReceiptComplete) {
-				return nil, err
-			}
-			raw.Write(line)
-			raw.WriteByte('\n')
-			return raw.Bytes(), nil
+			return nil, err
 		}
 		raw.Write(line)
 		raw.WriteByte('\n')

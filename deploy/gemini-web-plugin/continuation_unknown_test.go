@@ -39,13 +39,10 @@ func TestContinuationUnknownSubmissionNeverResubmits(t *testing.T) {
 
 func TestContinuationRecoveryRejectsWrongReply(t *testing.T) {
 	service, local := continuationFixture(t)
-	fixture := &continuationWebFixture{pending: true}
+	fixture := &continuationWebFixture{interrupted: true, wrongReply: true}
 	continuationWeb(t, service, fixture)
 	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
 	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
-	fixture.mu.Lock()
-	fixture.wrongReply = true
-	fixture.mu.Unlock()
 	// When the read endpoint supplies another reply in the same conversation.
 	result := continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"recover","token":"`+prepared.Token+`"}}`)
 	// Then no unrelated candidate can be returned as the stored interaction.
