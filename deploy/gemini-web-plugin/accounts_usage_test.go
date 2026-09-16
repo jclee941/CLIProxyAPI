@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -85,5 +86,20 @@ func TestUsageRejectsInvalidMeasurements_whenTierIsNonPRO(t *testing.T) {
 				t.Fatalf("usage = %+v, error = %v; want nil usage and 502 %s", usage, err, testCase.code)
 			}
 		})
+	}
+}
+
+func TestUsageWindowsKeepAStableOrder(t *testing.T) {
+	for _, order := range [][]string{{"weekly", "5h"}, {"5h", "weekly"}} {
+		metrics := make([]usageMetric, 0, len(order))
+		for _, window := range order {
+			metrics = append(metrics, usageMetric{WindowKind: window})
+		}
+		sort.SliceStable(metrics, func(first, second int) bool {
+			return usageWindowRank(metrics[first].WindowKind) < usageWindowRank(metrics[second].WindowKind)
+		})
+		if metrics[0].WindowKind != "5h" || metrics[1].WindowKind != "weekly" {
+			t.Fatalf("upstream order %v leaked to the dashboard: %v", order, metrics)
+		}
 	}
 }

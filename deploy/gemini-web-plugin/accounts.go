@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 )
 
 type accountModelView struct {
@@ -216,5 +217,23 @@ func (service *service) usage(ctx context.Context, reference string, token sessi
 		}
 		result.Metrics = append(result.Metrics, metric.usageMetric)
 	}
+	// Google returns the windows in per-account order, so the dashboard showed
+	// them swapped between cards and between refreshes.
+	sort.SliceStable(result.Metrics, func(first, second int) bool {
+		return usageWindowRank(result.Metrics[first].WindowKind) < usageWindowRank(result.Metrics[second].WindowKind)
+	})
 	return result, nil
+}
+
+func usageWindowRank(window string) int {
+	switch window {
+	case "5h":
+		return 0
+	case "weekly":
+		return 1
+	case "ai_credit":
+		return 2
+	default:
+		return 3
+	}
 }
