@@ -153,9 +153,18 @@ func (service *service) localAuthModels(ctx context.Context, record storageRecor
 	// credential being swapped underneath and published no models at all. What
 	// must not change during the read is which account this is and what state it
 	// is in; a fresher cookie for the same account is the good outcome.
-	if latest.State != local.State || latest.Identity != local.Identity ||
-		latest.ContinuationActive != local.ContinuationActive ||
-		latest.Target.SessionRevision != local.Target.SessionRevision {
+	//
+	// A turn finishing is the one state move that is not a change of state in
+	// that sense: the generation the account was running ended, which is what it
+	// was always going to do. Read as a swap it published no models, so the host
+	// dropped the account from its candidates - and the account it dropped was
+	// the one holding the receipt a caller was retrieving, which came back as
+	// though no account were available at all.
+	finished := local.State == localSubmitting && local.ContinuationActive != "" &&
+		latest.State == localReady && latest.ContinuationActive == ""
+	if latest.Identity != local.Identity ||
+		latest.Target.SessionRevision != local.Target.SessionRevision ||
+		!finished && (latest.State != local.State || latest.ContinuationActive != local.ContinuationActive) {
 		return nil, failure(409, "credential_changed")
 	}
 	if account.AccountSHA256 != "" && account.AccountSHA256 != local.Identity.AccountSHA256 {

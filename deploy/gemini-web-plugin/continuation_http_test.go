@@ -46,6 +46,7 @@ type continuationWebFixture struct {
 	pending        bool
 	wrongReply     bool
 	beforeSubmit   func()
+	duringModels   func()
 }
 
 func continuationWeb(t *testing.T, service *service, fixture *continuationWebFixture) *httptest.Server {
@@ -118,6 +119,12 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 			writeFixture(t, writer, raw)
 		case strings.HasSuffix(request.URL.Path, "/batchexecute"):
 			if request.URL.Query().Get("rpcids") == accountCapabilityRPC {
+				// What a real account does while it is answering this: the turn it
+				// was running finishes, which moves the session out of submitting
+				// and clears the active key.
+				if fixture.duringModels != nil {
+					fixture.duringModels()
+				}
 				writeFixture(t, writer, rpcEnvelope(t, accountCapabilityRPC, slots(16, map[int]any{14: 1000, 15: []any{slots(18, map[int]any{0: "cap-flash", 11: "3.8 Flash", 17: 1})}})))
 				return
 			}
