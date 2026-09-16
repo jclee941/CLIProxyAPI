@@ -9,16 +9,11 @@ import (
 	"strings"
 )
 
-// A follow-up names the interaction it continues, and the conversation that
-// produced that interaction belongs to one account. Continuing it there is the
-// better turn when it is available: the product keeps its own context and
-// nothing is uploaded again. But requiring it serialises a whole chain onto one
-// account's cooldown, and fails outright whenever the scheduler picks another
-// account, which it is free to do.
-//
-// The video is the reference. So when the account now serving is not the one
-// holding it, the video travels with the request instead of the conversation,
-// and any account can answer.
+// A follow-up names the interaction it continues, but the previous video's
+// bytes are the reference the next account needs. Keeping the product
+// conversation pinned to the account that produced it serialises a whole chain
+// onto one cooldown. Carrying the stored video instead lets the scheduler pick
+// any account.
 
 // chainedScheme marks a reference the plugin resolved for itself. A caller
 // cannot supply one: every route that accepts a file reference resolves it as a
@@ -49,10 +44,9 @@ func parseChainedReference(value string) (chainedLocation, bool) {
 	return chainedLocation{Account: fields[0], Key: fields[1], Caller: fields[2]}, true
 }
 
-// locateChained finds the account holding a previous interaction when the
-// account now serving does not hold it. Not holding it is the ordinary case for
-// a chain: the scheduler picks whichever account is free. Reporting false means
-// the serving account has it and the conversation can simply be continued.
+// locateChained finds the account holding a previous interaction. The result is
+// used as an attachment even when the serving account also holds it, so the
+// follow-up never becomes account-pinned conversation state.
 func (service *service) locateChained(request executorRequest, previous string) (chainedLocation, bool, error) {
 	key := continuationKey(previous)
 	caller := request.Metadata.CallerScope
@@ -61,7 +55,7 @@ func (service *service) locateChained(request executorRequest, previous string) 
 		return chainedLocation{}, false, err
 	}
 	if service.holdsInteraction(record.TokenRef, key, caller) {
-		return chainedLocation{}, false, nil
+		return chainedLocation{Account: record.TokenRef, Key: key, Caller: caller}, true, nil
 	}
 	entries, err := service.entries(request.HostCallbackID)
 	if err != nil {

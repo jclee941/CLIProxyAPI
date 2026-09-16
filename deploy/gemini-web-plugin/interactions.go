@@ -130,9 +130,8 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 	native.Model, native.Format, native.SourceFormat = omniModel, "gemini", "gemini"
 	native.Stream = false
 	native.freshContinuation = true
-	// A chain continues the conversation when the account serving it is the one
-	// that holds it, and carries the video as a reference when it is not. Either
-	// way the caller names only the interaction it is continuing.
+	// A previous interaction is a video reference, not an account pin. Resolve
+	// the stored result and carry it into this turn so any account can serve it.
 	previous := body.Previous
 	if previous != "" {
 		location, carried, locateErr := service.locateChained(request, previous)

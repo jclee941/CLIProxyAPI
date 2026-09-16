@@ -50,7 +50,7 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		fixture.mu.Lock()
 		defer fixture.mu.Unlock()
-		if request.URL.Path != "/RotateCookies" && request.URL.Path != "/video" && request.URL.Path != "/v1/account-models" && !strings.HasPrefix(request.URL.Path, "/u/2/") {
+		if request.URL.Path != "/RotateCookies" && request.URL.Path != "/video" && request.URL.Path != "/v1/account-models" && request.URL.Path != "/upload/" && request.URL.Path != "/upload/finalize" && !strings.HasPrefix(request.URL.Path, "/u/2/") {
 			t.Errorf("wrong account prefix: %s", request.URL.Path)
 		}
 		switch {
@@ -137,6 +137,11 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 			writer.WriteHeader(http.StatusOK)
 		case request.URL.Path == "/video":
 			writeFixture(t, writer, "0000ftypvideo")
+		case request.URL.Path == "/upload/":
+			writer.Header().Set("X-Goog-Upload-Url", origin+"/upload/finalize")
+			writer.WriteHeader(http.StatusOK)
+		case request.URL.Path == "/upload/finalize":
+			writeFixture(t, writer, "/uploaded/video")
 		default:
 			t.Errorf("unexpected path: %s", request.URL.Path)
 			writer.WriteHeader(404)
@@ -145,7 +150,7 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 	origin = server.URL
 	service.client = server.Client()
 	service.client.Transport = continuationFixtureTransport{base: service.client.Transport, origin: origin}
-	service.webOriginOverride, service.webRotateOverride = origin, origin
+	service.webOriginOverride, service.webUploadOverride, service.webRotateOverride = origin, origin, origin
 	t.Cleanup(server.Close)
 	return server
 }

@@ -28,10 +28,10 @@ func TestInteractionsFollowupSurvivesStoreReopen(t *testing.T) {
 	})
 	// When official previous_interaction_id is reused after durable-store recovery.
 	interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"next","previous_interaction_id":"`+first+`"}`))
-	// Then the original upstream conversation remains the parent.
+	// Then the previous video's reference is uploaded into the new turn.
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
-	if len(fixture.fields) != 2 || jsonField(fixture.fields[1][2], 0) != "c_chat" || jsonField(fixture.fields[1][2], 1) != "r_1" {
+	if len(fixture.fields) != 2 || jsonField(fixture.fields[1], 0, 3, 0, 0, 0) != "/uploaded/video" || jsonField(fixture.fields[1], 0, 3, 0, 0, 3) != "video/mp4" {
 		t.Fatalf("restart metadata: %#v", fixture.fields)
 	}
 }
