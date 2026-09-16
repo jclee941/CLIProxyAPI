@@ -66,6 +66,38 @@ func TestSchedulerSpreadsAcrossIdleAccounts(t *testing.T) {
 	}
 }
 
+// Two candidates only show that the rotation moves at all. The fleet is six, and
+// a cursor that drifts onto a subset is invisible at two and plain here: with
+// every account idle and equally fresh, each one has to take an equal share.
+func TestSchedulerWalksTheWholeFleetEvenly(t *testing.T) {
+	service, local := continuationFixture(t)
+	ids := []string{local.Target.ID}
+	for _, seed := range []string{"b", "c", "d", "e", "f"} {
+		record := recordFixture(t, seed)
+		seedSession(t, service, record, sessionToken{encodedToken("seed-" + seed)})
+		ids = append(ids, record.ID)
+	}
+	candidates := slotCandidates(ids...)
+	chosen := map[string]int{}
+
+	for round := range len(ids) * 3 {
+		pick := service.pickServableAccount(flashModel, candidates)
+		if !pick.Handled {
+			t.Fatalf("round %d was not placed", round)
+		}
+		chosen[pick.AuthID]++
+	}
+
+	if len(chosen) != len(ids) {
+		t.Fatalf("rotation reached %d of %d accounts: %+v", len(chosen), len(ids), chosen)
+	}
+	for id, count := range chosen {
+		if count != 3 {
+			t.Fatalf("%s took %d turns of %d, want an even 3: %+v", id, count, len(ids)*3, chosen)
+		}
+	}
+}
+
 func TestSchedulerPrefersAnIdleAccountOverABusyOne(t *testing.T) {
 	service, local := continuationFixture(t)
 	other := recordFixture(t, "b")

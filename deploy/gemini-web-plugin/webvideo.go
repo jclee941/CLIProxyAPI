@@ -58,15 +58,20 @@ func webVideoFields(prompt string, mode int, conversationID string, framing omni
 	return fields
 }
 
-// webReferenceDeclaration names an attached video as the source the turn works
-// from, which the video tool requires before it will look at one at all: an
-// undeclared video is uploaded, accepted and then ignored, and the generation
-// answers no_video_generated. Sending a video means "work from this video", so
-// it is declared as the source to edit and extend rather than as a likeness to
-// borrow. An image needs nothing, because the tool already takes one as the
-// starting frame, and a caller who wrote their own declaration is left alone.
-// Only the first video is named; the docs state that referencing across several
-// videos is unsupported.
+// webReferenceDeclaration names an attached video, which the video tool requires
+// before it will look at one at all: an undeclared video is uploaded, accepted
+// and then ignored, and the generation answers no_video_generated. An image
+// needs nothing, because the tool already takes one as the starting frame, and a
+// caller who wrote their own declaration is left alone. Only the first video is
+// named; the docs state that referencing across several videos is unsupported.
+//
+// It is declared as a reference rather than an edit source. Naming it as the
+// source is the truer reading of "here is a video, work from it", and it is what
+// the prompt guide documents, but the web product does not appear to edit an
+// uploaded video: a source-declared turn was accepted, started nothing that the
+// web UI could show, and burned the full ten minute budget before failing.
+// Reference-declared turns produced a video every time. This follows what the
+// product does rather than what the document says it should.
 func webReferenceDeclaration(prompt string, attachments []webAttachment) string {
 	for _, attachment := range attachments {
 		if !strings.HasPrefix(attachment.MIMEType, "video/") {
@@ -75,8 +80,8 @@ func webReferenceDeclaration(prompt string, attachments []webAttachment) string 
 		if strings.Contains(prompt, "<VIDEO_") || strings.Contains(prompt, "[# Sources") || strings.Contains(prompt, "[# References") {
 			return prompt
 		}
-		return "[# Sources <VIDEO_0>@Video1] " + prompt +
-			"\n\nUse Video1 as the source video to continue from."
+		return "[# References <VIDEO_REF_0>@Video1] " + prompt +
+			"\n\nUse the given video as a reference for the video generation."
 	}
 	return prompt
 }

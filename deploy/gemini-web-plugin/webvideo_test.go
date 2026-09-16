@@ -12,8 +12,8 @@ func TestVideoAttachmentIsDeclaredAsAReference(t *testing.T) {
 
 	declared := webReferenceDeclaration("a dog runs", video)
 
-	if !strings.Contains(declared, "[# Sources <VIDEO_0>@Video1]") || !strings.Contains(declared, "a dog runs") {
-		t.Fatalf("the video was not declared as the source: %q", declared)
+	if !strings.Contains(declared, "[# References <VIDEO_REF_0>@Video1]") || !strings.Contains(declared, "a dog runs") {
+		t.Fatalf("the video was not declared as a reference: %q", declared)
 	}
 	if image := webReferenceDeclaration("a dog runs", []webAttachment{{MIMEType: "image/png"}}); image != "a dog runs" {
 		t.Fatalf("an image prompt was rewritten: %q", image)
