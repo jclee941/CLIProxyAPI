@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestInteractionCompletedGETReplaysEncryptedResultAfterRestartWithoutNetwork(t *testing.T) {
@@ -88,11 +90,18 @@ func TestInteractionGETPreparedReceiptNeverSubmits(t *testing.T) {
 }
 
 func TestInteractionGETRecoversInterruptedVideoWithoutResubmit(t *testing.T) {
-	// Given an upstream transport interrupted after the chat handles were persisted.
+	// Given a video that is still rendering after the chat handles were persisted.
 	service, local := continuationFixture(t)
-	fixture := &continuationWebFixture{video: true, interrupted: true}
+	fixture := &continuationWebFixture{video: true, pending: true}
 	continuationWeb(t, service, fixture)
 	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+	now := service.now()
+	service.now = func() time.Time { return now }
+	service.continuationWait = func(context.Context) error {
+		// Exhaust the POST's wait budget while the candidate is still pending.
+		now = now.Add(webVideoBudget)
+		return nil
+	}
 	response := interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`)
 	if !response.OK {
 		t.Fatal(response.Error)
@@ -108,6 +117,9 @@ func TestInteractionGETRecoversInterruptedVideoWithoutResubmit(t *testing.T) {
 	if pending.Status != "in_progress" {
 		t.Fatalf("pending: %s", encoded.Payload)
 	}
+	fixture.mu.Lock()
+	fixture.pending = false
+	fixture.mu.Unlock()
 	get := interactionExecutorRequest(t, local, `{"model":"gemini-omni-1.1-flash","id":"`+pending.ID+`"}`)
 	get.Alt = interactionRetrieveAlt
 	// When the public retrieval operation observes the existing candidate.

@@ -38,7 +38,7 @@ func TestInteractionsFollowupSurvivesStoreReopen(t *testing.T) {
 
 func TestContinuationInterruptedSubmissionReplayOnlyReads(t *testing.T) {
 	service, local := continuationFixture(t)
-	fixture := &continuationWebFixture{interrupted: true}
+	fixture := &continuationWebFixture{pending: true}
 	continuationWeb(t, service, fixture)
 	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
 	submitted := submitContinuationBody(prepared.Token, "first")
@@ -46,6 +46,9 @@ func TestContinuationInterruptedSubmissionReplayOnlyReads(t *testing.T) {
 	if pending.State != "pending" {
 		t.Fatalf("initial state: %+v", pending)
 	}
+	fixture.mu.Lock()
+	fixture.pending = false
+	fixture.mu.Unlock()
 	// When the same stored submission receipt is replayed internally.
 	recovered := continuationReceipt(t, continuationCall(t, service, local, submitted))
 	// Then it retrieves the original result rather than creating another turn.

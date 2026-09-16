@@ -175,9 +175,7 @@ func TestSchedulerQueuesAGenerationBehindABusyAccount_andSharesItForText(t *test
 func TestAccountListingReportsAGenerationInsteadOfAnOperatorError(t *testing.T) {
 	service, local := continuationFixture(t)
 	service.startedAt = 0
-	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
-	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
-	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+	pinnedGeneration(t, service, local)
 
 	activity := service.runningTurn(local.Target)
 
@@ -196,9 +194,7 @@ func TestAccountListingReportsNoActivity_whenTheSessionIsIdle(t *testing.T) {
 
 func TestBusySessionStillReportsModelsAndUsage_whileGenerating(t *testing.T) {
 	service, local := continuationFixture(t)
-	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
-	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
-	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+	pinnedGeneration(t, service, local)
 
 	token, err := service.busySessionToken(local.Target)
 

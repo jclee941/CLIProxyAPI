@@ -12,9 +12,8 @@ import (
 func TestContinuationPendingAccountRemainsRoutableAfterRestart(t *testing.T) {
 	// Given a restarted account with a durable continuation submission intent.
 	service, local := continuationFixture(t)
-	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
-	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
-	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+	continuationWeb(t, service, &continuationWebFixture{})
+	pinnedGeneration(t, service, local)
 	service.leases.get(local.Target.TokenRef).set(credentialState{state: maintenanceOperator})
 	// When the host discovers models before routing a recovery request.
 	result := invoke(t, service, "model.for_auth", struct {
@@ -73,9 +72,7 @@ func TestNamedTurnWithoutCandidateDefersAccountRelease(t *testing.T) {
 
 func TestContinuationDoesNotReleaseIntentFromAccountListing(t *testing.T) {
 	service, local := continuationFixture(t)
-	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
-	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
-	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+	pinnedGeneration(t, service, local)
 	// When credential-only recovery attempts to release a generation intent.
 	_, _, err := service.releaseInterruptedSession(context.Background(), local.Target, true)
 	// Then generation recovery, not a valid login, is required to release it.
@@ -198,9 +195,8 @@ func TestAccountListingEndsATurnRecoveryCanNeverObserve(t *testing.T) {
 // can only confirm the same thing. This is what a restart used to leave behind.
 func TestAccountListingEndsATurnPastTheGenerationBudget(t *testing.T) {
 	service, local := continuationFixture(t)
-	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
-	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
-	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+	continuationWeb(t, service, &continuationWebFixture{})
+	pinnedGeneration(t, service, local)
 	submitted := service.now()
 	service.now = func() time.Time { return submitted.Add(webVideoBudget + time.Minute) }
 
@@ -220,9 +216,8 @@ func TestAccountListingEndsATurnPastTheGenerationBudget(t *testing.T) {
 
 func TestOperatorDefersToRecoveryWhileTheTurnRemainsObservable(t *testing.T) {
 	service, local := continuationFixture(t)
-	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
-	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
-	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+	continuationWeb(t, service, &continuationWebFixture{})
+	pinnedGeneration(t, service, local)
 	// When an operator tries to end a submission upstream still holds an operation for.
 	_, _, err := service.releaseInterruptedSession(context.Background(), local.Target, false)
 	// Then generation recovery, not operator consent, must answer for it.
@@ -274,10 +269,9 @@ func TestContinuationReceiptRejectsDifferentAccount(t *testing.T) {
 
 func TestOperatorEndsAPinWhoseCredentialIsDefinitivelyRejected(t *testing.T) {
 	service, local := continuationFixture(t)
-	fixture := &continuationWebFixture{interrupted: true}
+	fixture := &continuationWebFixture{}
 	continuationWeb(t, service, fixture)
-	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
-	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+	pinnedGeneration(t, service, local)
 	// The credential behind the pinned turn is now rejected, so recovery can
 	// never read that turn again.
 	fixture.mu.Lock()

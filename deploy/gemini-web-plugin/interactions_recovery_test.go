@@ -60,9 +60,16 @@ func TestATurnNamedWithoutItsVideoIsRecoveredNotDiscarded(t *testing.T) {
 
 func TestInterruptedNamedTurnWithoutCandidateRecoversThroughGET(t *testing.T) {
 	service, local := continuationFixture(t)
-	fixture := &continuationWebFixture{video: true, lateCandidate: true, interrupted: true}
+	fixture := &continuationWebFixture{video: true, lateCandidate: true, pending: true}
 	continuationWeb(t, service, fixture)
 	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+	now := service.now()
+	service.now = func() time.Time { return now }
+	service.continuationWait = func(context.Context) error {
+		// Exhaust the POST's wait budget while the candidate is still pending.
+		now = now.Add(webVideoBudget)
+		return nil
+	}
 	result := interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`)
 	if !result.OK {
 		t.Fatal(result.Error)
@@ -93,6 +100,9 @@ func TestInterruptedNamedTurnWithoutCandidateRecoversThroughGET(t *testing.T) {
 	if turn.Conversation == "" || turn.Reply == "" || turn.Candidate != "" {
 		t.Fatalf("unexpected stored receipt: %+v", turn)
 	}
+	fixture.mu.Lock()
+	fixture.pending = false
+	fixture.mu.Unlock()
 	get := interactionExecutorRequest(t, local, `{"model":"gemini-omni-1.1-flash","id":"`+pending.ID+`"}`)
 	get.Alt = interactionRetrieveAlt
 	recovered := interactionID(t, invoke(t, service, "executor.execute", get))

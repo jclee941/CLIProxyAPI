@@ -190,7 +190,17 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			}
 			turn = updated
 			execution.turns[execution.key] = turn
-			return service.saveContinuations(execution.local, execution.turns)
+			if err := service.saveContinuations(execution.local, execution.turns); err != nil {
+				return err
+			}
+			// Named, so the turns RPC can reach this turn without the stream. What
+			// is left on it is a connection the far end ends on its own schedule,
+			// and waiting out that schedule is what spent ten minutes on turns that
+			// were already recoverable.
+			if turn.Conversation != "" && turn.Reply != "" {
+				return errReceiptComplete
+			}
+			return nil
 		}
 		_, submitErr := session.postGeneration(ctx, string(encoded), account, model)
 		session.generationFrame = nil
