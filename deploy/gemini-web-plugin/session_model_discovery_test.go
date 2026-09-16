@@ -64,7 +64,7 @@ func TestLocalModelsUseCommittedRevision_whenHostSaveMarkerClosedBeforeWriterRel
 				if err := json.Unmarshal(result.Result, &models); err != nil {
 					return err
 				}
-				if len(models.Models) != 2 || models.Models[0].ID != flashModel {
+				if len(models.Models) != 1 || models.Models[0].ID != interactionOmniModel {
 					t.Error("discovery did not return fresh supported models")
 				}
 				return nil

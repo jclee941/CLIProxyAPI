@@ -280,7 +280,7 @@ func (service *service) authOperation(ctx context.Context, method string, raw []
 		return struct {
 			Provider string
 			Models   []modelInfo
-		}{provider, verifiedModels(account)}, nil
+		}{provider, service.interactionModels(account)}, nil
 	case "auth.refresh":
 		auth, err := authFromRecord(record)
 		return struct {

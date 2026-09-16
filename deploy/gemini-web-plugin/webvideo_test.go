@@ -1,8 +1,31 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
+
+// An attached video is uploaded, accepted and then ignored unless the prompt
+// declares it as a reference, which the generation reports as no_video_generated.
+func TestVideoAttachmentIsDeclaredAsAReference(t *testing.T) {
+	video := []webAttachment{{MIMEType: "video/mp4"}}
+
+	declared := webReferenceDeclaration("a dog runs", video)
+
+	if !strings.Contains(declared, "[# References <VIDEO_REF_0>@Video1]") || !strings.Contains(declared, "a dog runs") {
+		t.Fatalf("the video was not declared: %q", declared)
+	}
+	if image := webReferenceDeclaration("a dog runs", []webAttachment{{MIMEType: "image/png"}}); image != "a dog runs" {
+		t.Fatalf("an image prompt was rewritten: %q", image)
+	}
+	own := "[# References <VIDEO_REF_0>@Video1] the dog in <VIDEO_REF_0> runs"
+	if again := webReferenceDeclaration(own, video); again != own {
+		t.Fatalf("a caller's own declaration was doubled: %q", again)
+	}
+	if none := webReferenceDeclaration("a dog runs", nil); none != "a dog runs" {
+		t.Fatalf("a prompt with no attachment was rewritten: %q", none)
+	}
+}
 
 // The video submission is the text one with a fixed set of overrides; those
 // slots are what makes the turn produce a video at all.

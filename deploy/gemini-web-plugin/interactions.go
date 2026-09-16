@@ -64,7 +64,7 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 			switch part.Type {
 			case "text":
 				texts = append(texts, part.Text)
-			case "image":
+			case "image", "video":
 				// A uri names either a Drive file, which is fetched, or a Files
 				// entry, which has no API on this path to resolve it against.
 				if part.URI != "" {

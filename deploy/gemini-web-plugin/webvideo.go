@@ -40,6 +40,7 @@ const webVideoChipMarker = "googleusercontent.com/video_gen_chip/"
 // and they have to move together - a portrait orientation under a landscape chip
 // leaves the upstream holding the stream open until the budget runs out.
 func webVideoFields(prompt string, mode int, conversationID string, framing omniFraming, attachments []webAttachment) []any {
+	prompt = webReferenceDeclaration(prompt, attachments)
 	fields := webGenerationFields(prompt, mode, 0, conversationID, attachments)
 	fields[0] = []any{prompt, 0, nil, webAttachmentSlot(attachments), nil, nil, 0, nil, nil,
 		[]any{nil, nil, nil, nil, nil, nil, []any{[]any{nil, nil, nil, framing.orientation}}}}
@@ -55,6 +56,31 @@ func webVideoFields(prompt string, mode int, conversationID string, framing omni
 	fields[96] = 0
 	fields[98] = 1
 	return fields
+}
+
+// webReferenceDeclaration states that an attached video is a reference, which the
+// video tool requires before it will look at one. Without the declaration the
+// upload is accepted and then ignored, and the generation answers
+// no_video_generated - measured, and measured fixed by exactly this text. An
+// image needs nothing, because the tool already takes an image as the starting
+// frame, and a caller who wrote their own declaration is left alone.
+func webReferenceDeclaration(prompt string, attachments []webAttachment) string {
+	videos := 0
+	for _, attachment := range attachments {
+		if strings.HasPrefix(attachment.MIMEType, "video/") {
+			videos++
+		}
+	}
+	if videos == 0 || strings.Contains(prompt, "<VIDEO_REF_") || strings.Contains(prompt, "[# References") || strings.Contains(prompt, "[# Sources") {
+		return prompt
+	}
+	references := make([]string, 0, videos)
+	for index := range videos {
+		position := strconv.Itoa(index)
+		references = append(references, "<VIDEO_REF_"+position+">@Video"+strconv.Itoa(index+1))
+	}
+	return "[# References " + strings.Join(references, " ") + "] " + prompt +
+		"\n\nUse the given video(s) as references for the video generation."
 }
 
 // webJSPBField reads an index that the encoder may have moved into a trailing

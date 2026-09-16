@@ -185,7 +185,7 @@ func TestLoginHandoffSavesAndExecutesWithoutVault_whenIdentityVerified(t *testin
 
 	view := completeFixture(t, service, started)
 
-	if view.Status != loginReady || !view.ModelsReady || host.saves != 1 || host.models != 2 {
+	if view.Status != loginReady || !view.ModelsReady || host.saves != 1 || host.models != 1 {
 		t.Fatalf("handoff status=%s saves=%d models=%d", view.Status, host.saves, host.models)
 	}
 	record, err := service.parseStorage(host.records[view.AccountID], true)

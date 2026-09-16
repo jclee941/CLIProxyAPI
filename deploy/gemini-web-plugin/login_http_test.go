@@ -95,7 +95,7 @@ func TestLoginHTTPPortalSurface_whenAuthenticatedHandoffCompletes(t *testing.T) 
 
 	ready, status := post("complete", "https://manager.example", "Bearer fixture-management", body)
 
-	if status != 200 || ready.Status != loginReady || !ready.ModelsReady || host.models != 2 {
+	if status != 200 || ready.Status != loginReady || !ready.ModelsReady || host.models != 1 {
 		t.Fatalf("HTTP handoff status=%d flow=%s models=%d", status, ready.Status, host.models)
 	}
 	for _, operation := range []string{"status", "cancel", "reconcile"} {

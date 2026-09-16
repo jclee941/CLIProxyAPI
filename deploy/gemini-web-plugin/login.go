@@ -236,10 +236,10 @@ func (service *service) loginStatus(ctx context.Context, callbackID string, flow
 		view.Error = safeCredentialCode(err)
 		return view, nil
 	}
-	for _, model := range models {
-		if enabled && model.ID == flashModel {
-			view.Status, view.ModelsReady = loginReady, true
-		}
+	// Readiness is that the account publishes something a caller may name, not
+	// that it publishes one particular model.
+	if enabled && len(models) > 0 {
+		view.Status, view.ModelsReady = loginReady, true
 	}
 	return view, nil
 }

@@ -42,6 +42,13 @@ type continuationView struct {
 	Error string `json:"error,omitempty"`
 }
 
+// continuationRequestLimit bounds the submitted body. It used to be sized for a
+// prompt, which was right until an attachment could travel inline beside one:
+// the base64 of even a short video is many times that, so a text-sized bound
+// rejected the turn before anything could look at it. The generation request
+// this body becomes is bounded again at the same size by omniRequest.
+const continuationRequestLimit = 5 * 1024 * 1024
+
 func continuationRequest(raw []byte) (continuationControl, []byte, bool, error) {
 	var body map[string]json.RawMessage
 	if json.Unmarshal(raw, &body) != nil {
@@ -52,7 +59,7 @@ func continuationRequest(raw []byte) (continuationControl, []byte, bool, error) 
 		return continuationControl{}, nil, false, nil
 	}
 	var control continuationControl
-	if len(raw) > 40*1024 || strictJSON(encoded, &control) != nil {
+	if len(raw) > continuationRequestLimit || strictJSON(encoded, &control) != nil {
 		return control, nil, true, failure(400, "invalid_continuation_request")
 	}
 	switch control.Action {

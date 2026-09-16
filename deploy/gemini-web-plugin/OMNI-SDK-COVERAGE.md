@@ -15,7 +15,7 @@ request it cannot honour.
 | Several references | repeated image blocks | live | two attachments returned in the order sent |
 | Document | `inlineData` pdf / txt / csv / md | live | read by the model, not just carried |
 | Uploaded reference | `[{type:image,uri}]` | unexpressible | names a Files entry; no Files API on this path |
-| Video input | `inlineData` mp4 / webm | live | see below: the web session reads a video the SDK would only take by uri |
+| Video input | `[{type:video,data}]` or `{type:video,uri}` | live | inline bytes or a Drive file; the SDK takes video only through Files |
 | Audio input | - | not in the SDK | the docs list uploading audio references as unsupported |
 
 The SDK accepts video input only as `{"type":"video","uri":...}`, resolved through

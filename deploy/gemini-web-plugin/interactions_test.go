@@ -38,6 +38,34 @@ func TestOmniRequestAcceptsBothInlineSpellings(t *testing.T) {
 	}
 }
 
+// The web session reads video as readily as it reads an image, and the upload
+// path already carries it, so the input block the SDK defines for video is
+// accepted on the same terms: inline bytes, or a Drive file to fetch.
+func TestInteractionCarriesAVideoReference(t *testing.T) {
+	for name, part := range map[string]string{
+		"inline": `{"type":"video","data":"AAAA","mime_type":"video/mp4"}`,
+		"drive":  `{"type":"video","uri":"https://drive.google.com/file/d/1A2B3C4D5E6F7G8H/view"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, payload, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"extend this"},` + part + `]}`))
+
+			if err != nil {
+				t.Fatalf("a %s video reference was refused: %v", name, err)
+			}
+			if !strings.Contains(string(payload), "extend this") {
+				t.Fatalf("the prompt was lost beside the video: %s", payload)
+			}
+			carrier := `"inlineData"`
+			if name == "drive" {
+				carrier = `"fileData"`
+			}
+			if !strings.Contains(string(payload), carrier) {
+				t.Fatalf("the %s video never reached the payload as %s: %s", name, carrier, payload)
+			}
+		})
+	}
+}
+
 // A uri reference names a Files entry, and there is no Files API on the web
 // path to resolve it, so it has to be refused rather than silently dropped.
 func TestInteractionRefusesAnUploadedReference(t *testing.T) {
