@@ -35,6 +35,7 @@ type continuationWebFixture struct {
 	candidates     []any
 	interrupted    bool
 	missingHandles bool
+	replyOnly      bool
 	rotate         bool
 	expired        bool
 	video          bool
@@ -95,6 +96,11 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 			frame := slots(26, map[int]any{1: []any{"c_chat", fmt.Sprintf("r_%d", n)}, 4: []any{candidate}, 25: fmt.Sprintf("context_%d", n)})
 			if fixture.missingHandles {
 				frame[1] = nil
+			}
+			// What the product sends when it answers a turn and starts nothing:
+			// a reply of its own, no conversation to continue, no candidate.
+			if fixture.replyOnly {
+				frame[1], frame[4] = []any{nil, fmt.Sprintf("r_%d", n)}, nil
 			}
 			raw := string(jsonFixture(t, []any{[]any{"wrb.fr", nil, string(jsonFixture(t, frame))}})) + "\n"
 			if fixture.interrupted {

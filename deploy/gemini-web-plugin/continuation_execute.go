@@ -19,6 +19,36 @@ type continuationExecution struct {
 	lease   *credentialLease
 }
 
+// releaseAfter ends a turn its account can do nothing more for and puts that
+// account back in rotation. Every definitive answer needs it, and a turn left
+// pinned to an account is how a fleet of healthy accounts comes to have none to
+// serve with.
+func (service *service) releaseAfter(execution continuationExecution, turn continuationTurn, state string) error {
+	turn.State = state
+	execution.turns[execution.key] = turn
+	if execution.local.ContinuationActive == execution.key {
+		execution.local.State, execution.local.ContinuationActive = localReady, ""
+	}
+	if err := service.saveContinuations(execution.local, execution.turns); err != nil {
+		return err
+	}
+	execution.lease.set(credentialState{state: maintenanceReady})
+	return nil
+}
+
+// unnamedOutcome decides what a submission that named no operation actually
+// means. A reply named without a conversation is the product answering the turn
+// and declining to start a video on it, which is the refusal a candidate
+// carrying no video already reports; told only that the outcome is unknown, a
+// caller has no reason to wait before asking again, and every retry meets the
+// same wall. Anything less than a reply is an outcome nobody can observe.
+func unnamedOutcome(turn continuationTurn) (string, error) {
+	if turn.Reply != "" && turn.Model == omniModel {
+		return "no_video", failure(422, "no_video_generated")
+	}
+	return "no_operation", nil
+}
+
 func (service *service) runContinuation(ctx context.Context, execution continuationExecution) (interface{}, error) {
 	turn := execution.turn
 	view := continuationView{Token: execution.control.Token, State: turn.State}
@@ -173,22 +203,31 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 				// out of rotation for ten minutes on a turn already known to be
 				// unobservable, which is how a healthy fleet runs out of accounts.
 				view.State = "outcome_unknown"
-				turn.State = "no_operation"
 				service.reportUnnamed(view.Error, turn, lines, shapes)
-				execution.turns[execution.key] = turn
-				if execution.local.ContinuationActive == execution.key {
-					execution.local.State, execution.local.ContinuationActive = localReady, ""
+				if releaseErr := service.releaseAfter(execution, turn, "no_operation"); releaseErr != nil {
+					return nil, releaseErr
 				}
-				if saveErr := service.saveContinuations(execution.local, execution.turns); saveErr != nil {
-					return nil, saveErr
-				}
-				execution.lease.set(credentialState{state: maintenanceReady})
 			}
 			return continuationResponse(turn.Model, view, nil)
 		}
 	}
 	if turn.Conversation == "" || turn.Reply == "" || turn.Candidate == "" {
 		service.reportUnnamed("missing_upstream_operation", turn, lines, shapes)
+		// A reply means the product answered, so there is no submission still in
+		// flight to protect, and without a conversation there is nothing any
+		// recovery can ask about either: the turn ends here instead of holding
+		// its account until the generation budget expires. A submission that
+		// named nothing at all keeps its intent, because that pin is the only
+		// thing standing between an unknown outcome and a second submission.
+		if turn.Conversation == "" && turn.Reply != "" {
+			state, refusal := unnamedOutcome(turn)
+			if releaseErr := service.releaseAfter(execution, turn, state); releaseErr != nil {
+				return nil, releaseErr
+			}
+			if refusal != nil {
+				return nil, refusal
+			}
+		}
 		return continuationResponse(turn.Model, continuationView{Token: view.Token, State: "outcome_unknown", Error: "missing_upstream_operation"}, nil)
 	}
 	// One observation per request: recovery never calls StreamGenerate and never
@@ -209,17 +248,9 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			// never complete. Releasing the durable intent here is what keeps the
 			// account usable: the operator route defers to recovery, and recovery
 			// would otherwise return this same answer forever on a pinned session.
-			turn.State = "no_video"
-			execution.turns[execution.key] = turn
-			if execution.local.ContinuationActive == execution.key {
-				execution.local.State, execution.local.ContinuationActive = localReady, ""
+			if releaseErr := service.releaseAfter(execution, turn, "no_video"); releaseErr != nil {
+				return nil, releaseErr
 			}
-			if saveErr := service.saveContinuations(execution.local, execution.turns); saveErr != nil {
-				return nil, saveErr
-			}
-			// The credential answered definitively; only this turn failed, so the
-			// lease must leave the operator state with the session it was pinned to.
-			execution.lease.set(credentialState{state: maintenanceReady})
 			return nil, err
 		}
 		if !state.Ready {

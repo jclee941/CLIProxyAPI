@@ -50,6 +50,59 @@ func TestContinuationDoesNotReleaseIntentFromAccountListing(t *testing.T) {
 	}
 }
 
+// A reply named without a conversation is the product answering the turn and
+// declining to start a video on it. Reported as an outcome nobody observed, a
+// caller has no reason to wait before asking again and every retry meets the
+// same wall, so a video turn has to carry the refusal the product actually gave.
+func TestAReplyWithoutAConversationReadsAsTheRefusalItIs(t *testing.T) {
+	for _, scenario := range []struct {
+		name  string
+		turn  continuationTurn
+		state string
+		code  string
+	}{
+		{"a video turn the product declined", continuationTurn{Model: omniModel, Reply: "r_turn"}, "no_video", "no_video_generated"},
+		{"a video turn that named nothing at all", continuationTurn{Model: omniModel}, "no_operation", ""},
+		{"a text turn keeps its own wording", continuationTurn{Model: flashModel, Reply: "r_turn"}, "no_operation", ""},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			state, refusal := unnamedOutcome(scenario.turn)
+
+			if state != scenario.state {
+				t.Fatalf("state = %q, want %q", state, scenario.state)
+			}
+			if scenario.code == "" {
+				if refusal != nil {
+					t.Fatalf("refusal = %v, want the turn left unobserved", refusal)
+				}
+				return
+			}
+			if safeCredentialCode(refusal) != scenario.code {
+				t.Fatalf("refusal = %q, want %q", safeCredentialCode(refusal), scenario.code)
+			}
+		})
+	}
+}
+
+// The account a declined turn ran on has to go back into rotation: nothing can
+// be recovered without a conversation, so holding it until the generation budget
+// expires only takes a working account out of service over an answer already in.
+func TestADeclinedSubmissionReleasesItsAccount(t *testing.T) {
+	service, local := continuationFixture(t)
+	continuationWeb(t, service, &continuationWebFixture{replyOnly: true})
+	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
+
+	continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first"))
+
+	stored, err := service.sessions.read(local.Target.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != localReady || stored.ContinuationActive != "" {
+		t.Fatalf("account still pinned: state=%s active=%s", stored.State, stored.ContinuationActive)
+	}
+}
+
 // A submit whose stream dies before it names an operation leaves nothing for
 // recovery to find. Holding the account until the generation budget expires only
 // takes a working account out of rotation for ten minutes over a turn already
