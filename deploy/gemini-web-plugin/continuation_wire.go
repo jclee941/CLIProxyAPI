@@ -116,6 +116,17 @@ func continuationCandidate(turn continuationTurn, body any) (any, error) {
 	return nil, failure(502, "continuation_operation_mismatch")
 }
 
+// webStreamCut says a generation stream ended before its body did. The public
+// code stays what every caller already handles; the cause and the bytes that did
+// arrive ride along, because naming the side that cut the stream needs both.
+type webStreamCut struct {
+	*publicError
+	Cause     error
+	Delivered []byte
+}
+
+func (cut *webStreamCut) Unwrap() error { return cut.publicError }
+
 // Observe each complete generation line before reading the next. A transport
 // interruption after a receipt frame therefore cannot erase its durable handle.
 func readContinuationStream(reader io.Reader, observe func([]byte) error) ([]byte, error) {
@@ -134,7 +145,7 @@ func readContinuationStream(reader io.Reader, observe func([]byte) error) ([]byt
 		raw.WriteByte('\n')
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, failure(502, "web_response_failed")
+		return nil, &webStreamCut{publicError: failure(502, "web_response_failed"), Cause: err, Delivered: raw.Bytes()}
 	}
 	return raw.Bytes(), nil
 }

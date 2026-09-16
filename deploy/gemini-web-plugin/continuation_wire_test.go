@@ -2,9 +2,36 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
+
+// A cut stream has to keep reading as the same failure every caller already
+// handles, and has to keep what did arrive: the count of delivered frames is
+// what separates a turn recovery can still find from one that was never named.
+func TestACutStreamKeepsItsPublicCodeAndWhatArrived(t *testing.T) {
+	delivered := `[["di",1]]` + "\n"
+	reader := io.MultiReader(strings.NewReader(delivered), iotest.ErrReader(io.ErrUnexpectedEOF))
+
+	_, err := readContinuationStream(reader, func([]byte) error { return nil })
+
+	if safeCredentialCode(err) != "web_response_failed" {
+		t.Fatalf("code = %q, want the failure callers already handle", safeCredentialCode(err))
+	}
+	var cut *webStreamCut
+	if !errors.As(err, &cut) {
+		t.Fatalf("cut detail lost: %v", err)
+	}
+	if string(cut.Delivered) != delivered {
+		t.Fatalf("delivered = %q, want the bytes that arrived before the cut", cut.Delivered)
+	}
+	if !errors.Is(cut.Cause, io.ErrUnexpectedEOF) {
+		t.Fatalf("cause = %v, want the transport error that ended the stream", cut.Cause)
+	}
+}
 
 func TestContinuationObserverIgnoresNonPayloadFrames(t *testing.T) {
 	// Given Google's stream bookkeeping alongside a receipt payload.

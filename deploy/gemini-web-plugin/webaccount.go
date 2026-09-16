@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -16,9 +19,8 @@ import (
 	"unicode/utf16"
 )
 
-// This file speaks the Gemini web account protocol directly, so capability
-// discovery no longer has to be delegated to the sidecar. It covers discovery
-// only: generation still goes through the sidecar.
+// This file speaks the Gemini web account protocol directly. Discovery,
+// generation and usage all run through it, so nothing here is delegated.
 //
 // The wire format is Google's batchexecute: a bootstrap page carries the XSRF
 // token and build id, and every call is a length-prefixed frame envelope rather
@@ -154,13 +156,44 @@ func (session *webSession) do(ctx context.Context, path string, body []byte, ove
 		return nil, failure(response.StatusCode, "web_upstream_status")
 	}
 	if session.generationFrame != nil && strings.Contains(path, webGeneratePath) {
-		return readContinuationStream(response.Body, session.generationFrame)
+		started := time.Now()
+		raw, streamErr := readContinuationStream(response.Body, session.generationFrame)
+		var cut *webStreamCut
+		if errors.As(streamErr, &cut) {
+			logStreamCut(response, cut, time.Since(started))
+		}
+		return raw, streamErr
 	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 32*1024*1024))
 	if err != nil {
 		return nil, failure(502, "web_response_failed")
 	}
 	return raw, nil
+}
+
+// logStreamCut records who ended a generation stream early, which is the one
+// question the failure alone cannot answer. A body short of the length it
+// declared was truncated on the way; a chunked body missing its terminator was
+// abandoned at the far end; and the transport error names the mechanism. Header
+// values are listed one by one because a response also carries credentials, and
+// none of these do.
+func logStreamCut(response *http.Response, cut *webStreamCut, elapsed time.Duration) {
+	fields := []string{
+		fmt.Sprintf("cause=%q", cut.Cause),
+		fmt.Sprintf("proto=%s", response.Proto),
+		fmt.Sprintf("received=%d", len(cut.Delivered)),
+		fmt.Sprintf("declared=%d", response.ContentLength),
+		fmt.Sprintf("frames=%d", bytes.Count(cut.Delivered, []byte{'\n'})),
+		fmt.Sprintf("elapsed=%s", elapsed.Round(time.Millisecond)),
+		fmt.Sprintf("transfer=%v", response.TransferEncoding),
+		fmt.Sprintf("decompressed=%t", response.Uncompressed),
+	}
+	for _, name := range []string{"Content-Encoding", "Server", "Via", "Alt-Svc"} {
+		if value := response.Header.Get(name); value != "" {
+			fields = append(fields, fmt.Sprintf("%s=%q", strings.ToLower(name), value))
+		}
+	}
+	log.Printf("gemini-web: generation stream cut: %s", strings.Join(fields, " "))
 }
 
 // bootstrap reads the XSRF token and build id the RPC endpoint requires. They are
