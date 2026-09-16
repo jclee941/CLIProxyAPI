@@ -25,121 +25,125 @@
   <noscript>계정을 관리하려면 이 리소스 페이지의 JavaScript 실행을 허용하세요.</noscript>
   <section class="view view-api usage-guide api-reference">
     <h2>요청 방법</h2>
-    <p class="hint">OpenAI 호환 <code>POST /v1/chat/completions</code>과 Gemini 네이티브 <code>POST /v1beta/models/{model}:generateContent</code>를 모두 받습니다. 아래 예시의 <code>$CLIPROXY</code>는 이 프록시의 베이스 URL, <code>$CLIPROXY_KEY</code>는 발급받은 API 키입니다.</p>
+    <p class="hint">이 플러그인이 발행하는 모델은 <code>gemini-omni-1.1-flash</code> 하나이고, 호출 경로는 공식 Interactions 표면 <code>POST /v1beta/interactions</code>입니다. 아래 예시의 <code>$CLIPROXY</code>는 이 프록시의 베이스 URL, <code>$CLIPROXY_KEY</code>는 발급받은 API 키입니다.</p>
 
     <details class="api-endpoint" open>
-      <summary><span class="api-method">POST</span><code>/v1beta/models/gemini-web-omni:generateContent</code><span class="api-tag api-tag-cost">호출당 영상 1건 소비</span></summary>
+      <summary><span class="api-method">POST</span><code>/v1beta/interactions</code><span class="api-tag api-tag-cost">호출당 영상 1건 소비</span></summary>
       <div class="api-body">
         <h3>요청</h3>
-        <pre class="api-sample"><code>curl -X POST "$CLIPROXY/v1beta/models/gemini-web-omni:generateContent" \
-  -H "x-goog-api-key: $CLIPROXY_KEY" \
+        <pre class="api-sample"><code>curl -X POST "$CLIPROXY/v1beta/interactions" \
+  -H "Authorization: Bearer $CLIPROXY_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "contents": [
-      { "role": "user", "parts": [{ "text": "노을 지는 해변을 걷는 사람" }] }
-    ],
-    "generationConfig": {
-      "aspectRatio": "9:16",
-      "negativePrompt": "자막, 워터마크"
-    }
+    "model": "gemini-omni-1.1-flash",
+    "input": "노을 지는 해변을 걷는 사람",
+    "response_format": { "type": "video", "aspect_ratio": "16:9" },
+    "store": true
   }'</code></pre>
 
-        <h3>generationConfig</h3>
+        <h3>필드</h3>
         <div class="api-scroll"><table class="api-table">
           <thead><tr><th>필드</th><th>타입</th><th>허용값</th><th>설명</th></tr></thead>
           <tbody>
-            <tr><td><code>aspectRatio</code></td><td>string</td><td><code>16:9</code> · <code>9:16</code></td><td>영상 프레이밍. 선택 칩과 그 칩이 뜻하는 가로/세로 방향이 함께 전송됩니다. 웹 UI와 동일하게 방향만 표현되므로 <code>1:1</code> 같은 다른 비율은 거부됩니다. 생략하면 웹 앱과 같은 기본값 <code>16:9</code>입니다. <strong>실측(2026-09-15): <code>16:9</code>는 1280x720 영상이 생성되지만, <code>9:16</code>은 업스트림이 영상을 만들지 않아 실패합니다.</strong></td></tr>
-            <tr><td><code>negativePrompt</code></td><td>string</td><td>자유 문자열</td><td>제외할 요소. 전용 슬롯이 없어 프롬프트 뒤에 문장으로 합쳐집니다.</td></tr>
-            <tr><td><code>candidateCount</code></td><td>number</td><td><code>1</code></td><td>한 번의 제출은 영상 하나만 만듭니다.</td></tr>
+            <tr><td><code>input</code></td><td>string 또는 배열</td><td>텍스트 한 건, 또는 <code>text</code>·<code>image</code>·<code>video</code> 파트 배열</td><td>첨부는 <code>data</code>+<code>mime_type</code>으로 인라인이거나, <code>uri</code>로 Drive 파일을 가리킵니다. 영상 첨부는 참조 선언이 자동으로 붙습니다.</td></tr>
+            <tr><td><code>response_format.type</code></td><td>string</td><td><code>video</code></td><td>생략하면 영상입니다. 그 밖의 값은 거부합니다.</td></tr>
+            <tr><td><code>response_format.aspect_ratio</code></td><td>string</td><td><code>16:9</code> · <code>9:16</code></td><td>웹 UI와 같은 프레이밍 칩과 방향이 함께 전송됩니다. 생략하면 <code>16:9</code>. <strong>실측(2026-09-15): <code>16:9</code>는 1280x720이 나오지만 <code>9:16</code>은 업스트림이 영상을 만들지 않아 실패합니다.</strong></td></tr>
+            <tr><td><code>previous_interaction_id</code></td><td>string</td><td>완료·저장된 interaction id</td><td>그 영상을 이번 턴의 참조 첨부로 싣습니다. <strong>계정에 묶이지 않습니다</strong> — 다른 계정이 이어받아 생성할 수 있습니다(실측 2026-09-17).</td></tr>
+            <tr><td><code>store</code></td><td>boolean</td><td>기본 <code>true</code></td><td><code>false</code>면 완료 후 영수증을 폐기하므로 이후 조회·체이닝이 불가합니다.</td></tr>
           </tbody>
         </table></div>
-        <p class="hint">그 밖의 키(<code>durationSeconds</code>, <code>resolution</code>, <code>personGeneration</code> 등)는 전송 슬롯도 프롬프트 대응물도 없어 <code>omni_unsupported_generation_option</code>으로 거부합니다.</p>
+        <p class="hint"><code>stream</code>·<code>background</code>·<code>response_format.resolution</code>·<code>response_format.delivery: "uri"</code>는 전송 슬롯도 대응물도 없어 생성 전에 거부합니다.</p>
 
         <h3>응답</h3>
         <pre class="api-sample"><code>{
-  "modelVersion": "gemini-web-omni",
-  "candidates": [{
-    "index": 0,
-    "finishReason": "STOP",
-    "content": {
-      "role": "model",
-      "parts": [{ "inlineData": { "mimeType": "video/mp4", "data": "AAAAIGZ0eXB…" } }]
-    }
+  "id": "efa78dd45816fdd2…",
+  "object": "interaction",
+  "model": "gemini-omni-1.1-flash",
+  "account": "gemini-web-….json",
+  "status": "completed",
+  "error": null,
+  "steps": [{
+    "type": "model_output",
+    "content": [{ "type": "video", "mime_type": "video/mp4", "data": "AAAAIGZ0eXB…" }]
   }]
 }</code></pre>
-        <p class="hint">업스트림 다운로드 URL이 세션 쿠키로만 열리기 때문에 링크 대신 base64 본문으로 돌려줍니다.</p>
+        <p class="hint">업스트림 다운로드 URL이 세션 쿠키로만 열리기 때문에 링크 대신 base64 본문으로 돌려줍니다. 실측 소요는 60~100초, 결과물은 1.8~6.5MB입니다.</p>
 
         <h3>제약</h3>
         <ul class="api-limits">
-          <li><code>contents</code>는 정확히 한 턴, <code>role</code>은 <code>user</code>이거나 생략, 파트는 <code>text</code>만.</li>
-          <li>스트리밍 불가. <code>stream: true</code>는 거부합니다.</li>
-          <li>프롬프트는 합쳐진 <code>negativePrompt</code> 문장을 포함해 8000자 이하, 본문은 5MiB 이하.</li>
-          <li>영상이 준비될 때까지 최대 10분 폴링합니다.</li>
+          <li>새 프롬프트는 한 턴. 대화 이력을 직접 싣거나 업스트림 식별자를 건네줄 수 없습니다.</li>
+          <li>프롬프트는 8000자 이하.</li>
+          <li>영상이 준비될 때까지 최대 10분 폴링합니다. 제출 자체가 오래 걸리면 그만큼 더 기다릴 수 있습니다.</li>
           <li>생성 사이에 쿨다운이 있습니다. 직전 영상 직후 다시 호출하면 <code>no_video_generated</code>로 거절되니 간격을 두세요.</li>
+          <li>POST 재시도는 복구가 아니라 <strong>새 생성</strong>입니다. 응답을 놓쳤으면 아래 GET으로 조회하세요.</li>
         </ul>
       </div>
     </details>
 
     <details class="api-endpoint">
-      <summary><span class="api-method">POST</span><code>/v1/chat/completions</code><span class="api-tag">OpenAI 호환 · gemini-web-omni</span></summary>
+      <summary><span class="api-method">GET</span><code>/v1beta/interactions/{id}</code><span class="api-tag">조회 · 쿼타 소모 없음</span></summary>
       <div class="api-body">
         <h3>요청</h3>
-        <pre class="api-sample"><code>curl -X POST "$CLIPROXY/v1/chat/completions" \
-  -H "Authorization: Bearer $CLIPROXY_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini-web-omni",
-    "messages": [{ "role": "user", "content": "노을 지는 해변을 걷는 사람" }]
-  }'</code></pre>
-        <p class="hint">이 경로에는 <code>generationConfig</code>가 없어 화면비·네거티브 프롬프트를 쓰려면 Gemini 네이티브 경로를 쓰거나 프롬프트 문장에 직접 적으세요. <code>messages</code>는 user 한 건만 허용합니다.</p>
-
-        <h3>응답</h3>
-        <pre class="api-sample"><code>{
-  "choices": [{
-    "message": {
-      "role": "assistant",
-      "images": [{ "image_url": { "url": "data:video/mp4;base64,AAAAIGZ0eXB…" } }]
-    }
-  }]
-}</code></pre>
+        <pre class="api-sample"><code>curl "$CLIPROXY/v1beta/interactions/$INTERACTION_ID" \
+  -H "Authorization: Bearer $CLIPROXY_KEY"</code></pre>
+        <p class="hint">완료된 영수증은 저장된 결과를 그대로 재생하므로 재생성하지 않습니다. 진행 중이면 <code>status: "in_progress"</code>로 답하고, 같은 id로 다시 물어보면 됩니다. 영수증은 계정과 호출자에 묶여 있어 다른 API 키로는 조회되지 않습니다.</p>
       </div>
     </details>
 
     <details class="api-endpoint">
-      <summary><span class="api-method">POST</span><code>/v1beta/models/gemini-web-flash-3.8:generateContent</code><span class="api-tag">일반 대화</span></summary>
-      <div class="api-body">
-        <h3>요청</h3>
-        <pre class="api-sample"><code>curl -X POST "$CLIPROXY/v1beta/models/gemini-web-flash-3.8:generateContent" \
-  -H "x-goog-api-key: $CLIPROXY_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "contents": [
-      { "role": "user", "parts": [{ "text": "한 문장으로 자기소개 해줘" }] }
-    ]
-  }'</code></pre>
-        <p class="hint"><code>gemini-web-flash</code> 별칭으로도 호출할 수 있습니다. <code>stream: true</code>도 받지만 완성된 응답을 SSE 한 프레임으로 한 번에 보냅니다.</p>
-      </div>
-    </details>
-
-    <details class="api-endpoint">
-      <summary><span class="api-method api-method-error">400</span><code>오류 코드</code><span class="api-tag">제출 전 거부 · 쿼타 소모 없음</span></summary>
+      <summary><span class="api-method api-method-error">400</span><code>오류 코드 · 생성 전 거부</code><span class="api-tag">쿼타 소모 없음</span></summary>
       <div class="api-body">
         <div class="api-scroll"><table class="api-table">
           <thead><tr><th>코드</th><th>의미</th></tr></thead>
           <tbody>
-            <tr><td><code>omni_unsupported_generation_option</code></td><td><code>generationConfig</code>에 지원하지 않는 키가 있습니다.</td></tr>
-            <tr><td><code>omni_invalid_aspect_ratio</code></td><td><code>aspectRatio</code>가 <code>16:9</code>·<code>9:16</code>이 아닙니다.</td></tr>
-            <tr><td><code>omni_invalid_negative_prompt</code></td><td><code>negativePrompt</code>가 문자열이 아닙니다.</td></tr>
-            <tr><td><code>omni_single_candidate_only</code></td><td><code>candidateCount</code>가 1이 아닙니다.</td></tr>
-            <tr><td><code>omni_prompt_length_invalid</code></td><td>프롬프트가 비었거나 <code>negativePrompt</code> 포함 8000자를 넘었습니다.</td></tr>
-            <tr><td><code>unsupported_omni_request</code></td><td>단일 user 텍스트 턴·비스트리밍이라는 형식 조건을 벗어났습니다.</td></tr>
-            <tr><td><code>gemini_web_omni:no_video_generated</code></td><td>쿨다운 등으로 업스트림이 영상을 만들지 않았습니다. 간격을 두고 재시도하세요.</td></tr>
-            <tr><td><code>gemini_web_omni:missing_video_operation</code></td><td>제출이 작업 핸들을 받지 못했습니다. 계정 상태·쿼타를 확인하세요.</td></tr>
+            <tr><td><code>interaction_text_input_only</code></td><td><code>input</code>이 텍스트나 지원 파트 배열이 아닙니다.</td></tr>
+            <tr><td><code>interaction_inline_video_only</code></td><td><code>response_format.delivery</code>가 <code>inline</code>이 아닙니다.</td></tr>
+            <tr><td><code>interaction_resolution_unsupported</code></td><td><code>response_format.resolution</code>은 지원하지 않습니다.</td></tr>
+            <tr><td><code>interaction_background_unsupported</code></td><td><code>background: true</code>는 지원하지 않습니다.</td></tr>
+            <tr><td><code>interaction_reference_invalid</code></td><td>첨부에 <code>data</code>나 <code>mime_type</code>이 빠졌습니다.</td></tr>
+            <tr><td><code>interaction_uploaded_reference_unsupported</code></td><td><code>files/…</code> 참조는 해석할 Files API가 없습니다. 인라인이나 Drive 링크를 쓰세요.</td></tr>
+            <tr><td><code>unsupported_interaction_request</code></td><td>본문 형식이나 <code>model</code>이 이 표면의 조건을 벗어났습니다.</td></tr>
+            <tr><td><code>omni_invalid_aspect_ratio</code></td><td><code>aspect_ratio</code>가 <code>16:9</code>·<code>9:16</code>이 아닙니다.</td></tr>
+            <tr><td><code>omni_prompt_length_invalid</code></td><td>프롬프트가 비었거나 8000자를 넘었습니다.</td></tr>
+            <tr><td><code>official_interactions_only</code></td><td>이 모델은 <code>generateContent</code>·<code>chat/completions</code>로 부를 수 없습니다. Interactions 표면을 쓰세요.</td></tr>
+            <tr><td><code>interaction_requires_authenticated_caller_scope</code></td><td>호출자 식별이 없습니다. 인증된 API 키로 호출하세요.</td></tr>
+            <tr><td><code>continuation_identity_mismatch</code></td><td><code>previous_interaction_id</code>가 없거나 다른 호출자의 것입니다.</td></tr>
           </tbody>
         </table></div>
-        <p class="hint">실패해도 HTTP 상태는 <code>200</code>으로 도착할 수 있습니다. 성공·실패는 상태코드가 아니라 본문의 <code>error</code> 객체 유무로 판단하세요.</p>
       </div>
     </details>
+
+    <details class="api-endpoint">
+      <summary><span class="api-method api-method-error">4xx/5xx</span><code>오류 코드 · 생성 이후</code><span class="api-tag api-tag-cost">쿼타가 이미 소모됨</span></summary>
+      <div class="api-body">
+        <div class="api-scroll"><table class="api-table">
+          <thead><tr><th>코드</th><th>의미</th></tr></thead>
+          <tbody>
+            <tr><td><code>gemini_web_omni:no_video_generated</code></td><td>업스트림이 답은 했지만 영상을 만들지 않았습니다. 쿨다운이 흔한 원인이니 간격을 두고 다시 호출하세요.</td></tr>
+            <tr><td><code>missing_upstream_operation</code></td><td>제출 스트림이 작업 이름을 남기지 못했습니다. 계정은 자동으로 회수되며, 재시도는 새 생성입니다.</td></tr>
+            <tr><td><code>web_response_failed</code></td><td>제출 응답이 도중에 끊겼습니다. 이름이 남았다면 같은 id로 GET 조회하세요.</td></tr>
+            <tr><td><code>invalid_video_download</code></td><td>영상은 준비됐는데 내려받기가 실패했습니다. 같은 id로 다시 조회하세요.</td></tr>
+            <tr><td><code>gemini_web_omni:auth_error</code></td><td>계정 로그인이 만료됐습니다. 계정 화면에서 다시 연결하세요. 이 경우 제출 전에 멈추므로 쿼타는 쓰지 않습니다.</td></tr>
+          </tbody>
+        </table></div>
+        <p class="hint">실패해도 HTTP 상태는 <code>200</code>으로 도착할 수 있습니다. 성공·실패는 상태코드가 아니라 본문의 <code>status</code>와 <code>error</code>로 판단하세요.</p>
+      </div>
+    </details>
+
+    <details class="api-endpoint">
+      <summary><span class="api-method api-method-error">409</span><code>오류 코드 · 계정 상태</code><span class="api-tag">잠시 뒤 재시도</span></summary>
+      <div class="api-body">
+        <div class="api-scroll"><table class="api-table">
+          <thead><tr><th>코드</th><th>의미</th></tr></thead>
+          <tbody>
+            <tr><td><code>session_busy</code></td><td>그 계정이 다른 생성을 진행 중입니다. 잠시 뒤 다시 호출하세요.</td></tr>
+            <tr><td><code>session_requires_reconciliation</code></td><td>계정이 정리를 기다리는 상태입니다. 계정 화면에서 상태를 확인하세요.</td></tr>
+            <tr><td><code>continuation_account_unavailable</code></td><td>조회하려는 영수증을 가진 계정이 후보에 없습니다. 그 계정이 사용 가능해야 합니다.</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </details>
+
   </section>
     </main>
   </div>
