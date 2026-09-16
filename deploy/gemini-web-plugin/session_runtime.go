@@ -51,8 +51,21 @@ func (service *service) aliasAccountLease(record storageRecord, lease *credentia
 }
 
 func (service *service) checkLocalBinding(record storageRecord, local localSession) error {
-	if local.Target.ID != record.ID || local.Target.TokenRef != record.TokenRef || local.Target.SessionRevision != record.SessionRevision {
+	if local.Target.ID != record.ID || local.Target.TokenRef != record.TokenRef {
 		return failure(409, "credential_changed")
+	}
+	// A renewal moves the store forward and leaves the host one revision behind
+	// until the sync lands, which is why the session parks in host_sync_pending
+	// and keeps what the host still holds in Previous. Reading that gap as the
+	// credential having changed refused every call made with the host's record
+	// during the window a generation opens for itself, and an account that
+	// answers nothing is dropped from the host's candidates - including when the
+	// call was a caller retrieving the receipt that account is generating.
+	if local.Target.SessionRevision != record.SessionRevision {
+		if local.State != localHostPending || local.Previous.SessionRevision != record.SessionRevision ||
+			local.Previous.ID != record.ID || local.Previous.TokenRef != record.TokenRef {
+			return failure(409, "credential_changed")
+		}
 	}
 	return nil
 }
@@ -147,24 +160,21 @@ func (service *service) localAuthModels(ctx context.Context, record storageRecor
 	if err != nil {
 		return nil, err
 	}
-	// Google rotates the cookie on the very call that reads the capabilities, and
-	// the plugin stores that rotation the moment it happens. That rewrites the
-	// stored token, so comparing whole records read a healthy rotation as the
-	// credential being swapped underneath and published no models at all. What
-	// must not change during the read is which account this is and what state it
-	// is in; a fresher cookie for the same account is the good outcome.
+	// What must not change during the read is which credential answered: the same
+	// account and the same auth user. Everything else this compared moves while
+	// the account simply works. Google rotates the cookie on the very call that
+	// reads the capabilities; a generation finishing turns submitting into ready
+	// and clears the active turn key; and the renewal a generation runs first
+	// parks the session in host_sync_pending and bumps the revision.
 	//
-	// A turn finishing is the one state move that is not a change of state in
-	// that sense: the generation the account was running ended, which is what it
-	// was always going to do. Read as a swap it published no models, so the host
-	// dropped the account from its candidates - and the account it dropped was
-	// the one holding the receipt a caller was retrieving, which came back as
-	// though no account were available at all.
-	finished := local.State == localSubmitting && local.ContinuationActive != "" &&
-		latest.State == localReady && latest.ContinuationActive == ""
-	if latest.Identity != local.Identity ||
-		latest.Target.SessionRevision != local.Target.SessionRevision ||
-		!finished && (latest.State != local.State || latest.ContinuationActive != local.ContinuationActive) {
+	// Reading any of those as a swap published no models, and the host drops an
+	// auth that publishes none. The account it dropped was the one holding the
+	// receipt a caller was retrieving, so the retrieval was answered as though no
+	// account existed while every account was healthy. Nothing is lost by
+	// allowing them: the second snapshot goes through localModelSnapshot, which
+	// already refuses renewing, an unrecoverable submission, operator and fence
+	// outright, and the account digest is checked against this identity below.
+	if latest.Identity != local.Identity {
 		return nil, failure(409, "credential_changed")
 	}
 	if account.AccountSHA256 != "" && account.AccountSHA256 != local.Identity.AccountSHA256 {

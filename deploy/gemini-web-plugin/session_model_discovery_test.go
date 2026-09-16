@@ -128,7 +128,14 @@ func TestLocalModelsDiscardEntitlements_whenSnapshotChangesDuringHTTP(t *testing
 	// "token" is deliberately absent: a token that changes without the revision
 	// moving is Google rotating the cookie on the very call being made, which is
 	// the good outcome and is covered by the test below.
-	for _, change := range []string{"revision", "state", "renewal_intent", "submission_intent", "durability", "operator", "fence"} {
+	// "revision" and "state" are deliberately absent alongside "token": a renewal
+	// bumping the revision and parking the session in host_sync_pending is the
+	// account preparing to generate, and a turn finishing moves it back. Those are
+	// the account working, not a credential being swapped, and refusing them cost
+	// production 315 discovery failures whose only effect was to drop healthy
+	// accounts out of the host's candidates. They are covered as allowed in
+	// session_discovery_race_test.go.
+	for _, change := range []string{"revision", "renewal_intent", "submission_intent", "durability", "operator", "fence"} {
 		t.Run(change, func(t *testing.T) {
 			service, _ := loginFixture(t)
 			local := localRecordFixture(t)

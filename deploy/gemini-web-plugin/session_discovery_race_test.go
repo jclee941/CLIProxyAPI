@@ -67,3 +67,40 @@ func TestModelsRefuseACredentialSwappedDuringDiscovery(t *testing.T) {
 		t.Fatalf("a swapped credential was accepted: %v", err)
 	}
 }
+
+// The renewal a generation runs before it submits parks the session in
+// host_sync_pending and bumps the revision. That is the account preparing to
+// work, and it must not stop the account publishing what it can do.
+func TestModelsSurviveARenewalDuringDiscovery(t *testing.T) {
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{}
+	continuationWeb(t, service, fixture)
+	fixture.duringModels = func() {
+		// Mirrors renewLocalSession: the record the host still holds stays in
+		// Previous, Target moves to the new revision, and the session parks in
+		// host_sync_pending until the host catches up.
+		renewed := local
+		renewed.Previous = local.Target
+		renewed.Target = local.Target
+		renewed.Target.SessionRevision++
+		renewed.State = localHostPending
+		auth, err := authFromRecord(renewed.Target)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		renewed.Projection = string(auth.StorageJSON)
+		if err := service.sessions.write(renewed); err != nil {
+			t.Error(err)
+		}
+	}
+
+	models, err := service.localAuthModels(t.Context(), local.Target)
+
+	if err != nil {
+		t.Fatalf("a renewal during discovery was read as the credential changing: %v", err)
+	}
+	if len(models) == 0 {
+		t.Fatal("a renewing account published no models, so the host would drop it")
+	}
+}
