@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestContinuationPendingAccountRemainsRoutableAfterRestart(t *testing.T) {
@@ -49,7 +50,7 @@ func TestContinuationDoesNotReleaseIntentFromAccountListing(t *testing.T) {
 	}
 }
 
-func TestOperatorReleasesIntentOfTurnRecoveryCanNeverObserve(t *testing.T) {
+func TestAccountListingEndsATurnRecoveryCanNeverObserve(t *testing.T) {
 	service, local := continuationFixture(t)
 	continuationWeb(t, service, &continuationWebFixture{missingHandles: true})
 	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
@@ -57,12 +58,9 @@ func TestOperatorReleasesIntentOfTurnRecoveryCanNeverObserve(t *testing.T) {
 	if unknown.State != "outcome_unknown" {
 		t.Fatalf("submission state: %+v", unknown)
 	}
-	// The automatic run still refuses to end an ambiguous submission by itself.
-	if _, _, err := service.releaseInterruptedSession(context.Background(), local.Target, true); safeCredentialCode(err) != "continuation_recovery_required" {
-		t.Fatalf("automatic release: %v", err)
-	}
-	// When the operator consents to end a turn that recorded no upstream operation.
-	state, credential, err := service.releaseInterruptedSession(context.Background(), local.Target, false)
+	// When the run that lists accounts meets a turn that recorded no upstream
+	// operation, which no recovery can ever find.
+	state, credential, err := service.releaseInterruptedSession(context.Background(), local.Target, true)
 	if err != nil || state != maintenanceReady || credential != "valid" {
 		t.Fatalf("operator release: state=%s credential=%s err=%v", state, credential, err)
 	}
@@ -81,6 +79,31 @@ func TestOperatorReleasesIntentOfTurnRecoveryCanNeverObserve(t *testing.T) {
 	// And the ended turn is never mistaken for a completed one.
 	if ended := turns[continuationKey(prepared.Token)]; ended.State != "no_operation" {
 		t.Fatalf("turn not marked terminal: %+v", ended)
+	}
+}
+
+// A turn past the generation budget has already answered its caller, so the run
+// that lists accounts ends it instead of holding the account for a recovery that
+// can only confirm the same thing. This is what a restart used to leave behind.
+func TestAccountListingEndsATurnPastTheGenerationBudget(t *testing.T) {
+	service, local := continuationFixture(t)
+	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
+	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
+	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+	submitted := service.now()
+	service.now = func() time.Time { return submitted.Add(webVideoBudget + time.Minute) }
+
+	state, _, err := service.releaseInterruptedSession(context.Background(), local.Target, true)
+
+	if err != nil || state != maintenanceReady {
+		t.Fatalf("release past the budget: state=%s err=%v", state, err)
+	}
+	stored, err := service.sessions.read(local.Target.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != localReady || stored.ContinuationActive != "" {
+		t.Fatalf("intent still pinned: state=%s active=%s", stored.State, stored.ContinuationActive)
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // resolveIntent releases an interrupted renewal or submission only when a live
@@ -80,7 +81,14 @@ func (service *service) releaseInterruptedSession(ctx context.Context, record st
 	if active != "" {
 		turn, found := turns[active]
 		observable = found && turn.Conversation != "" && turn.Reply != "" && turn.Candidate != ""
-		if automatic {
+		// A turn past the generation budget has already answered its caller,
+		// whatever it answered, so nothing is waiting on it. Holding the account
+		// for a recovery that can only confirm the same thing is how a restart
+		// used to strand an account until someone noticed and clicked.
+		if found && turn.StartedAt > 0 && service.now().Sub(time.Unix(turn.StartedAt, 0)) > webVideoBudget {
+			observable = false
+		}
+		if automatic && observable {
 			return "", "", failure(409, "continuation_recovery_required")
 		}
 	}
