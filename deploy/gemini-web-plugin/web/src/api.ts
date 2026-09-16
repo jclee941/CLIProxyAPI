@@ -55,8 +55,8 @@ const http = ky.create({
   referrerPolicy: 'no-referrer',
 });
 
-export async function request(path: 'accounts' | 'refresh' | `login/${'start' | 'complete' | LoginAction}` | { readonly modelsFor: AccountId },
-  body?: SaveAccount | { readonly id: AccountId } | LoginInput | LoginComplete | { readonly state: LoginState },
+export async function request(path: 'accounts' | 'refresh' | 'recover' | `login/${'start' | 'complete' | LoginAction}` | { readonly modelsFor: AccountId },
+  body?: SaveAccount | { readonly id: AccountId } | { readonly id: AccountId; readonly consent: true } | LoginInput | LoginComplete | { readonly state: LoginState },
   transport: ReturnType<typeof readHostRequest> | null = readHostRequest() ?? null): Promise<Response> {
   try {
     const url = typeof path === 'string' ? `/v0/management/plugins/gemini-web/${path}`
@@ -138,4 +138,13 @@ export async function refreshAccount(id: AccountId): Promise<Account> {
 export function accountErrorMessage(code: string): string {
   const parsed = errorResponseSchema.safeParse({ error: code });
   return new PluginApiError(200, parsed.success ? parsed.data.error : undefined).message;
+}
+
+const recoverySchema = z.object({ id: z.string(), state: z.string(), released: z.boolean(), error: z.string().optional() });
+
+export async function recoverAccount(id: AccountId) {
+  const parsed = recoverySchema.safeParse(await readJson(await request('recover', { id, consent: true })));
+  if (!parsed.success) throw new PluginApiError(0);
+  if (!parsed.data.released) throw new PluginApiError(200, undefined);
+  return parsed.data;
 }

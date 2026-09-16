@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/sha256"
 	"errors"
-	"reflect"
 	"sync"
 	"time"
 )
@@ -109,59 +108,7 @@ func (service *service) acquireCredential(reference string, exclusive bool) (*cr
 	return lease, nil
 }
 
-func (service *service) reconfigureCredentials(config pluginConfig) error {
-	if reflect.DeepEqual(config.MaintenanceSources, service.config.MaintenanceSources) {
-		return nil
-	}
-	service.leases.mu.Lock()
-	defer service.leases.mu.Unlock()
-	locked := make([]*credentialLease, 0, len(service.leases.refs))
-	seen := make(map[*credentialLease]bool)
-	defer func() {
-		for _, lease := range locked {
-			lease.guard.Unlock()
-		}
-	}()
-	for _, lease := range service.leases.refs {
-		if seen[lease] {
-			continue
-		}
-		seen[lease] = true
-		if !lease.guard.TryLock() {
-			return failure(409, "session_busy")
-		}
-		locked = append(locked, lease)
-		state := lease.snapshot()
-		if state.state == maintenanceOperator || state.state == maintenanceHostPending || state.state == maintenanceFenced && service.now().Before(state.nextDue) {
-			return failure(409, "maintenance_state_requires_reconciliation")
-		}
-	}
-	changed := make(map[string]bool)
-	for id, old := range service.config.MaintenanceSources {
-		if replacement, exists := config.MaintenanceSources[id]; !exists || !reflect.DeepEqual(old, replacement) {
-			changed[old.TokenRef] = true
-			changed[replacement.TokenRef] = true
-		}
-	}
-	for id, source := range config.MaintenanceSources {
-		if _, exists := service.config.MaintenanceSources[id]; !exists {
-			changed[source.TokenRef] = true
-		}
-	}
-	for reference := range changed {
-		if lease := service.leases.refs[reference]; lease != nil {
-			lease.mu.Lock()
-			lease.clearCacheLocked()
-			if lease.state.state == maintenanceReady {
-				lease.state.nextDue = time.Time{}
-			}
-			lease.mu.Unlock()
-		}
-	}
-	service.leases.epoch++
-	return nil
-}
-
+func (service *service) reconfigureCredentials(config pluginConfig) error { return nil }
 func safeCredentialCode(err error) string {
 	var public *publicError
 	if errors.As(err, &public) {

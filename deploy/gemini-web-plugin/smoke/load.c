@@ -36,7 +36,7 @@ int main(int count, char** arguments) {
         const char* expected = index == 4 ? "\"ok\":false" : "\"ok\":true";
         if (strstr(text, expected) == NULL || strstr(text, "op://") != NULL || strstr(text, "gemini-web:v1:") != NULL) return 1;
         if (index == 0 && strstr(text, "\"request_interceptor\":true") == NULL) return 1;
-        if (index == 0 && strstr(text, "\"Name\":\"maintenance_sources\",\"Type\":\"object\"") == NULL) return 1;
+        if (index == 0 && strstr(text, "\"Name\":\"session_dir\",\"Type\":\"string\"") == NULL) return 1;
         if (index == 1 && strstr(text, "\"Method\":\"POST\",\"Path\":\"/plugins/gemini-web/maintain\"") == NULL) return 1;
         if (index == 5 && strstr(text, "\"StatusCode\":400") == NULL) return 1;
         printf("%s: %s\n", methods[index], expected);

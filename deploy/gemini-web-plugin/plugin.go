@@ -17,14 +17,12 @@ import (
 )
 
 type pluginConfig struct {
-	HostEnabled        bool                         `yaml:"enabled"`
-	HostPriority       int                          `yaml:"priority"`
-	SessionDir         string                       `yaml:"session_dir"`
-	ManagerOrigin      string                       `yaml:"manager_origin"`
-	BrowserExtensionID string                       `yaml:"browser_extension_id"`
-	Vault              string                       `yaml:"vault"`
-	DashboardPath      string                       `yaml:"dashboard_path"`
-	MaintenanceSources map[string]maintenanceSource `yaml:"maintenance_sources"`
+	HostEnabled        bool   `yaml:"enabled"`
+	HostPriority       int    `yaml:"priority"`
+	SessionDir         string `yaml:"session_dir"`
+	ManagerOrigin      string `yaml:"manager_origin"`
+	BrowserExtensionID string `yaml:"browser_extension_id"`
+	DashboardPath      string `yaml:"dashboard_path"`
 	// NativeGeneration serves text turns by speaking to the web product directly
 	// instead of delegating to the sidecar. Off until the native path has been
 	// compared against the sidecar on a real account.
@@ -36,13 +34,11 @@ type service struct {
 	mu               sync.RWMutex
 	config           pluginConfig
 	host             hostCall
-	secrets          secretStore
 	client           *http.Client
 	now              func() time.Time
 	continuationWait func(context.Context) error
 	interactionsMu   sync.Mutex
 	interactions     map[string]*interactionOperation
-	source           credentialSource
 	leases           credentialLeases
 	sessions         *sessionStore
 	sessionKeyHash   [32]byte
@@ -61,7 +57,7 @@ type service struct {
 }
 
 func newService(host hostCall) *service {
-	return &service{config: pluginConfig{Vault: "homelab", DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html"}, host: host, secrets: opStore{vault: "homelab", run: runOP}, client: newSidecarClient(), now: time.Now, source: newCDPCredentialSource()}
+	return &service{config: pluginConfig{DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html"}, host: host, client: newSidecarClient(), now: time.Now}
 }
 
 func (service *service) handle(ctx context.Context, method string, raw []byte) []byte {
@@ -114,7 +110,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	if len(raw) > 0 && json.Unmarshal(raw, &request) != nil {
 		return nil, failure(400, "invalid_registration")
 	}
-	config := pluginConfig{Vault: "homelab", DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html"}
+	config := pluginConfig{DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html"}
 	if len(request.ConfigYAML) > 0 {
 		decoder := yaml.NewDecoder(bytes.NewReader(request.ConfigYAML))
 		decoder.KnownFields(true)
@@ -122,17 +118,11 @@ func (service *service) register(raw []byte) (interface{}, error) {
 			return nil, failure(400, "invalid_plugin_config")
 		}
 	}
-	if config.Vault != "homelab" || !filepath.IsAbs(config.DashboardPath) || filepath.Ext(config.DashboardPath) != ".html" {
+	if !filepath.IsAbs(config.DashboardPath) || filepath.Ext(config.DashboardPath) != ".html" {
 		return nil, failure(400, "invalid_plugin_config")
-	}
-	if err := validateMaintenanceSources(config.MaintenanceSources, config.Vault); err != nil {
-		return nil, err
 	}
 	current := service.config
 	current.HostEnabled, current.HostPriority = config.HostEnabled, config.HostPriority
-	if len(current.MaintenanceSources) == 0 && len(config.MaintenanceSources) == 0 {
-		current.MaintenanceSources = config.MaintenanceSources
-	}
 	unchanged := reflect.DeepEqual(current, config) && (config.SessionDir == "" || service.sessions != nil && service.sessionKeyHash == sha256.Sum256([]byte(os.Getenv("GEMINI_WEB_SESSION_KEY"))))
 	if !unchanged {
 		if err := service.lifecycle.reconfigure(func() error {
@@ -148,7 +138,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 			return nil, err
 		}
 	}
-	registration := json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"vault","Type":"enum","EnumValues":["homelab"],"Description":"1Password vault; web-session field references only"},{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"},{"Name":"maintenance_sources","Type":"object","Description":"Non-secret account-ID keyed credential source bindings"},{"Name":"session_dir","Type":"string","Description":"Dedicated 0700 encrypted application-session directory; single process owner"},{"Name":"manager_origin","Type":"string","Description":"Exact HTTPS management portal origin"},{"Name":"browser_extension_id","Type":"string","Description":"Registered 32-character browser companion extension ID"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini"],"management_api":true,"request_interceptor":true,"quota_provider":true}}`)
+	registration := json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"},{"Name":"session_dir","Type":"string","Description":"Dedicated 0700 encrypted application-session directory; single process owner"},{"Name":"manager_origin","Type":"string","Description":"Exact HTTPS management portal origin"},{"Name":"browser_extension_id","Type":"string","Description":"Registered 32-character browser companion extension ID"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini"],"management_api":true,"request_interceptor":true,"quota_provider":true}}`)
 	if config.NativeContinuation {
 		registration = bytes.Replace(registration, []byte(`"request_interceptor":true`), []byte(`"request_interceptor":true,"scheduler":true`), 1)
 		registration = bytes.ReplaceAll(registration, []byte(`["gemini"]`), []byte(`["gemini","interactions"]`))
@@ -201,7 +191,7 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 			Models   []modelInfo
 		}{provider, []modelInfo{}}, nil
 	case "management.register":
-		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/refresh"},{"Method":"POST","Path":"/plugins/gemini-web/maintain"},{"Method":"POST","Path":"/plugins/gemini-web/resolve"},{"Method":"POST","Path":"/plugins/gemini-web/label"},{"Method":"POST","Path":"/plugins/gemini-web/detach"},{"Method":"POST","Path":"/plugins/gemini-web/login/start"},{"Method":"POST","Path":"/plugins/gemini-web/login/complete"},{"Method":"POST","Path":"/plugins/gemini-web/login/status"},{"Method":"POST","Path":"/plugins/gemini-web/login/cancel"},{"Method":"POST","Path":"/plugins/gemini-web/login/reconcile"}],"resources":[{"Path":"/index","Menu":"Gemini Web","Description":"Account models and measured usage dashboard"}]}`), nil
+		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/refresh"},{"Method":"POST","Path":"/plugins/gemini-web/maintain"},{"Method":"POST","Path":"/plugins/gemini-web/resolve"},{"Method":"POST","Path":"/plugins/gemini-web/recover"},{"Method":"POST","Path":"/plugins/gemini-web/label"},{"Method":"POST","Path":"/plugins/gemini-web/detach"},{"Method":"POST","Path":"/plugins/gemini-web/login/start"},{"Method":"POST","Path":"/plugins/gemini-web/login/complete"},{"Method":"POST","Path":"/plugins/gemini-web/login/status"},{"Method":"POST","Path":"/plugins/gemini-web/login/cancel"},{"Method":"POST","Path":"/plugins/gemini-web/login/reconcile"}],"resources":[{"Path":"/index","Menu":"Gemini Web","Description":"Account models and measured usage dashboard"}]}`), nil
 	case "management.handle":
 		return service.management(ctx, raw)
 	case "request.intercept_before", "request.intercept_after":
@@ -225,18 +215,10 @@ func (service *service) resolve(ctx context.Context, raw []byte, identity string
 	if identity != record.ID {
 		return record, sessionToken{}, failure(400, "auth_identity_mismatch")
 	}
-	if localReferencePattern.MatchString(record.TokenRef) {
-		token, err := service.resolveLocal(record)
-		return record, token, err
+	if !localReferencePattern.MatchString(record.TokenRef) {
+		return record, sessionToken{}, failure(400, "invalid_token_reference")
 	}
-	if err := service.rejectMigratedRecord(record); err != nil {
-		return record, sessionToken{}, err
-	}
-	reference, err := parseReference(record.TokenRef, service.settings().Vault)
-	if err != nil {
-		return record, sessionToken{}, err
-	}
-	token, err := service.resolveCredential(ctx, reference, false)
+	token, err := service.resolveLocal(record)
 	return record, token, err
 }
 

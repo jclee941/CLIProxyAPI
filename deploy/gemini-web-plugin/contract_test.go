@@ -33,7 +33,7 @@ func invoke(t *testing.T, service *service, method string, request interface{}) 
 
 func TestAuthParseReturnsOnlyReference_whenStorageIsValid(t *testing.T) {
 	service := newService(nil)
-	storage := []byte(`{"type":"gemini-web","id":"gemini-web-first.json","label":"First","token_ref":"op://homelab/aaaaaaaaaaaaaaaaaaaaaaaaaa/web-session"}`)
+	storage := []byte(`{"type":"gemini-web","id":"gemini-web-first.json","label":"First","token_ref":"session://gemini-web/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)
 	result := invoke(t, service, "auth.parse", struct{ RawJSON []byte }{storage})
 	if !result.OK {
 		t.Fatalf("parse failed: %+v", result.Error)
@@ -55,7 +55,7 @@ func TestAuthParseReturnsOnlyReference_whenStorageIsValid(t *testing.T) {
 
 func TestAuthParseRejectsSecretStorage_whenRawTokenPresent(t *testing.T) {
 	service := newService(nil)
-	result := invoke(t, service, "auth.parse", struct{ RawJSON []byte }{[]byte(`{"type":"gemini-web","id":"gemini-web-first.json","label":"First","token_ref":"op://homelab/aaaaaaaaaaaaaaaaaaaaaaaaaa/web-session","token":"secret"}`)})
+	result := invoke(t, service, "auth.parse", struct{ RawJSON []byte }{[]byte(`{"type":"gemini-web","id":"gemini-web-first.json","label":"First","token_ref":"session://gemini-web/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","token":"secret"}`)})
 	if result.OK {
 		t.Fatal("accepted raw secret storage")
 	}

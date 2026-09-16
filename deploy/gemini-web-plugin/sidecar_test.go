@@ -44,7 +44,7 @@ func TestOmniExposesOnlyAllowlistedSidecarErrors_whenSubmissionFails(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			service.secrets = &memorySecrets{tokens: map[string]sessionToken{record.TokenRef: {encodedToken("synthetic-sidecar-error")}}}
+			seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("synthetic-sidecar-error")}})
 			var calls atomic.Int32
 			localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
 				if sidecarPath(request) == "/v1/session/renew" {
@@ -56,7 +56,7 @@ func TestOmniExposesOnlyAllowlistedSidecarErrors_whenSubmissionFails(t *testing.
 				writeFixture(t, writer, test.body)
 			})
 
-			result := invoke(t, service, "executor.execute", executorRequest{AuthID: record.ID, AuthProvider: provider, Model: omniModel, Format: "gemini", SourceFormat: "gemini", Payload: []byte(`{"contents":[{"parts":[{"text":"synthetic video request"}]}]}`), StorageJSON: auth.StorageJSON, AuthMetadata: auth.Metadata})
+			result := invoke(t, service, "executor.execute", executorRequest{AuthID: record.ID, AuthProvider: provider, Model: omniModel, Format: "gemini", SourceFormat: "gemini", Payload: []byte(`{"contents":[{"parts":[{"text":"synthetic video request"}]}]}`), StorageJSON: auth.StorageJSON, AuthMetadata: auth.Metadata, HostCallbackID: "scope-list"})
 
 			if result.OK || result.Error == nil {
 				t.Fatal("failed submission did not return an RPC error")

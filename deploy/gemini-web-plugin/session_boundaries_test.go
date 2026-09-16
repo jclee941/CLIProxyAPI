@@ -131,7 +131,7 @@ func TestLocalStoreRejectsTampering_whenEnvelopeOrPathChanged(t *testing.T) {
 }
 
 func TestLocalMaintenanceRenewsWithoutCDPOrVault_whenNoLegacySourceConfigured(t *testing.T) {
-	service, host, vault := loginFixture(t)
+	service, host := loginFixture(t)
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	ready := completeFixture(t, service, started)
 
@@ -143,7 +143,7 @@ func TestLocalMaintenanceRenewsWithoutCDPOrVault_whenNoLegacySourceConfigured(t 
 		t.Fatalf("maintenance result=%+v err=%v", result, err)
 	}
 	record, err := service.parseStorage(host.records[ready.AccountID], true)
-	if err != nil || record.SessionRevision != 2 || len(vault.reads) != 0 || vault.writes != 0 {
+	if err != nil || record.SessionRevision != 2 {
 		t.Fatal("local maintenance did not persist exactly one local revision")
 	}
 }
@@ -151,7 +151,7 @@ func TestLocalMaintenanceRenewsWithoutCDPOrVault_whenNoLegacySourceConfigured(t 
 func TestLocalRestartRetainsIntentFence_whenOperationWasAmbiguous(t *testing.T) {
 	for _, state := range []localState{localRenewing, localSubmitting} {
 		t.Run(string(state), func(t *testing.T) {
-			service, host, vault := loginFixture(t)
+			service, host := loginFixture(t)
 			started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 			ready := completeFixture(t, service, started)
 			record, err := service.parseStorage(host.records[ready.AccountID], true)
@@ -178,23 +178,22 @@ func TestLocalRestartRetainsIntentFence_whenOperationWasAmbiguous(t *testing.T) 
 
 			_, _, err = service.resolve(t.Context(), host.records[ready.AccountID], ready.AccountID)
 
-			if err == nil || safeCredentialCode(err) != "needs_operator" || len(vault.reads) != 0 {
+			if err == nil || safeCredentialCode(err) != "needs_operator" {
 				t.Fatalf("intent did not block restart: %v", err)
 			}
 		})
 	}
 }
 
-func TestLoginPreservesStableIDAndDisabled_whenMigratingVerifiedLegacyBinding(t *testing.T) {
+func TestLoginPreservesStableIDAndDisabled_whenRelinkingAnExistingAccount(t *testing.T) {
 	for _, disabled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "enabled", true: "disabled"}[disabled], func(t *testing.T) {
-			service, host, vault := loginFixture(t)
+			service, host := loginFixture(t)
 			previous := recordFixture(t, "a")
 			previous.SessionRevision = 8
 			host.records[previous.ID] = jsonFixture(t, previous)
 			host.disabled = disabled
-			user := uint64(2)
-			service.config.MaintenanceSources = map[string]maintenanceSource{previous.ID: {TokenRef: previous.TokenRef, ProfileGUID: "00000000-0000-4000-8000-000000000001", ExpectedGaiaSHA256: testAccountDigest, AuthUser: &user}}
+			seedSession(t, service, previous, sessionToken{encodedToken("test-existing")})
 			oldLease := service.leases.get(previous.TokenRef)
 			started, status := loginCall(t, service, "start", jsonFixture(t, struct {
 				Label      string `json:"label"`
@@ -220,9 +219,6 @@ func TestLoginPreservesStableIDAndDisabled_whenMigratingVerifiedLegacyBinding(t 
 			if _, _, err := service.resolve(t.Context(), jsonFixture(t, previous), previous.ID); err == nil {
 				t.Fatal("stale legacy record resolved after migration")
 			}
-			if len(vault.reads) != 0 || vault.writes != 0 {
-				t.Fatal("login migration used Vault")
-			}
 		})
 	}
 }
@@ -230,7 +226,7 @@ func TestLoginPreservesStableIDAndDisabled_whenMigratingVerifiedLegacyBinding(t 
 func TestLoginRejectsMismatchedHandoff_whenIdentityObservationDiffers(t *testing.T) {
 	for _, mismatch := range []string{"gaia", "token_index", "consent", "extension"} {
 		t.Run(mismatch, func(t *testing.T) {
-			service, host, vault := loginFixture(t)
+			service, host := loginFixture(t)
 			started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 			user := uint64(2)
 			body := loginCompletion{State: started.State, Token: encodedToken("test-login"), AccountSHA256: testAccountDigest, AuthUser: &user, ExtensionID: strings.Repeat("a", 32), Consent: true}
@@ -250,7 +246,7 @@ func TestLoginRejectsMismatchedHandoff_whenIdentityObservationDiffers(t *testing
 			if status == 200 && view.Status != loginError {
 				t.Fatalf("mismatch accepted: %s", view.Status)
 			}
-			if host.saves != 0 || vault.writes != 0 || len(vault.reads) != 0 {
+			if host.saves != 0 {
 				t.Fatal("mismatched login wrote credentials")
 			}
 		})
@@ -258,7 +254,7 @@ func TestLoginRejectsMismatchedHandoff_whenIdentityObservationDiffers(t *testing
 }
 
 func TestLocalReadOnlyFailureDoesNotFenceSubmission_whenInspectTransportFails(t *testing.T) {
-	service, host, _ := loginFixture(t)
+	service, host := loginFixture(t)
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	ready := completeFixture(t, service, started)
 	record, err := service.parseStorage(host.records[ready.AccountID], true)
@@ -285,7 +281,7 @@ func (localFailTransport) RoundTrip(*http.Request) (*http.Response, error) {
 }
 
 func TestSessionShutdownDrainsCallsAndReleasesLock_whenWorkCompletes(t *testing.T) {
-	service, _, _ := loginFixture(t)
+	service, _ := loginFixture(t)
 	entered, release := make(chan struct{}), make(chan struct{})
 	service.host = func(string, []byte) ([]byte, error) {
 		close(entered)
@@ -327,7 +323,7 @@ func TestSessionShutdownDrainsCallsAndReleasesLock_whenWorkCompletes(t *testing.
 }
 
 func TestLoginReconcileVerifiesHostAgain_whenReadyRecordSurvivedRestart(t *testing.T) {
-	service, host, _ := loginFixture(t)
+	service, host := loginFixture(t)
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	ready := completeFixture(t, service, started)
 	delete(host.records, ready.AccountID)
@@ -343,7 +339,7 @@ func TestLoginReconcileVerifiesHostAgain_whenReadyRecordSurvivedRestart(t *testi
 }
 
 func TestLoginStatusDoesNotClaimReadiness_whenSupportedModelsAreAbsent(t *testing.T) {
-	service, _, _ := loginFixture(t)
+	service, _ := loginFixture(t)
 	base := service.client.Transport
 	service.client.Transport = accountModelsOverride{base: base}
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
@@ -365,7 +361,7 @@ func (transport accountModelsOverride) RoundTrip(request *http.Request) (*http.R
 }
 
 func TestLoginRejectsDifferentReplayWithoutErasingCommit_whenStateAlreadySaved(t *testing.T) {
-	service, host, _ := loginFixture(t)
+	service, host := loginFixture(t)
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	ready := completeFixture(t, service, started)
 	user := uint64(2)
@@ -378,7 +374,7 @@ func TestLoginRejectsDifferentReplayWithoutErasingCommit_whenStateAlreadySaved(t
 }
 
 func TestLoginStatusRequiresFreshHostEvidence_whenHostProjectionDisappears(t *testing.T) {
-	service, host, _ := loginFixture(t)
+	service, host := loginFixture(t)
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	ready := completeFixture(t, service, started)
 	delete(host.records, ready.AccountID)
@@ -405,7 +401,7 @@ func TestLocalStoreKeyConfigurationRejectsConfigEmbeddedKey_whenRegistering(t *t
 }
 
 func TestLocalMaintenanceReusesTargetRevision_whenHostSaveNeverArrived(t *testing.T) {
-	service, host, _ := loginFixture(t)
+	service, host := loginFixture(t)
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	ready := completeFixture(t, service, started)
 	base := service.host
@@ -436,7 +432,7 @@ func TestLocalMaintenanceReusesTargetRevision_whenHostSaveNeverArrived(t *testin
 }
 
 func TestLoginReconcileRestoresCapturedCanonicalPolicy_whenHostRevisionMatchesButPolicyIsMissing(t *testing.T) {
-	service, host, _ := loginFixture(t)
+	service, host := loginFixture(t)
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	ready := completeFixture(t, service, started)
 	record, err := service.parseStorage(host.records[ready.AccountID], true)
@@ -458,37 +454,8 @@ func TestLoginReconcileRestoresCapturedCanonicalPolicy_whenHostRevisionMatchesBu
 	}
 }
 
-func TestLegacyReferenceReplacementRemainsExecutable_whenAccountWasPreviouslyUsed(t *testing.T) {
-	service, host, vault := loginFixture(t)
-	record := recordFixture(t, "a")
-	replacement := recordFixture(t, "b")
-	host.records[record.ID] = jsonFixture(t, record)
-	vault.tokens[record.TokenRef] = sessionToken{encodedToken("test-old")}
-	vault.tokens[replacement.TokenRef] = sessionToken{encodedToken("test-new")}
-	execute := func() envelope {
-		return invoke(t, service, "executor.execute", executorRequest{AuthID: record.ID, AuthProvider: provider, Model: flashModel, Format: "gemini", Payload: []byte(`{"contents":[{"parts":[{"text":"fixture"}]}]}`), StorageJSON: host.records[record.ID]})
-	}
-	if result := execute(); !result.OK {
-		t.Fatalf("initial legacy request: %+v", result.Error)
-	}
-	_, err := service.registerAccount(t.Context(), managementRequest{HostCallbackID: "fixture-legacy", Body: jsonFixture(t, struct {
-		Label      string `json:"label"`
-		TokenRef   string `json:"token_ref"`
-		ExistingID string `json:"existing_id"`
-	}{"Replacement", replacement.TokenRef, record.ID})})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	result := execute()
-
-	if !result.OK {
-		t.Fatalf("legacy replacement no longer executable: %+v", result.Error)
-	}
-}
-
 func TestLoginCapacityIncludesDurablePendingFlow_whenFreshServiceRegisters(t *testing.T) {
-	service, host, _ := loginFixture(t)
+	service, host := loginFixture(t)
 	host.loseResponse = true
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	if flow := completeFixture(t, service, started); flow.Status != loginHostPending {

@@ -92,10 +92,6 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	} else {
 		defer lease.guard.RUnlock()
 	}
-	local := localReferencePattern.MatchString(record.TokenRef)
-	if binding, bound := service.settings().MaintenanceSources[record.ID]; bound && binding.TokenRef != record.TokenRef && !local {
-		return nil, executionFailure(request.Model, failure(409, "binding_mismatch"))
-	}
 	_, token, err := service.resolve(ctx, request.StorageJSON, request.AuthID)
 	if err != nil {
 		return nil, executionFailure(request.Model, err)
@@ -104,11 +100,7 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 		if lease.snapshot().state == maintenanceHostPending {
 			return nil, executionFailure(request.Model, failure(409, "host_sync_pending"))
 		}
-		if local {
-			token, err = service.renewLocalSession(ctx, request.HostCallbackID, record)
-		} else {
-			token, err = service.renewForVideo(ctx, record, token)
-		}
+		token, err = service.renewLocalSession(ctx, request.HostCallbackID, record)
 		if err != nil {
 			return nil, executionFailure(request.Model, err)
 		}
@@ -147,7 +139,7 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	if err != nil {
 		return nil, err
 	}
-	if exclusive && local {
+	if exclusive {
 		if err := service.localSubmission(record, localSubmitting); err != nil {
 			return nil, executionFailure(request.Model, err)
 		}
@@ -172,10 +164,8 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 			lease.set(credentialState{state: maintenanceOperator, errCode: "submission_outcome_unknown"})
 			return nil, executionFailure(request.Model, err)
 		}
-		if local {
-			if err := service.localSubmission(record, localReady); err != nil {
-				return nil, executionFailure(request.Model, err)
-			}
+		if err := service.localSubmission(record, localReady); err != nil {
+			return nil, executionFailure(request.Model, err)
 		}
 	}
 	if stream {

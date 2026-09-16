@@ -42,8 +42,6 @@ func TestAfterInterceptorGuardsOmni_whenAuthSelectsActualModel(t *testing.T) {
 				t.Fatal("interceptor invoked host callback")
 				return nil, nil
 			})
-			store := &memorySecrets{}
-			service.secrets = store
 			request := struct {
 				SourceFormat, ToFormat, RequestedModel, Model string
 				Stream                                        bool
@@ -69,9 +67,6 @@ func TestAfterInterceptorGuardsOmni_whenAuthSelectsActualModel(t *testing.T) {
 			}
 			if scenario.terminate && (response.StatusCode != 400 || !json.Valid(response.ResponseBody) || response.ResponseHeaders.Get("Content-Type") != "application/json") {
 				t.Fatalf("missing safe termination: %s", result.Result)
-			}
-			if len(store.reads) != 0 || store.writes != 0 {
-				t.Fatal("interceptor accessed secret store")
 			}
 		})
 	}

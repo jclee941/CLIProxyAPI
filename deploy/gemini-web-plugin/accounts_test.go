@@ -62,8 +62,7 @@ func accountHostScoped(t *testing.T, records []storageRecord, scope string) host
 func TestAccountsListIsolatesSessions_andReportsExpiredTruthfully(t *testing.T) {
 	first, second := recordFixture(t, "a"), recordFixture(t, "b")
 	service := newService(accountHost(t, []storageRecord{first, second}))
-	store := &memorySecrets{tokens: map[string]sessionToken{first.TokenRef: {encodedToken("test-first")}, second.TokenRef: {encodedToken("test-second")}}}
-	service.secrets = store
+	seedSessions(t, service, map[string]sessionToken{first.TokenRef: {encodedToken("test-first")}, second.TokenRef: {encodedToken("test-second")}})
 	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
 		switch request.Header.Get("x-goog-api-key") {
 		case encodedToken("test-first"):
@@ -100,7 +99,7 @@ func TestAccountsListIsolatesSessions_andReportsExpiredTruthfully(t *testing.T) 
 	if body.Accounts[1].Status != "expired" || body.Accounts[1].Usage != nil || len(body.Accounts[1].Models) != 0 {
 		t.Fatal("expired account inherited another account's data")
 	}
-	if len(store.reads) != 2 || store.reads[0] == store.reads[1] || strings.Contains(string(response.Body), "op://") || strings.Contains(string(response.Body), "untrusted-upstream-text") {
+	if strings.Contains(string(response.Body), "untrusted-upstream-text") {
 		t.Fatal("account isolation failed")
 	}
 }
@@ -108,8 +107,7 @@ func TestAccountsListIsolatesSessions_andReportsExpiredTruthfully(t *testing.T) 
 func TestRefreshUsesOnlySelectedAccount(t *testing.T) {
 	first, second := recordFixture(t, "a"), recordFixture(t, "b")
 	service := newService(accountHost(t, []storageRecord{first, second}))
-	store := &memorySecrets{tokens: map[string]sessionToken{second.TokenRef: {encodedToken("test-second")}}}
-	service.secrets = store
+	seedSessions(t, service, map[string]sessionToken{second.TokenRef: {encodedToken("test-second")}})
 	localSidecar(t, service, func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(401)
 		writeFixture(t, writer, `{}`)
@@ -125,7 +123,7 @@ func TestRefreshUsesOnlySelectedAccount(t *testing.T) {
 	if err := json.Unmarshal(response.Body, &view); err != nil {
 		t.Fatal(err)
 	}
-	if view.ID != second.ID || view.Status != "expired" || len(store.reads) != 1 || store.reads[0] != second.TokenRef {
+	if view.ID != second.ID || view.Status != "expired" {
 		t.Fatal("refresh changed accounts")
 	}
 }

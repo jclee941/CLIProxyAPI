@@ -112,14 +112,12 @@ func (host *loginHostFixture) call(method string, raw []byte) ([]byte, error) {
 	return json.Marshal(envelope{OK: true, Result: result})
 }
 
-func loginFixture(t *testing.T) (*service, *loginHostFixture, *memorySecrets) {
+func loginFixture(t *testing.T) (*service, *loginHostFixture) {
 	t.Helper()
 	t.Setenv("GEMINI_WEB_SESSION_KEY", sessionKeyFixture())
 	host := &loginHostFixture{records: make(map[string]json.RawMessage)}
 	service := newService(host.call)
 	host.service = service
-	vault := &memorySecrets{tokens: make(map[string]sessionToken)}
-	service.secrets = vault
 	config := fmt.Sprintf("session_dir: %s\nmanager_origin: https://manager.example\nbrowser_extension_id: %s\n", filepath.Join(t.TempDir(), "sessions"), strings.Repeat("a", 32))
 	registered := invoke(t, service, "plugin.register", struct {
 		ConfigYAML []byte `json:"config_yaml"`
@@ -151,7 +149,7 @@ func loginFixture(t *testing.T) (*service, *loginHostFixture, *memorySecrets) {
 			writer.WriteHeader(404)
 		}
 	})
-	return service, host, vault
+	return service, host
 }
 
 func loginCall(t *testing.T, service *service, operation string, body []byte) (loginView, int) {
@@ -179,7 +177,7 @@ func completeFixture(t *testing.T, service *service, started loginView) loginVie
 }
 
 func TestLoginHandoffSavesAndExecutesWithoutVault_whenIdentityVerified(t *testing.T) {
-	service, host, vault := loginFixture(t)
+	service, host := loginFixture(t)
 	started, status := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	if status != 200 || started.Status != loginPending || len(started.State) != 64 {
 		t.Fatalf("start: %+v", started)
@@ -207,13 +205,10 @@ func TestLoginHandoffSavesAndExecutesWithoutVault_whenIdentityVerified(t *testin
 			t.Fatalf("%s failed: %+v", model, result.Error)
 		}
 	}
-	if len(vault.reads) != 0 || vault.writes != 0 {
-		t.Fatal("local flow reached Vault")
-	}
 }
 
 func TestLoginReconcileDoesNotRepeatSave_whenAcknowledgementLost(t *testing.T) {
-	service, host, _ := loginFixture(t)
+	service, host := loginFixture(t)
 	host.loseResponse = true
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	committed := completeFixture(t, service, started)
@@ -237,7 +232,7 @@ func TestLoginReconcileDoesNotRepeatSave_whenAcknowledgementLost(t *testing.T) {
 func TestLoginRejectsExpiredAndCancelledState_whenCompletionArrives(t *testing.T) {
 	for _, operation := range []string{"expire", "cancel"} {
 		t.Run(operation, func(t *testing.T) {
-			service, host, vault := loginFixture(t)
+			service, host := loginFixture(t)
 			now := time.Unix(1800000000, 0)
 			service.now = func() time.Time { return now }
 			started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
@@ -254,7 +249,7 @@ func TestLoginRejectsExpiredAndCancelledState_whenCompletionArrives(t *testing.T
 			if view.Status != loginExpired && view.Status != loginCancelled {
 				t.Fatalf("state=%s", view.Status)
 			}
-			if host.saves != 0 || len(vault.reads) != 0 || vault.writes != 0 {
+			if host.saves != 0 {
 				t.Fatal("terminal state wrote credentials")
 			}
 		})

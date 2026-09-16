@@ -8,7 +8,7 @@ import (
 )
 
 func TestBoundOmniRejectsWrongIdentity_beforeCookieRotation(t *testing.T) {
-	service, store, record, _ := maintenanceFixture(t)
+	service, record, _ := maintenanceFixture(t)
 	auth, err := authFromRecord(*record)
 	if err != nil {
 		t.Fatal(err)
@@ -32,24 +32,9 @@ func TestBoundOmniRejectsWrongIdentity_beforeCookieRotation(t *testing.T) {
 		}
 	})
 
-	result := invoke(t, service, "executor.execute", executorRequest{AuthID: record.ID, AuthProvider: provider, Model: omniModel, Format: "gemini", SourceFormat: "gemini", Payload: []byte(`{"contents":[{"parts":[{"text":"video"}]}]}`), StorageJSON: auth.StorageJSON, AuthMetadata: auth.Metadata})
+	result := invoke(t, service, "executor.execute", executorRequest{AuthID: record.ID, AuthProvider: provider, Model: omniModel, Format: "gemini", SourceFormat: "gemini", Payload: []byte(`{"contents":[{"parts":[{"text":"video"}]}]}`), StorageJSON: auth.StorageJSON, AuthMetadata: auth.Metadata, HostCallbackID: "scope-list"})
 
-	if result.OK || rotations.Load() != 0 || submissions.Load() != 0 || store.writes != 0 {
+	if result.OK || rotations.Load() != 0 || submissions.Load() != 0 {
 		t.Fatal("bound Omni rotated or submitted the wrong Google account")
-	}
-}
-
-func TestBoundFlashRejectsReboundReference_beforeCredentialResolution(t *testing.T) {
-	service, store, record, _ := maintenanceFixture(t)
-	record.TokenRef = recordFixture(t, "b").TokenRef
-	auth, err := authFromRecord(*record)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	result := invoke(t, service, "executor.execute", executorRequest{AuthID: record.ID, AuthProvider: provider, Model: flashModel, Format: "gemini", Payload: []byte(`{}`), StorageJSON: auth.StorageJSON})
-
-	if result.OK || result.Error.Code != "binding_mismatch" || len(store.reads) != 0 {
-		t.Fatal("bound Flash resolved another reference")
 	}
 }

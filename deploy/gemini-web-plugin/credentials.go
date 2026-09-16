@@ -11,9 +11,7 @@ import (
 )
 
 type sessionToken struct{ value string }
-type secretReference struct{ item, value string }
 
-var itemIDPattern = regexp.MustCompile(`^[a-z0-9]{26}$`)
 var accountIDPattern = regexp.MustCompile(`^gemini-web-[a-z0-9-]+\.json$`)
 
 func parseToken(raw string) (sessionToken, error) {
@@ -39,18 +37,6 @@ func parseToken(raw string) (sessionToken, error) {
 		}
 	}
 	return sessionToken{value: raw}, nil
-}
-
-func parseReference(raw, vault string) (secretReference, error) {
-	prefix := "op://" + vault + "/"
-	if !strings.HasPrefix(raw, prefix) || !strings.HasSuffix(raw, "/web-session") {
-		return secretReference{}, failure(400, "invalid_token_reference")
-	}
-	item := strings.TrimSuffix(strings.TrimPrefix(raw, prefix), "/web-session")
-	if !itemIDPattern.MatchString(item) {
-		return secretReference{}, failure(400, "invalid_token_reference")
-	}
-	return secretReference{item: item, value: raw}, nil
 }
 
 func strictJSON(raw []byte, target interface{}) error {
@@ -131,7 +117,7 @@ func (service *service) parseStorage(raw []byte, strict bool) (storageRecord, er
 	if err != nil || record.Type != provider || !accountIDPattern.MatchString(record.ID) || strings.TrimSpace(record.Label) == "" {
 		return record, failure(400, "invalid_auth_storage")
 	}
-	if _, err := parseCredentialReference(record.TokenRef, service.settings().Vault); err != nil {
+	if _, err := parseCredentialReference(record.TokenRef); err != nil {
 		return record, err
 	}
 	return record, nil

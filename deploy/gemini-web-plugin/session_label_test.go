@@ -30,7 +30,7 @@ func labelCall(t *testing.T, service *service, body string) (labelView, int) {
 }
 
 func TestLabelRenamesAccountWithoutTouchingCredential_whenSessionIsReady(t *testing.T) {
-	service, vault, _, record := localAccountFixture(t, false)
+	service, _, record := localAccountFixture(t, false)
 	before, err := service.localStore().read(record.TokenRef)
 	if err != nil {
 		t.Fatal(err)
@@ -40,9 +40,6 @@ func TestLabelRenamesAccountWithoutTouchingCredential_whenSessionIsReady(t *test
 
 	if status != 200 || view.ID != record.ID || view.Label != "operator@example.com" {
 		t.Fatalf("label status=%d view=%+v", status, view)
-	}
-	if vault.writes != 0 || len(vault.reads) != 0 {
-		t.Fatalf("rename touched the vault: reads=%d writes=%d", len(vault.reads), vault.writes)
 	}
 	local, err := service.localStore().read(record.TokenRef)
 	if err == nil && local.Token != before.Token {
@@ -103,7 +100,7 @@ func TestLabelRejectsUnsafeRequests_beforeWriting(t *testing.T) {
 		{"interrupted_session", `{"id":"ACCOUNT","label":"a@b.com"}`, true, 409, "label_requires_ready_session"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			service, vault, sidecar, record := localAccountFixture(t, scenario.interrupted)
+			service, sidecar, record := localAccountFixture(t, scenario.interrupted)
 			before := sidecar.count()
 			expected := localReady
 			if scenario.interrupted {
@@ -115,8 +112,8 @@ func TestLabelRejectsUnsafeRequests_beforeWriting(t *testing.T) {
 			if status != scenario.status || view.Error != scenario.code {
 				t.Fatalf("status=%d view=%+v want=%d/%s", status, view, scenario.status, scenario.code)
 			}
-			if sidecar.count() != before || vault.writes != 0 {
-				t.Fatalf("unsafe rename reached credentials: calls=%d writes=%d", sidecar.count()-before, vault.writes)
+			if sidecar.count() != before {
+				t.Fatalf("unsafe rename reached credentials: calls=%d", sidecar.count()-before)
 			}
 			local, err := service.localStore().read(record.TokenRef)
 			if err != nil || local.State != expected || local.Target.Label != record.Label {

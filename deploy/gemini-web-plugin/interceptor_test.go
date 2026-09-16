@@ -11,8 +11,6 @@ func TestOmniInterceptorTerminatesNonGeminiRoutes_whenBodyHasGeminiShape(t *test
 	for _, source := range []string{"openai", "openai-response", "claude", "gemini-cli", ""} {
 		t.Run(source, func(t *testing.T) {
 			service := newService(func(string, []byte) ([]byte, error) { t.Fatal("interceptor called host"); return nil, nil })
-			store := &memorySecrets{}
-			service.secrets = store
 			request := struct {
 				SourceFormat, Model string
 				Body                []byte
@@ -34,9 +32,6 @@ func TestOmniInterceptorTerminatesNonGeminiRoutes_whenBodyHasGeminiShape(t *test
 			}
 			if !response.Terminate || response.StatusCode != 400 || !json.Valid(response.ResponseBody) || response.ResponseHeaders.Get("Content-Type") != "application/json" {
 				t.Fatalf("missing safe termination: %s", result.Result)
-			}
-			if len(store.reads) != 0 || store.writes != 0 {
-				t.Fatal("preflight resolved a secret")
 			}
 		})
 	}
@@ -128,8 +123,6 @@ func TestOmniInterceptorAdmitsOpenAIChatRoute_whenSingleUserTurnText(t *testing.
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			service := newService(func(string, []byte) ([]byte, error) { t.Fatal("interceptor called host"); return nil, nil })
-			store := &memorySecrets{}
-			service.secrets = store
 			request := struct {
 				SourceFormat, RequestedModel, Model string
 				Stream                              bool
@@ -147,9 +140,6 @@ func TestOmniInterceptorAdmitsOpenAIChatRoute_whenSingleUserTurnText(t *testing.
 			}
 			if response.Terminate != scenario.terminate {
 				t.Fatalf("wrong openai omni decision: %s", result.Result)
-			}
-			if len(store.reads) != 0 || store.writes != 0 {
-				t.Fatal("preflight resolved a secret")
 			}
 		})
 	}

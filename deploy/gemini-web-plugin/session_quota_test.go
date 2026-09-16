@@ -43,7 +43,7 @@ func TestRegisterDeclaresQuotaProvider_soManagerQuotaRefreshIsWired(t *testing.T
 
 	result := invoke(t, service, "plugin.register", struct {
 		ConfigYAML []byte `json:"config_yaml"`
-	}{[]byte("vault: homelab\n")})
+	}{[]byte("enabled: true\n")})
 
 	if !result.OK {
 		t.Fatalf("register failed: %+v", result.Error)
@@ -60,7 +60,7 @@ func TestRegisterDeclaresQuotaProvider_soManagerQuotaRefreshIsWired(t *testing.T
 }
 
 func TestQuotaIdentifierAndDescribe_reportGeminiWebWithoutReset(t *testing.T) {
-	service, _, _, _ := resolveFixture(t)
+	service, _, _ := resolveFixture(t)
 
 	identity := invoke(t, service, "quota.identifier", struct{}{})
 	described := invoke(t, service, "quota.describe", struct{}{})
@@ -91,7 +91,7 @@ func TestQuotaIdentifierAndDescribe_reportGeminiWebWithoutReset(t *testing.T) {
 }
 
 func TestQuotaFetchMapsMeasuredUsage_whenSessionIsReady(t *testing.T) {
-	service, _, _, record := localAccountFixture(t, false)
+	service, _, record := localAccountFixture(t, false)
 
 	result := quotaFetchFor(t, service, record)
 
@@ -121,7 +121,7 @@ func TestQuotaFetchMapsMeasuredUsage_whenSessionIsReady(t *testing.T) {
 }
 
 func TestQuotaFetchResolvesThroughHostCallback_whenStorageJSONIsAbsent(t *testing.T) {
-	service, _, _, record := localAccountFixture(t, false)
+	service, _, record := localAccountFixture(t, false)
 
 	result := invoke(t, service, "quota.fetch", quotaFetchFixture{AuthID: record.ID, Provider: provider, HostCallbackID: "scope-quota"})
 
@@ -138,7 +138,7 @@ func TestQuotaFetchResolvesThroughHostCallback_whenStorageJSONIsAbsent(t *testin
 }
 
 func TestQuotaFetchFailsClosed_whenSessionIsInterrupted(t *testing.T) {
-	service, _, _, record := localAccountFixture(t, true)
+	service, _, record := localAccountFixture(t, true)
 
 	result := quotaFetchFor(t, service, record)
 

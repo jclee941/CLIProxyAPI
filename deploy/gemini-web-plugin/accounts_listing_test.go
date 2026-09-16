@@ -28,7 +28,7 @@ func listingFixture(t *testing.T, letters []string, handler http.HandlerFunc) (*
 		tokens[record.TokenRef] = sessionToken{encodedToken("test-" + letter)}
 	}
 	service := newService(accountHostScoped(t, records, ""))
-	service.secrets = &memorySecrets{tokens: tokens}
+	seedSessions(t, service, tokens)
 	localSidecar(t, service, handler)
 	return service, records
 }

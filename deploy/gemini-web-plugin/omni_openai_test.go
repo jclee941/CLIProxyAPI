@@ -40,7 +40,7 @@ func TestOmniAcceptsHostTranslatedChatRequest_andRebuildsTheUpstreamBody(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.secrets = &memorySecrets{tokens: map[string]sessionToken{record.TokenRef: {encodedToken("test-video")}}}
+	seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("test-video")}})
 	var submitted []byte
 	omniSidecarFixture(t, service, &submitted)
 
@@ -48,6 +48,7 @@ func TestOmniAcceptsHostTranslatedChatRequest_andRebuildsTheUpstreamBody(t *test
 		AuthID:          record.ID,
 		AuthProvider:    provider,
 		Model:           omniModel,
+		HostCallbackID:  "scope-list",
 		Format:          "gemini",
 		SourceFormat:    "gemini",
 		Payload:         []byte(translatedOmniRequest),
@@ -105,7 +106,7 @@ func TestOmniRejectsUnsupportedChatOriginals_beforeSubmitting(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			service.secrets = &memorySecrets{tokens: map[string]sessionToken{record.TokenRef: {encodedToken("test-video")}}}
+			seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("test-video")}})
 			var submitted []byte
 			omniSidecarFixture(t, service, &submitted)
 
@@ -113,6 +114,7 @@ func TestOmniRejectsUnsupportedChatOriginals_beforeSubmitting(t *testing.T) {
 				AuthID:          record.ID,
 				AuthProvider:    provider,
 				Model:           omniModel,
+				HostCallbackID:  "scope-list",
 				Format:          "gemini",
 				SourceFormat:    "gemini",
 				Payload:         []byte(translatedOmniRequest),

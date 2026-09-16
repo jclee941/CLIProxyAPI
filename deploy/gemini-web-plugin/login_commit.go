@@ -110,26 +110,23 @@ func (service *service) commitLogin(ctx context.Context, callbackID string, comm
 		if latest.TokenRef != record.TokenRef || latest.SessionRevision != record.SessionRevision {
 			return flow, failure(409, "credential_changed")
 		}
-		trusted, binding, err := service.loginIdentity(latest)
+		trusted, err := service.loginIdentity(latest)
 		if err != nil {
 			return flow, err
 		}
-		if trusted != identity || !reflect.DeepEqual(binding, flow.Binding) {
+		if trusted != identity {
 			return flow, failure(409, "binding_mismatch")
 		}
 		record, local.Previous = latest, latest
-		if localReferencePattern.MatchString(record.TokenRef) {
-			previous, err := service.localStore().read(record.TokenRef)
-			if err != nil {
-				return flow, err
-			}
-			if previous.State != localReady {
-				return flow, failure(409, "session_requires_reconciliation")
-			}
-			local.LegacyRef, local.LegacyGUID, local.LegacyUserBound = previous.LegacyRef, previous.LegacyGUID, previous.LegacyUserBound
-		} else {
-			local.LegacyRef, local.LegacyGUID, local.LegacyUserBound = binding.TokenRef, binding.ProfileGUID, binding.AuthUser != nil
+		// loginIdentity already refused anything but a local session reference.
+		previous, err := service.localStore().read(record.TokenRef)
+		if err != nil {
+			return flow, err
 		}
+		if previous.State != localReady {
+			return flow, failure(409, "session_requires_reconciliation")
+		}
+		local.LegacyRef, local.LegacyGUID, local.LegacyUserBound = previous.LegacyRef, previous.LegacyGUID, previous.LegacyUserBound
 	}
 	if !localReferencePattern.MatchString(record.TokenRef) {
 		var random [16]byte

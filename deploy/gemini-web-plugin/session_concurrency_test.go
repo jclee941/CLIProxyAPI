@@ -25,128 +25,6 @@ func (gate *sessionWireGate) RoundTrip(request *http.Request) (*http.Response, e
 	return gate.base.RoundTrip(request)
 }
 
-func TestLoginMigrationRejectsLateLegacyModelPublication_whenModelInspectionWasInFlight(t *testing.T) {
-	service, _, vault, record := boundLegacyFixture(t)
-	old := sessionToken{encodedToken("test-older-model-session")}
-	vault.tokens[record.TokenRef] = old
-	gate := &sessionWireGate{base: service.client.Transport, path: "/v1/account-models", token: old.value, entered: make(chan struct{}), release: make(chan struct{})}
-	service.client.Transport = gate
-	var release sync.Once
-	unblock := func() { release.Do(func() { close(gate.release) }) }
-	t.Cleanup(unblock)
-	finished := make(chan error, 1)
-	raw := jsonFixture(t, struct {
-		AuthID, AuthProvider string
-		StorageJSON          []byte
-	}{record.ID, provider, jsonFixture(t, record)})
-	go func() { _, err := service.authOperation(context.Background(), "model.for_auth", raw); finished <- err }()
-	<-gate.entered
-	started, _ := loginCall(t, service, "start", jsonFixture(t, struct {
-		Label      string `json:"label"`
-		ExistingID string `json:"existing_id"`
-		Consent    bool   `json:"consent"`
-	}{"Relogin", record.ID, true}))
-	ready := completeFixture(t, service, started)
-	if ready.Status != loginReady {
-		t.Fatalf("migration=%s error=%s", ready.Status, ready.Error)
-	}
-
-	unblock()
-	err := <-finished
-
-	if safeCredentialCode(err) != "credential_changed" {
-		t.Fatalf("late legacy model publication accepted: %v", err)
-	}
-}
-
-func boundLegacyFixture(t *testing.T) (*service, *loginHostFixture, *memorySecrets, storageRecord) {
-	t.Helper()
-	service, host, vault := loginFixture(t)
-	record := recordFixture(t, "a")
-	host.records[record.ID] = jsonFixture(t, record)
-	user := uint64(2)
-	service.config.MaintenanceSources = map[string]maintenanceSource{record.ID: {TokenRef: record.TokenRef, ProfileGUID: "00000000-0000-4000-8000-000000000001", ExpectedGaiaSHA256: testAccountDigest, AuthUser: &user}}
-	vault.tokens[record.TokenRef] = sessionToken{encodedToken("test-login")}
-	return service, host, vault, record
-}
-
-func TestLoginMigrationSerializesWithGeneration_whenLegacyRequestIsInFlight(t *testing.T) {
-	for _, model := range []string{flashModel, omniModel} {
-		t.Run(model, func(t *testing.T) {
-			service, host, _, record := boundLegacyFixture(t)
-			path := "/v1/account-models"
-			if model == omniModel {
-				path = "/v1/session/renew"
-			}
-			gate := &sessionWireGate{base: service.client.Transport, path: path, entered: make(chan struct{}), release: make(chan struct{})}
-			service.client.Transport = gate
-			var release sync.Once
-			unblock := func() { release.Do(func() { close(gate.release) }) }
-			t.Cleanup(unblock)
-			auth, err := authFromRecord(record)
-			if err != nil {
-				t.Fatal(err)
-			}
-			request := executorRequest{AuthID: record.ID, AuthProvider: provider, Model: model, Format: "gemini", SourceFormat: "gemini", Payload: []byte(`{"contents":[{"parts":[{"text":"fixture"}]}]}`), StorageJSON: auth.StorageJSON, AuthMetadata: auth.Metadata}
-			raw := jsonFixture(t, request)
-			finished := make(chan []byte, 1)
-			go func() { finished <- service.handle(context.Background(), "executor.execute", raw) }()
-			<-gate.entered
-			started, status := loginCall(t, service, "start", jsonFixture(t, struct {
-				Label      string `json:"label"`
-				ExistingID string `json:"existing_id"`
-				Consent    bool   `json:"consent"`
-			}{"Relogin", record.ID, true}))
-			if status != 200 {
-				t.Fatalf("start=%d", status)
-			}
-
-			view := completeFixture(t, service, started)
-
-			if view.Status != loginError || view.Error != "session_busy" || host.saves != 0 {
-				t.Fatalf("migration crossed generation lease: %+v", view)
-			}
-			unblock()
-			<-finished
-		})
-	}
-}
-
-func TestLoginMigrationRejectsLateLegacyCachePublication_whenBackingReadWasAlreadyRunning(t *testing.T) {
-	service, _, vault, record := boundLegacyFixture(t)
-	paused := &pausedSecrets{memorySecrets: vault, entered: make(chan struct{}), release: make(chan struct{})}
-	service.secrets = paused
-	var release sync.Once
-	unblock := func() { release.Do(func() { close(paused.release) }) }
-	t.Cleanup(unblock)
-	finished := make(chan error, 1)
-	reference, err := parseReference(record.TokenRef, "homelab")
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() { _, err := service.resolveCredential(context.Background(), reference, false); finished <- err }()
-	<-paused.entered
-	started, _ := loginCall(t, service, "start", jsonFixture(t, struct {
-		Label      string `json:"label"`
-		ExistingID string `json:"existing_id"`
-		Consent    bool   `json:"consent"`
-	}{"Relogin", record.ID, true}))
-	view := completeFixture(t, service, started)
-	if view.Status != loginReady {
-		t.Fatalf("migration=%s error=%s", view.Status, view.Error)
-	}
-
-	unblock()
-	err = <-finished
-
-	if safeCredentialCode(err) != "credential_changed" {
-		t.Fatalf("late legacy credential published: %v", err)
-	}
-	if _, err := service.resolveCredential(t.Context(), reference, false); safeCredentialCode(err) != "credential_changed" {
-		t.Fatal("retired reference resolved again")
-	}
-}
-
 type sessionIntentObserver struct {
 	base      http.RoundTripper
 	store     *sessionStore
@@ -189,7 +67,7 @@ func (observer *sessionIntentObserver) RoundTrip(request *http.Request) (*http.R
 func TestLocalOmniPersistsIntentBeforeWireAndRetainsAmbiguity_whenUpstreamFails(t *testing.T) {
 	for _, path := range []string{"/v1/session/renew", "/v1beta/models/gemini-web-omni:generateContent"} {
 		t.Run(path, func(t *testing.T) {
-			service, host, _ := loginFixture(t)
+			service, host := loginFixture(t)
 			started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 			ready := completeFixture(t, service, started)
 			record, err := service.parseStorage(host.records[ready.AccountID], true)
@@ -235,7 +113,7 @@ func TestLocalOmniPersistsIntentBeforeWireAndRetainsAmbiguity_whenUpstreamFails(
 }
 
 func TestLocalOmniStopsAfterDurableRenewal_whenHostDisablesAccountDuringSave(t *testing.T) {
-	service, host, _ := loginFixture(t)
+	service, host := loginFixture(t)
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	ready := completeFixture(t, service, started)
 	record, err := service.parseStorage(host.records[ready.AccountID], true)
@@ -275,7 +153,7 @@ func TestLocalOmniStopsAfterDurableRenewal_whenHostDisablesAccountDuringSave(t *
 }
 
 func TestLoginCancellationPreventsCommit_whenIdentityInspectionIsProcessing(t *testing.T) {
-	service, host, vault := loginFixture(t)
+	service, host := loginFixture(t)
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	gate := &sessionWireGate{base: service.client.Transport, path: "/v1/session/inspect", entered: make(chan struct{}), release: make(chan struct{})}
 	service.client.Transport = gate
@@ -301,7 +179,7 @@ func TestLoginCancellationPreventsCommit_whenIdentityInspectionIsProcessing(t *t
 	view, status = loginCall(t, service, "status", jsonFixture(t, struct {
 		State string `json:"state"`
 	}{started.State}))
-	if status != 200 || view.Status != loginCancelled || host.saves != 0 || vault.writes != 0 {
+	if status != 200 || view.Status != loginCancelled || host.saves != 0 {
 		t.Fatal("cancelled handoff committed after inspection completed")
 	}
 }

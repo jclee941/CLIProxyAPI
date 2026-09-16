@@ -24,7 +24,7 @@ func (observer sessionModelObserver) RoundTrip(request *http.Request) (*http.Res
 func TestLocalModelsUseCommittedRevision_whenHostSaveMarkerClosedBeforeWriterRelease(t *testing.T) {
 	for _, phase := range []localState{localHostPending, localReady} {
 		t.Run(string(phase), func(t *testing.T) {
-			service, _, vault := loginFixture(t)
+			service, _ := loginFixture(t)
 			started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 			base := service.host
 			var target storageRecord
@@ -90,7 +90,7 @@ func TestLocalModelsUseCommittedRevision_whenHostSaveMarkerClosedBeforeWriterRel
 
 			view := completeFixture(t, service, started)
 
-			if view.Status != loginReady || !observed || len(vault.reads) != 0 || vault.writes != 0 {
+			if view.Status != loginReady || !observed {
 				t.Fatalf("writer did not finish read-only callback: status=%s observed=%t", view.Status, observed)
 			}
 		})
@@ -100,7 +100,7 @@ func TestLocalModelsUseCommittedRevision_whenHostSaveMarkerClosedBeforeWriterRel
 func TestLocalModelsDiscardEntitlements_whenSnapshotChangesDuringHTTP(t *testing.T) {
 	for _, change := range []string{"revision", "token", "state", "renewal_intent", "submission_intent", "durability", "operator", "fence"} {
 		t.Run(change, func(t *testing.T) {
-			service, _, _ := loginFixture(t)
+			service, _ := loginFixture(t)
 			local := localRecordFixture(t)
 			local.State = localReady
 			store := service.localStore()
@@ -159,7 +159,7 @@ func TestLocalModelsDiscardEntitlements_whenSnapshotChangesDuringHTTP(t *testing
 func TestLocalModelsRejectUncertainSnapshotBeforeHTTP_whenCommittedStateIsUnsafe(t *testing.T) {
 	for _, state := range []localState{localRenewing, localSubmitting} {
 		t.Run(string(state), func(t *testing.T) {
-			service, _, _ := loginFixture(t)
+			service, _ := loginFixture(t)
 			local := localRecordFixture(t)
 			local.State = state
 			if err := service.localStore().write(local); err != nil {

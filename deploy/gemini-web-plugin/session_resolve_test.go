@@ -51,9 +51,9 @@ func rejectionFixture(t *testing.T, writer http.ResponseWriter, status int, body
 	}
 }
 
-func resolveFixture(t *testing.T) (*service, *loginHostFixture, *memorySecrets, *resolveSidecar) {
+func resolveFixture(t *testing.T) (*service, *loginHostFixture, *resolveSidecar) {
 	t.Helper()
-	service, host, vault := loginFixture(t)
+	service, host := loginFixture(t)
 	sidecar := &resolveSidecar{mode: "healthy"}
 	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
 		mode := sidecar.observe()
@@ -82,12 +82,12 @@ func resolveFixture(t *testing.T) (*service, *loginHostFixture, *memorySecrets, 
 			writer.WriteHeader(404)
 		}
 	})
-	return service, host, vault, sidecar
+	return service, host, sidecar
 }
 
-func localAccountFixture(t *testing.T, interrupted bool) (*service, *memorySecrets, *resolveSidecar, storageRecord) {
+func localAccountFixture(t *testing.T, interrupted bool) (*service, *resolveSidecar, storageRecord) {
 	t.Helper()
-	service, host, vault, sidecar := resolveFixture(t)
+	service, host, sidecar := resolveFixture(t)
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	ready := completeFixture(t, service, started)
 	record, err := service.parseStorage(host.records[ready.AccountID], true)
@@ -108,7 +108,7 @@ func localAccountFixture(t *testing.T, interrupted bool) (*service, *memorySecre
 	if err != nil || local.State != expected {
 		t.Fatalf("fixture state=%s want=%s err=%v", local.State, expected, err)
 	}
-	return service, vault, sidecar, record
+	return service, sidecar, record
 }
 
 func resolveCall(t *testing.T, service *service, body string) (resolveView, int) {
@@ -128,7 +128,7 @@ func resolveCall(t *testing.T, service *service, body string) (resolveView, int)
 }
 
 func TestResolveReleasesInterruptedRenewal_whenStoredCredentialRemainsValid(t *testing.T) {
-	service, vault, _, record := localAccountFixture(t, true)
+	service, _, record := localAccountFixture(t, true)
 
 	view, status := resolveCall(t, service, `{"id":"`+record.ID+`","consent":true}`)
 
@@ -143,13 +143,10 @@ func TestResolveReleasesInterruptedRenewal_whenStoredCredentialRemainsValid(t *t
 	if len(resumed.Results) != 1 || resumed.Results[0].State != maintenanceReady {
 		t.Fatalf("account did not resume maintenance: %+v", resumed.Results)
 	}
-	if vault.writes != 0 || len(vault.reads) != 0 {
-		t.Fatalf("local resolve touched the vault: reads=%d writes=%d", len(vault.reads), vault.writes)
-	}
 }
 
 func TestResolveKeepsInterruptedState_whenProbeOutcomeStaysUnknown(t *testing.T) {
-	service, vault, sidecar, record := localAccountFixture(t, true)
+	service, sidecar, record := localAccountFixture(t, true)
 	sidecar.set("probe_unknown")
 
 	view, status := resolveCall(t, service, `{"id":"`+record.ID+`","consent":true}`)
@@ -161,13 +158,10 @@ func TestResolveKeepsInterruptedState_whenProbeOutcomeStaysUnknown(t *testing.T)
 	if err != nil || local.State != localRenewing {
 		t.Fatalf("ambiguous probe changed state: state=%s err=%v", local.State, err)
 	}
-	if vault.writes != 0 {
-		t.Fatal("ambiguous resolve wrote a credential")
-	}
 }
 
 func TestResolveFencesRejectedCredential_whenProbeFailsAuthentication(t *testing.T) {
-	service, vault, sidecar, record := localAccountFixture(t, true)
+	service, sidecar, record := localAccountFixture(t, true)
 	sidecar.set("probe_rejected")
 
 	view, status := resolveCall(t, service, `{"id":"`+record.ID+`","consent":true}`)
@@ -182,9 +176,6 @@ func TestResolveFencesRejectedCredential_whenProbeFailsAuthentication(t *testing
 	state := service.leases.get(record.TokenRef).snapshot()
 	if state.state != maintenanceCooldown || state.errCode != "auth_error" {
 		t.Fatalf("lease not fenced: %+v", state)
-	}
-	if vault.writes != 0 {
-		t.Fatal("rejected resolve wrote a credential")
 	}
 }
 
@@ -206,7 +197,7 @@ func TestResolveRejectsUnsafeRequests_beforeProbingCredential(t *testing.T) {
 		{"uninterrupted_account", `{"id":"ACCOUNT","consent":true}`, false, 409, "resolve_requires_interrupted_operation"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			service, vault, sidecar, record := localAccountFixture(t, scenario.interrupted)
+			service, sidecar, record := localAccountFixture(t, scenario.interrupted)
 			before := sidecar.count()
 			expected := localReady
 			if scenario.interrupted {
@@ -218,8 +209,8 @@ func TestResolveRejectsUnsafeRequests_beforeProbingCredential(t *testing.T) {
 			if status != scenario.status || view.Error != scenario.code {
 				t.Fatalf("status=%d view=%+v want=%d/%s", status, view, scenario.status, scenario.code)
 			}
-			if sidecar.count() != before || vault.writes != 0 {
-				t.Fatalf("unsafe request reached the credential path: calls=%d writes=%d", sidecar.count()-before, vault.writes)
+			if sidecar.count() != before {
+				t.Fatalf("unsafe request reached the credential path: calls=%d", sidecar.count()-before)
 			}
 			local, err := service.localStore().read(record.TokenRef)
 			if err != nil || local.State != expected {

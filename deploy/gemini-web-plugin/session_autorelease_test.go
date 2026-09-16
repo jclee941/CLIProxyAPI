@@ -27,7 +27,7 @@ func listFirstAccount(t *testing.T, service *service) accountView {
 }
 
 func TestListingReleasesInterruptedSession_whenProbeIsDefinitive(t *testing.T) {
-	service, _, _, record := localAccountFixture(t, true)
+	service, _, record := localAccountFixture(t, true)
 
 	view := listFirstAccount(t, service)
 
@@ -50,7 +50,7 @@ func TestListingReleasesInterruptedSession_whenProbeIsDefinitive(t *testing.T) {
 }
 
 func TestListingKeepsInterruptedSession_whenProbeIsAmbiguous(t *testing.T) {
-	service, _, sidecar, record := localAccountFixture(t, true)
+	service, sidecar, record := localAccountFixture(t, true)
 	sidecar.set("probe_unknown")
 
 	view := listFirstAccount(t, service)
@@ -71,7 +71,7 @@ func TestListingKeepsInterruptedSession_whenProbeIsAmbiguous(t *testing.T) {
 }
 
 func TestListingReportsEarlierRecovery_whenAlreadyReleased(t *testing.T) {
-	service, _, _, record := localAccountFixture(t, true)
+	service, _, record := localAccountFixture(t, true)
 
 	first := listFirstAccount(t, service)
 	second := listFirstAccount(t, service)

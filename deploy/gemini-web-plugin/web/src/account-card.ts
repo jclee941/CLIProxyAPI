@@ -51,6 +51,7 @@ export type CardActions = {
   readonly login: (account: Account) => void;
   readonly update: (account: Account) => void;
   readonly refresh: (account: Account) => void;
+  readonly recover: (account: Account) => void;
 };
 
 export function accountCard(account: Account, state: CardState, actions: CardActions): HTMLElement {
@@ -132,6 +133,13 @@ export function accountCard(account: Account, state: CardState, actions: CardAct
   if (state.pending === '확인 중') refresh.classList.add('is-loading');
   update.disabled = state.locked;
   refresh.disabled = state.locked;
+  if (account.error === 'needs_operator') {
+    const recover = button('중단된 작업 복구', () => actions.recover(account));
+    recover.id = `recover-${account.id}`;
+    recover.setAttribute('aria-label', `${account.label} 중단된 작업 복구`);
+    recover.disabled = state.locked;
+    controls.append(recover);
+  }
   controls.append(login, update, refresh);
   footer.append(controls);
   card.append(footer);

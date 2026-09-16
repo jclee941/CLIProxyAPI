@@ -5,9 +5,9 @@ import "testing"
 func TestRegistrationAcceptsHostMetadata(t *testing.T) {
 	for _, method := range []string{"plugin.register", "plugin.reconfigure"} {
 		for name, config := range map[string]string{
-			"enabled":  "enabled: true\nvault: homelab\n",
-			"priority": "priority: 4\nvault: homelab\n",
-			"both":     "enabled: true\npriority: 4\nvault: homelab\n",
+			"enabled":  "enabled: true\n",
+			"priority": "priority: 4\n",
+			"both":     "enabled: true\npriority: 4\n",
 		} {
 			t.Run(method+"/"+name, func(t *testing.T) {
 				service := newService(nil)
@@ -20,7 +20,7 @@ func TestRegistrationAcceptsHostMetadata(t *testing.T) {
 				if !result.OK {
 					t.Fatalf("host configuration rejected: %+v", result.Error)
 				}
-				if service.settings().Vault != "homelab" {
+				if service.settings().DashboardPath != "/CLIProxyAPI/plugins/gemini-web/index.html" {
 					t.Fatal("host metadata changed the provider configuration")
 				}
 			})

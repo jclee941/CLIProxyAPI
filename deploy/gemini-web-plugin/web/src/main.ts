@@ -1,5 +1,5 @@
 import { accountCard } from './account-card';
-import { listAccounts, PluginApiError, refreshAccount, saveAccount, userMessage } from './api';
+import { listAccounts, PluginApiError, recoverAccount, refreshAccount, saveAccount, userMessage } from './api';
 import { HostAuthError, saveOperatorKey } from './auth';
 import { readHostRequest } from './host-request';
 import type { Account, AccountId, SaveAccount } from './contract';
@@ -106,6 +106,7 @@ function render(): void {
     login: (selected) => loginPanel.open(selected),
     update: (selected) => openTokenDialog(selected, save),
     refresh: (selected) => void refresh([selected.id]),
+    recover: (selected) => void recover(selected.id),
   })));
   if (focusedId && !document.querySelector('dialog[open]')) document.getElementById(focusedId)?.focus();
 }
@@ -154,6 +155,24 @@ async function save(payload: SaveAccount): Promise<void> {
     saving = false;
     render();
   }
+}
+
+async function recover(id: AccountId): Promise<void> {
+  if (refreshing || loading || saving || authBlocked || loginActive) return;
+  pending.set(id, '복구 중');
+  errors.delete(id);
+  render();
+  try {
+    await recoverAccount(id);
+    notice.textContent = '중단된 작업을 복구했습니다.';
+  } catch (error) {
+    if (isAuthError(error)) authBlocked = true;
+    errors.set(id, userMessage(error));
+  } finally {
+    pending.delete(id);
+    render();
+  }
+  if (!authBlocked) await refresh([id]);
 }
 
 async function refresh(ids: readonly AccountId[]): Promise<void> {

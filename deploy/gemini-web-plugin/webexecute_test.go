@@ -50,7 +50,7 @@ func nativeService(t *testing.T, server *httptest.Server) (*service, storageReco
 	t.Helper()
 	service := newService(nil)
 	record := recordFixture(t, "a")
-	service.secrets = &memorySecrets{tokens: map[string]sessionToken{record.TokenRef: {encodedToken("SID=a; SAPISID=secret")}}}
+	seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("SID=a; SAPISID=secret")}})
 	service.config.NativeGeneration = true
 	service.webOriginOverride = server.URL
 	return service, record

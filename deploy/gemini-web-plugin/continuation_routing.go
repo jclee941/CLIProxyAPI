@@ -100,7 +100,10 @@ func (service *service) pickContinuation(raw []byte) (continuationPick, error) {
 		return continuationPick{}, failure(400, "invalid_scheduler_request")
 	}
 	token := request.Options.Headers.Get(continuationHeader)
-	if token == "" || !service.settings().NativeContinuation {
+	if token == "" {
+		return service.pickServableAccount(request.Candidates), nil
+	}
+	if !service.settings().NativeContinuation {
 		return continuationPick{}, nil
 	}
 	if !accountDigestPattern.MatchString(request.Options.Metadata.CallerScope) {

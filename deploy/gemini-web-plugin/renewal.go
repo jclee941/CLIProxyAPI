@@ -7,65 +7,6 @@ import (
 	"strings"
 )
 
-func (service *service) renewForVideo(ctx context.Context, record storageRecord, token sessionToken) (sessionToken, error) {
-	reference, err := parseReference(record.TokenRef, service.settings().Vault)
-	if err != nil {
-		return sessionToken{}, err
-	}
-	if binding, bound := service.settings().MaintenanceSources[record.ID]; bound {
-		authUser, err := tokenAuthUser(token)
-		if err != nil {
-			return sessionToken{}, err
-		}
-		if binding.TokenRef != record.TokenRef || binding.AuthUser != nil && *binding.AuthUser != authUser {
-			return sessionToken{}, failure(409, "binding_mismatch")
-		}
-		identity, err := service.inspectCredential(ctx, record.TokenRef, token)
-		if err != nil {
-			return sessionToken{}, err
-		}
-		if identity.AccountSHA256 != binding.ExpectedGaiaSHA256 || identity.AuthUser != authUser {
-			return sessionToken{}, failure(409, "credential_identity_mismatch")
-		}
-	}
-	renewed, err := service.renewSession(ctx, record, token)
-	if err != nil {
-		return sessionToken{}, err
-	}
-	if renewed.value != token.value {
-		err := service.replaceCredential(ctx, secretReplacement{Reference: reference, Expected: token, Replacement: renewed})
-		if err != nil {
-			service.credentialFailure(record.TokenRef, err)
-			return sessionToken{}, failure(503, "session_renewal_persistence_failed")
-		}
-		service.leases.get(record.TokenRef).set(credentialState{state: maintenanceHostPending, tokenHash: tokenFingerprint(renewed)})
-	}
-	return renewed, nil
-}
-
-func (service *service) renewSession(ctx context.Context, record storageRecord, token sessionToken) (sessionToken, error) {
-	authUser, err := tokenAuthUser(token)
-	if err != nil {
-		return sessionToken{}, err
-	}
-	binding, bound := service.settings().MaintenanceSources[record.ID]
-	if bound && (binding.TokenRef != record.TokenRef || binding.AuthUser != nil && *binding.AuthUser != authUser) {
-		return sessionToken{}, failure(409, "binding_mismatch")
-	}
-	renewed, identity, err := service.renewCredential(ctx, record.TokenRef, token)
-	if err != nil {
-		return sessionToken{}, err
-	}
-	renewedUser, err := tokenAuthUser(renewed)
-	if err != nil || renewedUser != authUser {
-		return sessionToken{}, failure(502, "session_renewal_identity_mismatch")
-	}
-	if identity.AuthUser != authUser || !accountDigestPattern.MatchString(identity.AccountSHA256) || bound && identity.AccountSHA256 != binding.ExpectedGaiaSHA256 {
-		return sessionToken{}, failure(502, "session_renewal_identity_mismatch")
-	}
-	return renewed, nil
-}
-
 // Credential upkeep talks to Google per account rather than through the bridge,
 // so a failure is attributed to the credential it belongs to.
 func (service *service) renewCredential(ctx context.Context, reference string, token sessionToken) (sessionToken, credentialInspection, error) {

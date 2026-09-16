@@ -11,7 +11,7 @@ import (
 func TestFlashExecutesSelectedSession_andBuffersNativeSSE(t *testing.T) {
 	service := newService(nil)
 	record := recordFixture(t, "a")
-	service.secrets = &memorySecrets{tokens: map[string]sessionToken{record.TokenRef: {encodedToken("test-flash")}}}
+	seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("test-flash")}})
 	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("x-goog-api-key") != encodedToken("test-flash") || request.Header.Get("Authorization") != "" {
 			t.Error("incorrect outgoing credentials")
@@ -53,7 +53,7 @@ func TestFlashExecutesSelectedSession_andBuffersNativeSSE(t *testing.T) {
 func TestModelDiscoveryDoesNotAdvertiseOldFlashRegistry(t *testing.T) {
 	service := newService(nil)
 	record := recordFixture(t, "a")
-	service.secrets = &memorySecrets{tokens: map[string]sessionToken{record.TokenRef: {encodedToken("test-registry")}}}
+	seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("test-registry")}})
 	localSidecar(t, service, func(writer http.ResponseWriter, _ *http.Request) {
 		writeFixture(t, writer, `{"available":true,"models":[{"capability_id":"old","display_name":"3.7 Flash","mode":1}]}`)
 	})
@@ -70,7 +70,7 @@ func TestOmniReturnsMP4WithoutImageConversion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.secrets = &memorySecrets{tokens: map[string]sessionToken{record.TokenRef: {encodedToken("test-video")}}}
+	seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("test-video")}})
 	video := base64.StdEncoding.EncodeToString([]byte("test-only-mp4-fixture"))
 	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
 		if sidecarPath(request) == "/v1/session/renew" {
@@ -83,7 +83,7 @@ func TestOmniReturnsMP4WithoutImageConversion(t *testing.T) {
 		writeFixture(t, writer, `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"video/mp4","data":"`+video+`"}}]}}]}`)
 	})
 	payload := []byte(`{"contents":[{"role":"user","parts":[{"text":"test video"}]}]}`)
-	result := invoke(t, service, "executor.execute", executorRequest{AuthID: record.ID, AuthProvider: provider, Model: omniModel, Format: "gemini", SourceFormat: "gemini", Payload: payload, OriginalRequest: payload, StorageJSON: auth.StorageJSON, AuthMetadata: auth.Metadata})
+	result := invoke(t, service, "executor.execute", executorRequest{AuthID: record.ID, AuthProvider: provider, Model: omniModel, Format: "gemini", SourceFormat: "gemini", Payload: payload, OriginalRequest: payload, StorageJSON: auth.StorageJSON, AuthMetadata: auth.Metadata, HostCallbackID: "scope-list"})
 	if !result.OK {
 		t.Fatalf("video failed: %+v", result.Error)
 	}
@@ -102,7 +102,7 @@ func TestOmniRejectsUnsupportedChatOriginal_beforeResolving(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := invoke(t, service, "executor.execute", executorRequest{Model: omniModel, Format: "gemini", SourceFormat: "gemini", Payload: []byte(`{"contents":[{"parts":[{"text":"test"}]}]}`), OriginalRequest: []byte(`{"model":"gemini-web-omni","messages":[{"role":"user","content":"test"},{"role":"assistant","content":"again"}]}`), AuthMetadata: auth.Metadata})
+	result := invoke(t, service, "executor.execute", executorRequest{Model: omniModel, Format: "gemini", SourceFormat: "gemini", Payload: []byte(`{"contents":[{"parts":[{"text":"test"}]}]}`), OriginalRequest: []byte(`{"model":"gemini-web-omni","messages":[{"role":"user","content":"test"},{"role":"assistant","content":"again"}]}`), AuthMetadata: auth.Metadata, HostCallbackID: "scope-list"})
 	if result.OK || result.Error.HTTPStatus != 400 || result.Error.Code != "unsupported_omni_request" {
 		t.Fatalf("multi-turn chat request reached Omni: %+v", result.Error)
 	}

@@ -49,7 +49,6 @@ type loginFlow struct {
 	View      loginView
 	Label     string
 	Previous  storageRecord
-	Binding   maintenanceSource
 	Reference string
 }
 
@@ -133,6 +132,7 @@ func (service *service) configureSessions(config pluginConfig) error {
 	}
 	service.loginMu.Unlock()
 	service.sessions, service.sessionKeyHash = store, sha256.Sum256([]byte(key))
+	service.startKeepAlive()
 	return nil
 }
 
@@ -260,11 +260,11 @@ func (service *service) startLogin(request managementRequest) (loginView, error)
 		if err != nil {
 			return loginView{}, err
 		}
-		identity, binding, err := service.loginIdentity(previous)
+		identity, err := service.loginIdentity(previous)
 		if err != nil {
 			return loginView{}, err
 		}
-		flow.Previous, flow.Binding, flow.View.ExpectedIdentity = previous, binding, &identity
+		flow.Previous, flow.View.ExpectedIdentity = previous, &identity
 	}
 	var random [32]byte
 	if _, err := rand.Read(random[:]); err != nil {
@@ -296,22 +296,18 @@ func (service *service) startLogin(request managementRequest) (loginView, error)
 	return flow.View, nil
 }
 
-func (service *service) loginIdentity(record storageRecord) (credentialInspection, maintenanceSource, error) {
-	if localReferencePattern.MatchString(record.TokenRef) {
-		local, err := service.localStore().read(record.TokenRef)
-		if err != nil {
-			return credentialInspection{}, maintenanceSource{}, err
-		}
-		if err := service.checkLocalBinding(record, local); err != nil {
-			return credentialInspection{}, maintenanceSource{}, err
-		}
-		return local.Identity, maintenanceSource{TokenRef: local.LegacyRef, ProfileGUID: local.LegacyGUID, ExpectedGaiaSHA256: local.Identity.AccountSHA256}, nil
+func (service *service) loginIdentity(record storageRecord) (credentialInspection, error) {
+	if !localReferencePattern.MatchString(record.TokenRef) {
+		return credentialInspection{}, failure(400, "invalid_token_reference")
 	}
-	binding, exists := service.settings().MaintenanceSources[record.ID]
-	if !exists || binding.TokenRef != record.TokenRef || binding.AuthUser == nil {
-		return credentialInspection{}, maintenanceSource{}, failure(409, "verified_identity_binding_required")
+	local, err := service.localStore().read(record.TokenRef)
+	if err != nil {
+		return credentialInspection{}, err
 	}
-	return credentialInspection{AccountSHA256: binding.ExpectedGaiaSHA256, AuthUser: *binding.AuthUser}, binding, nil
+	if err := service.checkLocalBinding(record, local); err != nil {
+		return credentialInspection{}, err
+	}
+	return local.Identity, nil
 }
 
 func (service *service) getLogin(state string) (loginFlow, error) {

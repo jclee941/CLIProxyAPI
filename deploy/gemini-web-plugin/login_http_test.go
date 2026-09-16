@@ -15,7 +15,7 @@ import (
 )
 
 func TestLoginHTTPPortalSurface_whenAuthenticatedHandoffCompletes(t *testing.T) {
-	service, host, vault := loginFixture(t)
+	service, host := loginFixture(t)
 	portal := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer fixture-management" {
 			writer.WriteHeader(401)
@@ -118,14 +118,11 @@ func TestLoginHTTPPortalSurface_whenAuthenticatedHandoffCompletes(t *testing.T) 
 	if account.Status != "ready" || account.Usage == nil || account.Usage.Tier != nil || account.Usage.Metrics != nil {
 		t.Fatal("unknown Google usage was invented or rejected")
 	}
-	if len(vault.reads) != 0 || vault.writes != 0 {
-		t.Fatal("HTTP handoff or usage called Vault")
-	}
 	t.Log("HTTP 401/403 boundaries, start/complete/status/cancel/reconcile, matching replay, synchronous model registration and nullable measured usage verified; zero Vault calls")
 }
 
 func TestLoginCapacityAndExpiry_whenThirtyTwoFlowsAreActive(t *testing.T) {
-	service, _, _ := loginFixture(t)
+	service, _ := loginFixture(t)
 	now := time.Unix(1800000000, 0)
 	service.now = func() time.Time { return now }
 	seen := make(map[string]bool)
@@ -158,7 +155,7 @@ func TestLocalKeyAndReferenceParsersRejectUnsafeInputs_whenOpening(t *testing.T)
 		}
 	}
 	for _, reference := range []string{"session://gemini-web/../key", "session://gemini-web/" + strings.Repeat("a", 32) + "?x=1", "session://other/" + strings.Repeat("a", 32), "session://gemini-web/" + strings.Repeat("A", 32)} {
-		if _, err := parseCredentialReference(reference, "homelab"); err == nil {
+		if _, err := parseCredentialReference(reference); err == nil {
 			t.Fatal("unsafe local reference accepted")
 		}
 	}

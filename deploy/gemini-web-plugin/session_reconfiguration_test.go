@@ -14,7 +14,7 @@ import (
 func TestSessionReconfigurationPreservesActiveCalls_whenProviderConfigIsUnchanged(t *testing.T) {
 	for _, change := range []string{"none", "host_fields", "dashboard", "store", "origin", "extension", "key", "invalid_field"} {
 		t.Run(change, func(t *testing.T) {
-			service, _, _ := loginFixture(t)
+			service, _ := loginFixture(t)
 			original := service.settings()
 			store, keyHash := service.localStore(), service.sessionKeyHash
 			config := original

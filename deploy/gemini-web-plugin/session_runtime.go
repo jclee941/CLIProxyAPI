@@ -7,17 +7,15 @@ import (
 	"strings"
 )
 
-func parseCredentialReference(raw, vault string) (secretReference, error) {
+func parseCredentialReference(raw string) (string, error) {
 	switch {
 	case strings.HasPrefix(raw, "session://"):
 		if _, err := sessionFile(raw); err != nil {
-			return secretReference{}, err
+			return "", err
 		}
-		return secretReference{value: raw}, nil
-	case strings.HasPrefix(raw, "op://"):
-		return parseReference(raw, vault)
+		return raw, nil
 	default:
-		return secretReference{}, failure(400, "invalid_token_reference")
+		return "", failure(400, "invalid_token_reference")
 	}
 }
 
@@ -55,16 +53,6 @@ func (service *service) aliasAccountLease(record storageRecord, lease *credentia
 func (service *service) checkLocalBinding(record storageRecord, local localSession) error {
 	if local.Target.ID != record.ID || local.Target.TokenRef != record.TokenRef || local.Target.SessionRevision != record.SessionRevision {
 		return failure(409, "credential_changed")
-	}
-	binding, exists := service.settings().MaintenanceSources[record.ID]
-	if local.LegacyRef == "" {
-		if exists && !local.LegacyDetached {
-			return failure(409, "binding_mismatch")
-		}
-		return nil
-	}
-	if !exists || binding.TokenRef != local.LegacyRef || binding.ProfileGUID != local.LegacyGUID || binding.ExpectedGaiaSHA256 != local.Identity.AccountSHA256 || (binding.AuthUser != nil) != local.LegacyUserBound || binding.AuthUser != nil && *binding.AuthUser != local.Identity.AuthUser {
-		return failure(409, "binding_mismatch")
 	}
 	return nil
 }

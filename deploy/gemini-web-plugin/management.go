@@ -2,13 +2,10 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 )
@@ -87,12 +84,12 @@ func (service *service) managementOperation(ctx context.Context, request managem
 		inspections.Wait()
 		service.storeAccounts(scope, accounts)
 		return accountListResponse{accounts, provider}, nil
-	case request.Method == "POST" && request.Path == accountsPath:
-		return service.registerAccount(ctx, request)
 	case request.Method == "POST" && request.Path == "/v0/management"+maintainPath:
 		return service.maintain(ctx, request)
 	case request.Method == "POST" && request.Path == resolvePath:
 		return service.resolveIntent(ctx, request)
+	case request.Method == "POST" && request.Path == recoverPath:
+		return service.recoverIntent(ctx, request)
 	case request.Method == "POST" && request.Path == labelPath:
 		return service.relabelAccount(ctx, request)
 	case request.Method == "POST" && request.Path == detachPath:
@@ -112,187 +109,4 @@ func (service *service) managementOperation(ctx context.Context, request managem
 	default:
 		return nil, failure(404, "management_route_not_found")
 	}
-}
-
-func (service *service) registerAccount(ctx context.Context, request managementRequest) (interface{}, error) {
-	var body struct {
-		Label      string `json:"label"`
-		Token      string `json:"token"`
-		TokenRef   string `json:"token_ref"`
-		ExistingID string `json:"existing_id"`
-	}
-	if len(request.Body) > 40000 || strictJSON(request.Body, &body) != nil || strings.TrimSpace(body.Label) == "" || len(body.Label) > 200 || strings.ContainsAny(body.Label, "\r\n\x00") || (body.Token == "") == (body.TokenRef == "") {
-		return nil, failure(400, "invalid_account_registration")
-	}
-	record := storageRecord{Type: provider, Label: body.Label}
-	existing := secretReference{}
-	if body.ExistingID != "" {
-		previous, enabled, err := service.findRecord(request.HostCallbackID, body.ExistingID)
-		if err != nil {
-			return nil, err
-		}
-		if !enabled {
-			return nil, failure(409, "disabled_account_update_requires_host_enable")
-		}
-		record = previous
-		record.Label = body.Label
-		existing, err = parseReference(previous.TokenRef, service.settings().Vault)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		var random [16]byte
-		if _, err := rand.Read(random[:]); err != nil {
-			return nil, failure(500, "account_id_failed")
-		}
-		record.ID = "gemini-web-" + hex.EncodeToString(random[:]) + ".json"
-	}
-	var token sessionToken
-	var reference secretReference
-	var err error
-	references := []string{}
-	if existing.value != "" {
-		references = append(references, existing.value)
-	}
-	if body.TokenRef != "" && body.TokenRef != existing.value {
-		if _, err := parseReference(body.TokenRef, service.settings().Vault); err != nil {
-			return nil, err
-		}
-		references = append(references, body.TokenRef)
-	}
-	sort.Strings(references)
-	for _, reference := range references {
-		lease, err := service.acquireCredential(reference, true)
-		if err != nil {
-			return nil, err
-		}
-		defer lease.guard.Unlock()
-	}
-	if body.ExistingID != "" {
-		latest, enabled, err := service.findRecord(request.HostCallbackID, body.ExistingID)
-		if err != nil {
-			return nil, err
-		}
-		if !enabled {
-			return nil, failure(409, "disabled_account_update_requires_host_enable")
-		}
-		if latest.TokenRef != existing.value {
-			return nil, failure(409, "binding_mismatch")
-		}
-		record = latest
-		record.Label = body.Label
-	}
-	binding, bound := service.settings().MaintenanceSources[record.ID]
-	if bound && (existing.value != binding.TokenRef || body.TokenRef != "" && body.TokenRef != binding.TokenRef) {
-		return nil, failure(409, "binding_mismatch")
-	}
-	for id, source := range service.settings().MaintenanceSources {
-		if id != record.ID && (source.TokenRef == existing.value || source.TokenRef == body.TokenRef) {
-			return nil, failure(409, "binding_mismatch")
-		}
-	}
-	var expected sessionToken
-	if existing.value != "" {
-		expected, err = service.resolveCredential(ctx, existing, true)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if body.TokenRef != "" {
-		reference, err = parseReference(body.TokenRef, service.settings().Vault)
-		if err != nil {
-			return nil, err
-		}
-		if reference == existing {
-			token = expected
-		} else {
-			token, err = service.resolveCredential(ctx, reference, true)
-		}
-	} else {
-		reference = existing
-		token, err = parseToken(body.Token)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if bound {
-		expectedUser, err := tokenAuthUser(expected)
-		if err != nil {
-			return nil, err
-		}
-		user, err := tokenAuthUser(token)
-		if err != nil {
-			return nil, err
-		}
-		if user != expectedUser || binding.AuthUser != nil && *binding.AuthUser != user {
-			return nil, failure(409, "binding_mismatch")
-		}
-		inspection, err := service.inspectCredential(ctx, existing.value, token)
-		if err != nil {
-			return nil, err
-		}
-		if inspection.AccountSHA256 != binding.ExpectedGaiaSHA256 || inspection.AuthUser != user {
-			return nil, failure(409, "binding_mismatch")
-		}
-	}
-	if _, err := service.accountModels(ctx, reference.value, token); err != nil {
-		return nil, err
-	}
-	if body.ExistingID != "" {
-		latest, enabled, err := service.findRecord(request.HostCallbackID, body.ExistingID)
-		if err != nil {
-			return nil, err
-		}
-		if !enabled {
-			return nil, failure(409, "disabled_account_update_requires_host_enable")
-		}
-		if latest.TokenRef != existing.value {
-			return nil, failure(409, "binding_mismatch")
-		}
-		record = latest
-		record.Label = body.Label
-	}
-	if body.Token != "" {
-		if existing.value == "" {
-			reference, err = service.putCredential(ctx, secretWrite{Label: body.Label, Token: token})
-		} else {
-			reference = existing
-			err = service.replaceCredential(ctx, secretReplacement{Reference: existing, Expected: expected, Replacement: token})
-		}
-		if err != nil {
-			if existing.value != "" {
-				service.credentialFailure(existing.value, err)
-			}
-			return nil, err
-		}
-	}
-	record.TokenRef = reference.value
-	lease := service.leases.get(reference.value)
-	lease.set(credentialState{state: maintenanceHostPending, tokenHash: tokenFingerprint(token)})
-	if body.ExistingID != "" {
-		latest, _, err := service.findRecord(request.HostCallbackID, record.ID)
-		if err != nil {
-			return nil, failure(503, "host_sync_pending")
-		}
-		if latest.TokenRef != existing.value {
-			return nil, failure(409, "binding_mismatch")
-		}
-		record.Disabled = latest.Disabled
-	}
-	record.SessionRevision++
-	auth, err := authFromRecord(record)
-	if err != nil {
-		return nil, err
-	}
-	var saved struct {
-		Name string `json:"name"`
-	}
-	if err := service.callback("host.auth.save", callbackRequest{HostCallbackID: request.HostCallbackID, Name: record.ID, JSON: auth.StorageJSON}, &saved); err != nil {
-		return nil, failure(503, "auth_save_failed_reference_retained_in_1password")
-	}
-	lease.set(credentialState{state: maintenanceReady})
-	return struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-	}{record.ID, "ready"}, nil
 }
