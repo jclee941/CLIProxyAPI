@@ -7,10 +7,66 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf16"
 )
+
+// A cut stream is the only record of who ended a generation early, and the host
+// log is where an operator reads. The names are the host formatter's own allow
+// list in internal/logging/global_logger.go: anything else is dropped before it
+// is written, so a report can arrive and still say nothing.
+func TestACutGenerationStreamReachesTheHostLog(t *testing.T) {
+	var reported []byte
+	service := newService(func(method string, raw []byte) ([]byte, error) {
+		if method == "host.log" {
+			reported = raw
+		}
+		return []byte(`{"ok":true,"result":{}}`), nil
+	})
+	delivered := `[["di",1]]` + "\n"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Length", strconv.Itoa(len(delivered)+64))
+		_, _ = writer.Write([]byte(delivered))
+	}))
+	defer server.Close()
+	service.webOriginOverride = server.URL
+	session := service.newSession(webCredential{Cookie: "SID=x"})
+	session.generationFrame = func([]byte) error { return nil }
+
+	_, err := session.do(context.Background(), webGeneratePath, []byte("{}"), nil)
+
+	if safeCredentialCode(err) != "web_response_failed" {
+		t.Fatalf("code = %q, want the failure callers already handle", safeCredentialCode(err))
+	}
+	if reported == nil {
+		t.Fatal("the cut was never reported to the host")
+	}
+	var entry struct {
+		Level  string         `json:"level"`
+		Fields map[string]any `json:"fields"`
+	}
+	if err := json.Unmarshal(reported, &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.Level != "warn" {
+		t.Fatalf("level = %q, want one the deployed log keeps", entry.Level)
+	}
+	rendered := map[string]bool{"provider": true, "state": true, "reason": true, "error": true, "budget": true, "remote_transport": true}
+	for name := range entry.Fields {
+		if !rendered[name] {
+			t.Fatalf("field %q is not one the host formatter renders", name)
+		}
+	}
+	if entry.Fields["error"] != "web_response_failed" {
+		t.Fatalf("error = %v, want the public code", entry.Fields["error"])
+	}
+	budget, _ := entry.Fields["budget"].(string)
+	if !strings.Contains(budget, strconv.Itoa(len(delivered))) || !strings.Contains(budget, strconv.Itoa(len(delivered)+64)) {
+		t.Fatalf("budget = %q, want what arrived against what the response declared", budget)
+	}
+}
 
 // slots builds one of the protocol's positional rows: a fixed-width array whose
 // meaning is carried entirely by index.

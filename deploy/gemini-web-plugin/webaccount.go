@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -78,6 +77,7 @@ type webSession struct {
 	generationFrame func([]byte) error
 	rotated         bool
 	onRotate        func(string)
+	onCut           func(map[string]any)
 	uploadOrigin    string
 }
 
@@ -159,8 +159,8 @@ func (session *webSession) do(ctx context.Context, path string, body []byte, ove
 		started := time.Now()
 		raw, streamErr := readContinuationStream(response.Body, session.generationFrame)
 		var cut *webStreamCut
-		if errors.As(streamErr, &cut) {
-			logStreamCut(response, cut, time.Since(started))
+		if errors.As(streamErr, &cut) && session.onCut != nil {
+			session.onCut(streamCutFields(response, cut, time.Since(started)))
 		}
 		return raw, streamErr
 	}
@@ -171,29 +171,32 @@ func (session *webSession) do(ctx context.Context, path string, body []byte, ove
 	return raw, nil
 }
 
-// logStreamCut records who ended a generation stream early, which is the one
-// question the failure alone cannot answer. A body short of the length it
-// declared was truncated on the way; a chunked body missing its terminator was
-// abandoned at the far end; and the transport error names the mechanism. Header
-// values are listed one by one because a response also carries credentials, and
-// none of these do.
-func logStreamCut(response *http.Response, cut *webStreamCut, elapsed time.Duration) {
-	fields := []string{
-		fmt.Sprintf("cause=%q", cut.Cause),
-		fmt.Sprintf("proto=%s", response.Proto),
-		fmt.Sprintf("received=%d", len(cut.Delivered)),
-		fmt.Sprintf("declared=%d", response.ContentLength),
-		fmt.Sprintf("frames=%d", bytes.Count(cut.Delivered, []byte{'\n'})),
-		fmt.Sprintf("elapsed=%s", elapsed.Round(time.Millisecond)),
-		fmt.Sprintf("transfer=%v", response.TransferEncoding),
-		fmt.Sprintf("decompressed=%t", response.Uncompressed),
-	}
+// streamCutFields describes a cut generation stream, which is the one question
+// the failure alone cannot answer: a body short of the length it declared was
+// truncated on the way, a chunked body missing its terminator was abandoned at
+// the far end, and the transport error names the mechanism.
+//
+// The keys are the host formatter's own. Any other name reaches logrus and is
+// dropped before it is written, so a more descriptive one would record nothing
+// at all. Response headers are named one by one because a response also carries
+// credentials, and none of these do.
+func streamCutFields(response *http.Response, cut *webStreamCut, elapsed time.Duration) map[string]any {
+	transport := fmt.Sprintf("%s %v", response.Proto, response.TransferEncoding)
 	for _, name := range []string{"Content-Encoding", "Server", "Via", "Alt-Svc"} {
 		if value := response.Header.Get(name); value != "" {
-			fields = append(fields, fmt.Sprintf("%s=%q", strings.ToLower(name), value))
+			transport += fmt.Sprintf(" %s=%s", strings.ToLower(name), value)
 		}
 	}
-	log.Printf("gemini-web: generation stream cut: %s", strings.Join(fields, " "))
+	return map[string]any{
+		"provider": provider,
+		"state":    "generation_stream_cut",
+		"reason":   fmt.Sprint(cut.Cause),
+		"error":    cut.Code,
+		"budget": fmt.Sprintf("%d of %d bytes in %d frames after %s",
+			len(cut.Delivered), response.ContentLength,
+			bytes.Count(cut.Delivered, []byte{'\n'}), elapsed.Round(time.Millisecond)),
+		"remote_transport": transport,
+	}
 }
 
 // bootstrap reads the XSRF token and build id the RPC endpoint requires. They are
