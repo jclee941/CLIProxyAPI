@@ -186,7 +186,74 @@ func failedAccount(view accountView, err error) accountView {
 	return view
 }
 
+// webUsageRPC reports the account's quota windows. It is the same batchexecute
+// envelope the capability RPC uses, so reading usage needs no transport of its
+// own.
+const webUsageRPC = "jSf9Qc"
+
+// usageWindows maps the metric type the RPC reports onto the window a reader
+// recognises. The order these are rendered in is decided later; this is only
+// what each number means.
+var usageWindows = map[int]string{1: "5h", 2: "weekly", 3: "ai_credit"}
+
+// nativeUsage reads the quota windows from the web product. The sidecar answered
+// this once and was the last thing the plugin could not do for itself.
+func (service *service) nativeUsage(ctx context.Context, reference string, token sessionToken) (*usageView, error) {
+	credential, err := decodeWebCredential(token)
+	if err != nil {
+		return nil, err
+	}
+	session := service.newSession(credential)
+	service.trackJar(reference, session)
+	defer service.persistJar(reference, session)
+	body, err := session.rpc(ctx, webUsageRPC, []any{})
+	if err != nil {
+		return nil, err
+	}
+	rows, ok := body.([]any)
+	if !ok || len(rows) == 0 {
+		return nil, failure(502, "usage_response_invalid")
+	}
+	result := &usageView{Source: "GoogleWeb", ObservedAt: float64(service.now().Unix())}
+	if code, present := jsonInteger(jsonField(body, 0)); present {
+		tier := code
+		result.TierCode = &tier
+		if code == 2 {
+			pro := "PRO"
+			result.Tier = &pro
+		}
+	}
+	measured, present := jsonField(body, 1).([]any)
+	if !present {
+		return result, nil
+	}
+	result.Metrics = make([]usageMetric, 0, len(measured))
+	for _, row := range measured {
+		metric := usageMetric{Unit: "provider_compute_unit", WindowKind: "unknown"}
+		if kind, ok := jsonInteger(jsonField(row, 2)); ok {
+			if window, named := usageWindows[kind]; named {
+				metric.WindowKind = window
+			}
+		}
+		metric.RemainingUnits = jsonNumber(jsonField(row, 0))
+		metric.UsageFraction = jsonNumber(jsonField(row, 1))
+		metric.ResetUnixSeconds = jsonNumber(jsonField(row, 3, 0, 0))
+		// The fraction is what the account reports; the percentage is what every
+		// reader of this actually displays, and it was the upstream that used to
+		// derive it.
+		if metric.UsageFraction != nil {
+			percent := *metric.UsageFraction * 100
+			metric.UsagePercent = &percent
+		}
+		result.Metrics = append(result.Metrics, metric)
+	}
+	return result, nil
+}
+
 func (service *service) usage(ctx context.Context, reference string, token sessionToken) (*usageView, error) {
+	if service.settings().NativeGeneration {
+		return service.nativeUsage(ctx, reference, token)
+	}
 	response, err := service.sidecar(ctx, sidecarRequest{Method: "GET", Path: "/v1/usage", Token: token, Reference: reference})
 	if err != nil {
 		return nil, err

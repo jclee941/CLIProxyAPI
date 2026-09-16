@@ -328,6 +328,17 @@ func jsonField(value any, path ...int) any {
 	return current
 }
 
+// jsonNumber reads a decoded number without forcing it to an integer, and
+// reports absence as absence: a quota figure the account does not publish is
+// missing rather than zero, which reads as spent.
+func jsonNumber(value any) *float64 {
+	number, ok := value.(float64)
+	if !ok {
+		return nil
+	}
+	return &number
+}
+
 func jsonInteger(value any) (int, bool) {
 	number, ok := value.(float64)
 	if !ok || number != float64(int(number)) {
