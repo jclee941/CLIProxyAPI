@@ -110,19 +110,19 @@ account return 409 rather than silently enabling it.
 
 `model.for_auth` queries `/v1/account-models`; `available:true` is required.
 Static model registration is empty, avoiding uncredentialed fallback accounts.
-`gemini-web-flash-3.8` appears only when exactly one actual `3.8 Flash` capability
-exists. It maps to `gemini-3.8-flash:generateContent`, supports text/tool emulation,
-and returns buffered SSE for streaming. The existing `gemini-web-flash` alias is
-never registered or modified. Token counting is explicitly unsupported.
+The plugin publishes only `gemini-omni-1.1-flash` for the video surface. The legacy
+text capability is not part of the published model list. Token counting is
+explicitly unsupported.
 
-`gemini-web-omni` describes the sidecar's video tool, not a claimed entitlement.
+`gemini-omni-1.1-flash` describes the official Interactions video surface, not a
+claimed entitlement.
 It permits only synchronous Gemini-native, single-user-turn text up to 8000
 Unicode characters. Unsupported options, streaming, countTokens, images, and
 original chat/Responses payloads are rejected before secret resolution/upstream.
 MP4 inlineData is returned unchanged, never converted into an image response.
 
 The registered `request.intercept_before` and `request.intercept_after` hooks
-guard only canonical `gemini-web-omni` in either `RequestedModel` or `Model`,
+guard only canonical `gemini-omni-1.1-flash` in either `RequestedModel` or `Model`,
 including the host's parenthesized thinking suffix. They use the original
 `SourceFormat` and existing Omni body validation, returning successful RPC
 results with `Terminate: true`, HTTP 400, and a fixed safe JSON error. RPC errors

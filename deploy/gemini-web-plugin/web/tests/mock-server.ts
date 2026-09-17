@@ -53,7 +53,7 @@ export function startMockServer() {
           const previous = state.accounts.find((account) => account.id === id);
           const account = accountSchema.parse({ id, label: login.state.input.label, enabled: previous?.enabled ?? true,
             status: login.state.status === 'ready' ? 'ready' : 'unknown', usage: previous?.usage ?? null,
-            models: login.state.status === 'ready' ? [{ id: 'gemini-web-omni', name: 'MOCK returned model' }] : [], observed_at: observedAt + 180 });
+            models: login.state.status === 'ready' ? [{ id: 'gemini-omni-1.1-flash', name: 'MOCK returned model' }] : [], observed_at: observedAt + 180 });
           state.accounts = previous ? state.accounts.map((entry) => entry.id === id ? account : entry) : [...state.accounts, account];
         }
         return response;
@@ -72,7 +72,7 @@ export function startMockServer() {
         if (state.saveStatus !== 200) return Response.json({ error: state.saveError }, { status: state.saveStatus });
         const id = input.existing_id ?? `mock-added-${state.submissions.length}`;
         const account: Account = accountSchema.parse({ id, label: input.label, enabled: true, status: 'ready',
-          models: [{ id: 'gemini-web-omni', name: 'MOCK returned model' }], usage: null, observed_at: observedAt + 60 });
+          models: [{ id: 'gemini-omni-1.1-flash', name: 'MOCK returned model' }], usage: null, observed_at: observedAt + 60 });
         state.accounts = input.existing_id
           ? state.accounts.map((existing) => existing.id === id ? account : existing)
           : [...state.accounts, account];

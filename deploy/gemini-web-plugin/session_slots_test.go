@@ -186,6 +186,35 @@ func TestAccountListingReportsAGenerationInsteadOfAnOperatorError(t *testing.T) 
 	}
 }
 
+func TestAccountListingUsesOfficialOmniModelForGeneration(t *testing.T) {
+	service, local := continuationFixture(t)
+	service.startedAt = 0
+	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
+	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
+	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+
+	stored, err := service.localStore().read(local.Target.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turns, err := continuationTurns(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := turns[stored.ContinuationActive]
+	turn.Model = omniModel
+	turns[stored.ContinuationActive] = turn
+	if err := service.saveContinuations(stored, turns); err != nil {
+		t.Fatal(err)
+	}
+
+	activity := service.runningTurn(local.Target)
+
+	if activity == nil || activity.Model != interactionOmniModel {
+		t.Fatalf("the account listing exposed an internal model name: %+v", activity)
+	}
+}
+
 func TestAccountListingReportsNoActivity_whenTheSessionIsIdle(t *testing.T) {
 	service, local := continuationFixture(t)
 

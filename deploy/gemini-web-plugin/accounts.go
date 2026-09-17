@@ -157,7 +157,7 @@ func (service *service) inspectAccount(ctx context.Context, record storageRecord
 	if account.ObservedAt > 0 {
 		view.ObservedAt = account.ObservedAt
 	}
-	for _, model := range verifiedModels(account) {
+	for _, model := range service.interactionModels(account) {
 		view.Models = append(view.Models, accountModelView{model.ID, model.DisplayName})
 	}
 	view.Usage, err = service.usage(ctx, record.TokenRef, token)

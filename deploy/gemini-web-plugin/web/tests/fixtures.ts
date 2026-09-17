@@ -15,8 +15,7 @@ export function mockAccounts(): readonly Account[] {
         reset_unix_seconds: observedAt + 604_800, window_kind: 'weekly', metric_type: 2, unit: 'provider_compute_unit' },
     ],
   };
-  const models = [{ id: 'gemini-web-flash-3.8', name: 'Gemini Web Flash 3.8' },
-    { id: 'gemini-web-omni', name: 'Gemini Web Omni' }];
+  const models = [{ id: 'gemini-omni-1.1-flash', name: 'Gemini Omni 1.1 Flash' }];
   return accountsResponseSchema.parse({ provider: 'gemini-web', accounts: [
     { id: 'mock-default', label: 'MOCK · Default', enabled: true, status: 'ready', models, usage, observed_at: observedAt },
     { id: 'mock-profile-1', label: 'MOCK · Profile 1', enabled: true, status: 'ready', models: models.slice(0, 1),
