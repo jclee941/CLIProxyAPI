@@ -160,6 +160,23 @@ func (service *service) sendInteractionEvents(stream, token string, cursor int, 
 		return failure(503, "plugin_shutdown")
 	}
 	if operation.err != nil {
+		// A turn the product answered without a video is an outcome, not a
+		// transport fault, but the stream close carries a string and no status,
+		// so it reaches the caller as internal_server_error - which says the
+		// turn may succeed on a retry when it never will. The Interactions
+		// object has a status field for exactly this, so the outcome is stated
+		// there too. The close still follows: a subscriber already watching for
+		// the error event must not be left waiting on one that never comes.
+		if safeCredentialCode(operation.err) == "no_video_generated" {
+			failed := map[string]any{
+				"id": token, "object": "interaction", "model": interactionOmniModel,
+				"status": "failed", "steps": []any{},
+				"error": map[string]string{"code": "no_video_generated", "message": safeCredentialMessage(operation.err)},
+			}
+			if err := emit(2, "interaction.failed", map[string]any{"interaction": failed}); err != nil {
+				return err
+			}
+		}
 		return operation.err
 	}
 	var result struct {

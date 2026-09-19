@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -8,6 +9,43 @@ import (
 	"testing"
 	"time"
 )
+
+// The stream close carries a string and no status, so the host reports every
+// streamed failure as internal_server_error. A turn the product declined is not
+// an internal fault and will never succeed on a retry, so the outcome has to
+// reach the caller somewhere it survives: the interaction's own status field.
+func TestDeclinedTurnIsStatedAsAFailedInteractionOnTheStream(t *testing.T) {
+	service := newService(nil)
+	var emitted [][]byte
+	service.host = func(method string, raw []byte) ([]byte, error) {
+		var call struct {
+			Payload []byte `json:"payload"`
+			Error   string `json:"error"`
+		}
+		if json.Unmarshal(raw, &call) == nil && method == "host.stream.emit" {
+			emitted = append(emitted, call.Payload)
+		}
+		return []byte(`{"ok":true,"result":{}}`), nil
+	}
+	operation := &interactionOperation{done: make(chan struct{}), err: webNoVideo("Daily video limit reached.")}
+	close(operation.done)
+
+	err := service.sendInteractionEvents("s", "tok", 0, operation)
+
+	if safeCredentialCode(err) != "no_video_generated" {
+		t.Fatalf("the close no longer carries the refusal: %v", err)
+	}
+	joined := string(bytes.Join(emitted, []byte("\n")))
+	if !strings.Contains(joined, "interaction.failed") {
+		t.Fatalf("no failed interaction was stated on the stream: %s", joined)
+	}
+	if !strings.Contains(joined, `"status":"failed"`) {
+		t.Fatalf("the interaction did not report itself failed: %s", joined)
+	}
+	if !strings.Contains(joined, "Daily video limit reached.") {
+		t.Fatalf("what the product said never reached the caller: %s", joined)
+	}
+}
 
 func TestInteractionStreamingAcceptedBeforeGeneration(t *testing.T) {
 	// Given an authenticated official Interactions request.
