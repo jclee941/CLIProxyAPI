@@ -40,8 +40,6 @@ func (service *service) sidecar(ctx context.Context, request sidecarRequest) (ht
 		return httpResponse{}, failure(502, "sidecar_transport_failed")
 	}
 	defer response.Body.Close()
-	if response.StatusCode == http.StatusUnauthorized {
-	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 128*1024*1024+1))
 	if err != nil || len(body) > 128*1024*1024 {
 		return httpResponse{}, failure(502, "sidecar_response_failed")

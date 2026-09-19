@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -244,17 +245,29 @@ func TestWebCapabilitiesCarriesCapacityFlags(t *testing.T) {
 	}
 }
 
+// A body reporting one of these statuses carries no capability list, so the
+// fixture omits that slot: supplying an empty one hid that the list was read
+// first and answered web_response_invalid for a signed-out account.
 func TestWebCapabilitiesSurfacesAccountStatus(t *testing.T) {
-	cases := map[string]any{
-		"unauthenticated": float64(1016),
-		"unavailable":     float64(1017),
+	cases := map[string]struct {
+		status any
+		code   string
+		http   int
+	}{
+		"unauthenticated": {float64(1016), "web_unauthenticated", 401},
+		"unavailable":     {float64(1017), "web_account_unavailable", 409},
 	}
-	for name, status := range cases {
+	for name, expected := range cases {
 		t.Run(name, func(t *testing.T) {
-			body := slots(16, map[int]any{14: status, 15: []any{}})
+			body := slots(15, map[int]any{14: expected.status})
 			session, _ := webAccountFixture(t, body)
-			if _, err := session.webCapabilities(context.Background()); err == nil {
-				t.Fatalf("status %v was accepted", status)
+			_, err := session.webCapabilities(context.Background())
+			var public *publicError
+			if !errors.As(err, &public) {
+				t.Fatalf("status %v answered %v", expected.status, err)
+			}
+			if public.Code != expected.code || public.HTTPStatus != expected.http {
+				t.Fatalf("status %v answered %d %s, want %d %s", expected.status, public.HTTPStatus, public.Code, expected.http, expected.code)
 			}
 		})
 	}

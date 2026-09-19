@@ -397,10 +397,10 @@ func (session *webSession) webCapabilities(ctx context.Context) (webAccount, err
 	if err != nil {
 		return webAccount{}, err
 	}
-	rows, ok := jsonField(body, 15).([]any)
-	if !ok {
-		return webAccount{}, failure(502, "web_response_invalid")
-	}
+	// The account status is read before the capability list, because a body that
+	// reports one of these carries no list to read: asking for the list first
+	// reported a signed-out account as an unreadable response, which named
+	// neither the cause nor anything an operator could act on.
 	if status, present := jsonInteger(jsonField(body, 14)); present {
 		if status == 1016 {
 			return webAccount{}, failure(401, "web_unauthenticated")
@@ -408,6 +408,10 @@ func (session *webSession) webCapabilities(ctx context.Context) (webAccount, err
 		if status != 1000 {
 			return webAccount{}, failure(409, "web_account_unavailable")
 		}
+	}
+	rows, ok := jsonField(body, 15).([]any)
+	if !ok {
+		return webAccount{}, failure(502, "web_response_invalid")
 	}
 	account := webAccount{Capabilities: make([]capability, 0, len(rows))}
 	for _, row := range rows {
