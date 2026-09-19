@@ -8,6 +8,42 @@ import (
 	"testing"
 )
 
+// An omni turn asked for a video, so a body that came back carrying anything
+// else did not serve the request, however well-formed it is. The direct route
+// returns this body to the caller verbatim, so the check is the only thing
+// standing between a prose answer and a client that believes it has a clip.
+func TestOmniRejectsAResponseThatCarriesNoVideo(t *testing.T) {
+	part := func(value map[string]any) []byte {
+		body, err := json.Marshal(map[string]any{"candidates": []any{map[string]any{
+			"content": map[string]any{"role": "model", "parts": []any{value}},
+		}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	for name, body := range map[string][]byte{
+		"a spoken answer":  part(map[string]any{"text": "I can't make that video."}),
+		"an image instead": part(map[string]any{"inlineData": map[string]string{"mimeType": "image/png", "data": "AAAA"}}),
+		"an empty clip":    part(map[string]any{"inlineData": map[string]string{"mimeType": "video/mp4", "data": ""}}),
+		"nothing at all":   []byte(`{"candidates":[]}`),
+		"two candidates":   []byte(`{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"video/mp4","data":"AA"}}]}},{"content":{"parts":[{"inlineData":{"mimeType":"video/mp4","data":"AA"}}]}}]}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validateVideoResponse(body)
+			if err == nil {
+				t.Fatalf("accepted as a video: %s", body)
+			}
+			if code := safeCredentialCode(err); code != "invalid_video_response" {
+				t.Fatalf("code = %s, want invalid_video_response", code)
+			}
+		})
+	}
+	if err := validateVideoResponse(part(map[string]any{"inlineData": map[string]string{"mimeType": "video/mp4", "data": "AAAA"}})); err != nil {
+		t.Fatalf("a real clip was rejected: %v", err)
+	}
+}
+
 func TestFlashExecutesSelectedSession_andBuffersNativeSSE(t *testing.T) {
 	service := newService(nil)
 	record := recordFixture(t, "a")

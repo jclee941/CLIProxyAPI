@@ -40,6 +40,28 @@ func TestRenderedInteractionCarriesTheFailureReason(t *testing.T) {
 	}
 }
 
+// An omni turn asked for a video. A turn that answered in prose did not produce
+// one, whatever else it says, so it can never be rendered as a completed
+// interaction: a caller that reads status alone would take the text for a clip.
+func TestATextAnswerIsNeverACompletedInteraction(t *testing.T) {
+	spoken, err := json.Marshal(map[string]any{"candidates": []any{map[string]any{
+		"content": map[string]any{"role": "model", "parts": []any{map[string]any{"text": "I can't make that video."}}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := renderInteraction("account.json", continuationResult{Payload: spoken},
+		continuationView{Token: "t", State: "complete"})
+
+	if err == nil {
+		t.Fatalf("a text answer was rendered as a finished interaction: %s", result.(continuationResult).Payload)
+	}
+	if code := safeCredentialCode(err); code != "invalid_interaction_video" {
+		t.Fatalf("code = %s, want invalid_interaction_video", code)
+	}
+}
+
 // The omni parser refuses unknown fields, so every spelling a bridge may use has
 // to be named or a reference image dies in validation before it is ever uploaded.
 func TestOmniRequestAcceptsBothInlineSpellings(t *testing.T) {

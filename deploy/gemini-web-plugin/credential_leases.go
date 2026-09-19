@@ -143,6 +143,20 @@ func safeCredentialCode(err error) string {
 	return "credential_operation_failed"
 }
 
+// safeCredentialMessage is safeCredentialCode plus anything the failure chose to
+// say past its code, under the same rule that an error the plugin did not name
+// is never quoted. A declined video turn is what this exists for: the code alone
+// cannot tell a refused prompt from a spent daily allowance, and a subscriber
+// reading the stream close deserves the same account the caller of a
+// non-streaming turn already gets.
+func safeCredentialMessage(err error) string {
+	var public *publicError
+	if errors.As(err, &public) {
+		return public.Message
+	}
+	return "credential_operation_failed"
+}
+
 func (service *service) credentialFailure(reference string, err error) {
 	lease := service.leases.get(reference)
 	switch safeCredentialCode(err) {

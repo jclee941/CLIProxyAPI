@@ -129,7 +129,7 @@ func (service *service) subscribeInteraction(stream, token string, cursor int, o
 		err := service.sendInteractionEvents(stream, token, cursor, operation)
 		message := ""
 		if err != nil {
-			message = safeCredentialCode(err)
+			message = safeCredentialMessage(err)
 		}
 		// A disconnected subscriber is not a generation failure. The owned operation
 		// continues, and its result is recoverable through the durable receipt.
