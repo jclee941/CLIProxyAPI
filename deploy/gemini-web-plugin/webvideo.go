@@ -162,10 +162,29 @@ func webParseVideoCandidate(candidate any) (webVideoState, error) {
 	if url, ok := jsonField(video, 0, 0, 0, 0, 7, 1).(string); ok && strings.HasPrefix(url, "https://") {
 		return webVideoState{URL: url, Ready: true}, nil
 	}
-	if text, ok := jsonField(candidate, 1, 0).(string); ok && strings.Contains(text, webVideoChipMarker) {
+	text, _ := jsonField(candidate, 1, 0).(string)
+	if strings.Contains(text, webVideoChipMarker) {
 		return webVideoState{}, nil
 	}
-	return webVideoState{}, failure(422, "no_video_generated")
+	return webVideoState{}, webNoVideo(text)
+}
+
+// webNoVideo reports a turn the product answered without a video. What it wrote
+// instead is the only account of why - a declined prompt and a spent daily video
+// allowance arrive as the same bare code - and it sits in the candidate slot the
+// text path already reads. It rides in the message rather than the code because
+// the code is a matching key, and it is flattened and bounded because a reply is
+// written for a reader, not for a header.
+func webNoVideo(text string) error {
+	refusal := failure(422, "no_video_generated")
+	answer := strings.Join(strings.Fields(text), " ")
+	if runes := []rune(answer); len(runes) > 400 {
+		answer = strings.TrimSpace(string(runes[:400])) + "..."
+	}
+	if answer != "" {
+		refusal.Message += ": " + answer
+	}
+	return refusal
 }
 
 // webResponseFrames decodes every payload frame in a generation stream, which is

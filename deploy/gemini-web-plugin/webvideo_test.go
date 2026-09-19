@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -108,9 +109,51 @@ func TestWebParseVideoCandidateWaitsOnTheChip(t *testing.T) {
 	}
 }
 
-func TestWebParseVideoCandidateRejectsAnEmptyReply(t *testing.T) {
-	if _, err := webParseVideoCandidate(slots(13, map[int]any{1: []any{"no video here"}})); err == nil {
-		t.Fatal("a reply without a video was accepted")
+// A declined turn answers in prose, and that prose is the only thing telling a
+// spent video allowance apart from a refused prompt, so it has to reach the
+// caller instead of being replaced by the bare code.
+func TestWebParseVideoCandidateCarriesTheRefusalText(t *testing.T) {
+	spoken := "You've reached your daily limit for\n  video generation."
+	_, err := webParseVideoCandidate(slots(13, map[int]any{1: []any{spoken}}))
+	var public *publicError
+	if !errors.As(err, &public) {
+		t.Fatalf("a reply without a video answered %v", err)
+	}
+	if public.Code != "no_video_generated" || public.HTTPStatus != 422 {
+		t.Fatalf("code = %d %s, want 422 no_video_generated", public.HTTPStatus, public.Code)
+	}
+	if !strings.Contains(public.Message, "daily limit for video generation.") {
+		t.Fatalf("message = %q, want the reply flattened into it", public.Message)
+	}
+	long, err := webParseVideoCandidate(slots(13, map[int]any{1: []any{strings.Repeat("가", 900)}}))
+	if errors.As(err, &public); len([]rune(public.Message)) > 450 {
+		t.Fatalf("an unbounded reply reached the message: %d runes (%+v)", len([]rune(public.Message)), long)
+	}
+	if _, err := webParseVideoCandidate(slots(13, nil)); err == nil {
+		t.Fatal("a reply with no text at all was accepted")
+	}
+}
+
+// The prefix is what the host's stop rules match, and they match the message
+// rather than the code, so carrying the refusal text must not displace it.
+func TestExecutionFailureKeepsThePrefixTheHostMatches(t *testing.T) {
+	wrapped := executionFailure(omniModel, webNoVideo("no video today"))
+	var public *publicError
+	if !errors.As(wrapped, &public) {
+		t.Fatalf("wrapped = %v", wrapped)
+	}
+	if !strings.HasPrefix(wrapped.Error(), "gemini_web_omni:") {
+		t.Fatalf("the host matches %q, which no longer carries the prefix", wrapped.Error())
+	}
+	if !strings.Contains(wrapped.Error(), "no video today") {
+		t.Fatalf("the reply was dropped: %q", wrapped.Error())
+	}
+	if public.Code != "gemini_web_omni:no_video_generated" || public.HTTPStatus != 422 {
+		t.Fatalf("code = %d %s", public.HTTPStatus, public.Code)
+	}
+	plain := executionFailure(omniModel, failure(409, "session_busy"))
+	if plain.Error() != "gemini_web_omni:session_busy" {
+		t.Fatalf("an ordinary failure changed shape: %q", plain.Error())
 	}
 }
 

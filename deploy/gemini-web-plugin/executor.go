@@ -188,7 +188,15 @@ func executionFailure(model string, err error) error {
 	}
 	var public *publicError
 	if errors.As(err, &public) {
-		return failure(public.HTTPStatus, "gemini_web_omni:"+public.Code)
+		// The host matches its stop rules against the error text, which is the
+		// message, so the prefix has to be there and not only in the code. Every
+		// failure whose message is its code comes out exactly as before; one
+		// carrying what the product said keeps it, after the prefix.
+		return &publicError{
+			Code:       "gemini_web_omni:" + public.Code,
+			Message:    "gemini_web_omni:" + public.Message,
+			HTTPStatus: public.HTTPStatus,
+		}
 	}
 	return failure(502, "gemini_web_omni:submission_outcome_unknown")
 }
