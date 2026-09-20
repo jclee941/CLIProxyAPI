@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -73,13 +74,20 @@ func TestInteractionResumeBootstrapsBeforeOperationCompletes(t *testing.T) {
 func TestInteractionResumeBootstrapsBeforeTerminalClose(t *testing.T) {
 	for _, scenario := range []struct {
 		name   string
+		cursor int
 		result string
 		err    error
 		code   string
 	}{
-		{"pending", `{"status":"in_progress","steps":[]}`, nil, "interaction_pending_retrieve_receipt"},
-		{"denied", "", failure(403, "web_rpc_denied"), "web_rpc_denied"},
-		{"mismatch", "", failure(502, "continuation_operation_mismatch"), "continuation_operation_mismatch"},
+		{"pending-create", 0, `{"status":"in_progress","steps":[]}`, nil, ""},
+		{"pending", 1, `{"status":"in_progress","steps":[]}`, nil, ""},
+		{"pending-diagnostic", 1, "{\n\"id\":\"tok\",\"status\":\"in_progress\",\"steps\":[],\"error\":{\"code\":\"web_rpc_denied\",\"message\":\"web_rpc_denied\"}\n}", nil, ""},
+		{"unauthorized", 1, "", &AuthenticationFailure{}, "auth_error"},
+		{"denied", 1, "", failure(403, "web_rpc_denied"), "web_rpc_denied"},
+		{"mismatch", 1, "", failure(502, "continuation_operation_mismatch"), "continuation_operation_mismatch"},
+		{"operation-error", 1, "", failure(409, "interaction_pending_retrieve_receipt"), "interaction_pending_retrieve_receipt"},
+		{"failed-without-diagnostic", 1, `{"status":"failed","steps":[]}`, nil, "invalid_interaction_video"},
+		{"invalid", 1, `{`, nil, "invalid_interaction_video"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			// Given an already-finished pending or failed recovery operation.
@@ -92,21 +100,82 @@ func TestInteractionResumeBootstrapsBeforeTerminalClose(t *testing.T) {
 					t.Error(err)
 				}
 			})
-			// When GET resumes after the receipt event.
-			if _, err := service.subscribeInteraction("s", "tok", 1, operation); err != nil {
+			// When POST starts or GET resumes after the receipt event.
+			if _, err := service.subscribeInteraction("s", "tok", scenario.cursor, operation); err != nil {
 				t.Fatal(err)
 			}
 			first := interactionAwait(t, calls)
-			// Then nonempty native bytes precede close, and the close retains its error.
+			// Then nonempty native bytes precede close. Pending stays observable as
+			// cursor-free SSE data, but only actual errors reach the host close.
 			if first.Method != "host.stream.emit" {
 				t.Fatalf("closed before bootstrap: %+v", first)
 			}
-			assertInteractionComment(t, first.Payload)
+			if scenario.cursor > 0 {
+				assertInteractionComment(t, first.Payload)
+			} else if !strings.HasPrefix(string(first.Payload), "event: interaction.created\nid: tok:1\ndata: ") {
+				t.Fatalf("missing initial receipt: %s", first.Payload)
+			}
+			if scenario.code == "" {
+				pending := interactionAwait(t, calls)
+				if pending.Method != "host.stream.emit" || pending.Error != "" {
+					t.Fatalf("pending is not data: %+v", pending)
+				}
+				const prefix = "event: error\ndata: "
+				if !strings.HasPrefix(string(pending.Payload), prefix) || !strings.HasSuffix(string(pending.Payload), "\n\n") {
+					t.Fatalf("pending SSE changed or acquired a cursor: %s", pending.Payload)
+				}
+				var signal struct {
+					Error       struct{ Message, Type, Code string } `json:"error"`
+					Interaction json.RawMessage                      `json:"interaction"`
+				}
+				if err := json.Unmarshal(bytes.TrimPrefix(pending.Payload, []byte(prefix)), &signal); err != nil {
+					t.Fatal(err)
+				}
+				if signal.Error.Message != "interaction_pending_retrieve_receipt" || signal.Error.Type != "server_error" || signal.Error.Code != "internal_server_error" {
+					t.Fatalf("pending indication changed: %+v", signal.Error)
+				}
+				var expected bytes.Buffer
+				if err := json.Compact(&expected, operation.result.Payload); err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(signal.Interaction, expected.Bytes()) {
+					t.Fatalf("pending diagnostics lost: %s", signal.Interaction)
+				}
+			}
 			closed := interactionAwait(t, calls)
 			if closed.Method != "host.stream.close" || closed.Error != scenario.code {
 				t.Fatalf("terminal callback: %+v", closed)
 			}
 		})
+	}
+}
+
+func TestInteractionPendingEmitFailureRemainsAnError(t *testing.T) {
+	// Given a pending operation and a host that rejects its pending SSE payload.
+	service := newService(nil)
+	calls := interactionStreamCalls(service)
+	accept := service.host
+	service.host = func(method string, raw []byte) ([]byte, error) {
+		response, err := accept(method, raw)
+		if err != nil {
+			return nil, err
+		}
+		var call interactionStreamCall
+		if err := json.Unmarshal(raw, &call); err != nil {
+			return nil, err
+		}
+		if strings.HasPrefix(string(call.Payload), "event: error\n") {
+			return []byte(`{"ok":false}`), nil
+		}
+		return response, nil
+	}
+	operation := &interactionOperation{done: make(chan struct{}), result: continuationResult{Payload: []byte(`{"status":"in_progress","steps":[]}`)}}
+	close(operation.done)
+	// When the pending signal cannot be delivered.
+	err := service.sendInteractionEvents("s", "tok", 1, operation)
+	// Then transport failure still propagates rather than closing successfully.
+	if safeCredentialCode(err) != "interaction_subscriber_disconnected" || len(calls) != 2 {
+		t.Fatalf("pending emit failure lost: err=%v callbacks=%d", err, len(calls))
 	}
 }
 

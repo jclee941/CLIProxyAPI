@@ -42,6 +42,15 @@ func TestInteractionRPCFixtureProcess(t *testing.T) {
 		}
 	case "mismatch":
 		fixture.interrupted, fixture.wrongReply = true, true
+	case "ended":
+		fixture.interrupted = true
+	case "unauthorized":
+		fixture.interrupted = true
+		fixture.beforeSubmit = func() {
+			<-release
+			// The submit handler holds fixture.mu; later identity probes get 401.
+			fixture.expired = true
+		}
 	}
 	continuationWeb(t, service, fixture)
 	host := &loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}
@@ -77,6 +86,33 @@ func TestInteractionRPCFixtureProcess(t *testing.T) {
 			}
 		case "/release":
 			releaseOnce.Do(func() { close(release) })
+			w.WriteHeader(204)
+		case "/end":
+			stored, err := service.localStore().read(local.Target.TokenRef)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(500)
+				return
+			}
+			turns, err := continuationTurns(stored)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(500)
+				return
+			}
+			for key, turn := range turns {
+				turn.State, turn.ResultStored = "no_operation", false
+				turns[key] = turn
+			}
+			stored.State, stored.ContinuationActive = localReady, ""
+			if err := service.saveContinuations(stored, turns); err != nil {
+				t.Error(err)
+				w.WriteHeader(500)
+				return
+			}
+			fixture.mu.Lock()
+			fixture.expired = true
+			fixture.mu.Unlock()
 			w.WriteHeader(204)
 		case "/stats":
 			fixture.mu.Lock()

@@ -37,10 +37,21 @@ func (client *omniBootstrapRPCClient) Call(ctx context.Context, method string, r
 	return client.omniHTTPRPCClient.Call(ctx, method, raw)
 }
 
+type omniResultHook struct {
+	coreauth.NoopHook
+	results chan coreauth.Result
+}
+
+func (hook *omniResultHook) OnResult(_ context.Context, result coreauth.Result) {
+	hook.results <- result
+}
+
 func TestOmniInteractionResumeBootstrapKeepsRetrievalErrorWithoutCredentialRetry(t *testing.T) {
-	for _, scenario := range []struct{ mode, code string }{
-		{"pending", "interaction_pending_retrieve_receipt"},
-		{"mismatch", "continuation_operation_mismatch"},
+	for _, scenario := range []struct{ mode, code, status string }{
+		{"pending", "interaction_pending_retrieve_receipt", "in_progress"},
+		{"ended", "missing_upstream_operation", "failed"},
+		{"mismatch", "continuation_operation_mismatch", ""},
+		{"unauthorized", "auth_error", ""},
 	} {
 		t.Run(scenario.mode, func(t *testing.T) {
 			// Given the actual plugin, stream bridge, two eligible credentials and
@@ -56,7 +67,8 @@ func TestOmniInteractionResumeBootstrapKeepsRetrievalErrorWithoutCredentialRetry
 			}
 			record := normalizeTestCapabilityRecord(capabilityRecord{id: "gemini-web", plugin: plugin})
 			setHostSnapshotForTest(host, true, record)
-			manager := coreauth.NewManager(nil, nil, nil)
+			results := make(chan coreauth.Result, 8)
+			manager := coreauth.NewManager(nil, nil, &omniResultHook{results: results})
 			manager.SetPluginScheduler(host)
 			host.SetAuthManager(manager)
 			manager.RegisterExecutor(newExecutorAdapterRegistration(host, record, "gemini-web", plugin.Capabilities.Executor).adapter)
@@ -102,6 +114,16 @@ func TestOmniInteractionResumeBootstrapKeepsRetrievalErrorWithoutCredentialRetry
 			if post.Code != http.StatusOK || receipt.ID == "" || receipt.Status != "in_progress" {
 				t.Fatalf("POST %d: %s", post.Code, post.Body.String())
 			}
+			if result := omniSignal(t, ctx, results); !result.Success || result.AuthID != auth.ID {
+				t.Fatalf("POST execution result: %+v", result)
+			}
+			if scenario.mode == "ended" {
+				// End the fixture's named turn in its authenticated store, retaining
+				// its old handles but no active key or stored video, as after release.
+				if _, err := client.Call(ctx, "end", nil); err != nil {
+					t.Fatal(err)
+				}
+			}
 			// A second candidate keeps the scheduler reachable after the host
 			// excludes the owner. It must never execute this account's receipt.
 			other := auth.Clone()
@@ -125,14 +147,37 @@ func TestOmniInteractionResumeBootstrapKeepsRetrievalErrorWithoutCredentialRetry
 			} else {
 				scanner := bufio.NewScanner(strings.NewReader(response.Body.String()))
 				event := readOmniSSE(t, scanner)
+				if scenario.status == "failed" {
+					if event.Name != "interaction.failed" {
+						t.Errorf("ended receipt lacks terminal event: %+v", event)
+					} else {
+						var failed struct {
+							Interaction struct {
+								ID, Status string
+								Error      struct{ Code, Message string }
+							}
+						}
+						if err := json.Unmarshal(event.Data, &failed); err != nil {
+							t.Fatal(err)
+						}
+						if event.ID != receipt.ID+":2" || failed.Interaction.ID != receipt.ID || failed.Interaction.Status != "failed" || failed.Interaction.Error.Code != scenario.code || failed.Interaction.Error.Message != scenario.code {
+							t.Errorf("terminal receipt contract: %+v", failed)
+						}
+						event = readOmniSSE(t, scanner)
+					}
+				}
 				var failure struct {
-					Error struct{ Message string } `json:"error"`
+					Error       struct{ Message, Type, Code string } `json:"error"`
+					Interaction struct{ ID, Status string }          `json:"interaction"`
 				}
 				if err := json.Unmarshal(event.Data, &failure); err != nil {
 					t.Fatal(err)
 				}
-				if event.Name != "error" || event.ID != "" || failure.Error.Message != scenario.code {
-					t.Errorf("retrieval error: %+v, message=%q", event, failure.Error.Message)
+				if event.Name != "error" || event.ID != "" || failure.Error.Message != scenario.code || failure.Error.Type != "server_error" || failure.Error.Code != "internal_server_error" {
+					t.Errorf("retrieval error: %+v, error=%+v", event, failure.Error)
+				}
+				if scenario.status != "" && (failure.Interaction.ID != receipt.ID || failure.Interaction.Status != scenario.status) {
+					t.Errorf("interaction outcome lost: %+v", failure.Interaction)
 				}
 				for scanner.Scan() {
 					if scanner.Text() != "" {
@@ -142,6 +187,40 @@ func TestOmniInteractionResumeBootstrapKeepsRetrievalErrorWithoutCredentialRetry
 				if err := scanner.Err(); err != nil {
 					t.Fatal(err)
 				}
+			}
+			result := omniSignal(t, ctx, results)
+			updated, found := manager.GetByID(auth.ID)
+			if !found || updated.ModelStates[model] == nil {
+				t.Fatal("missing owner/model execution state")
+			}
+			state := updated.ModelStates[model]
+			if unused, found := manager.GetByID(other.ID); !found || unused.Unavailable || unused.Success != 0 || unused.Failed != 0 {
+				t.Error("retrieval affected a different account")
+			}
+			if scenario.status != "" {
+				if !result.Success || result.Error != nil || result.AuthID != auth.ID {
+					t.Errorf("outcome recorded as credential failure: %+v", result)
+				}
+				if updated.Unavailable || !updated.NextRetryAfter.IsZero() || updated.LastError != nil || updated.StatusMessage != "" || updated.Failed != 0 || state.Unavailable || !state.NextRetryAfter.IsZero() || state.LastError != nil || state.StatusMessage != "" {
+					t.Errorf("outcome penalized owner: unavailable=%t status_message=%q failed=%d retry_after=%v model_unavailable=%t model_retry_after=%v cooldown=%v", updated.Unavailable, updated.StatusMessage, updated.Failed, updated.NextRetryAfter, state.Unavailable, state.NextRetryAfter, state.NextRetryAfter.Sub(state.UpdatedAt))
+				}
+				// The same receipt must remain retrievable immediately, without a
+				// cooldown expiry, account switch, or another generation submission.
+				retrieved := call(http.MethodGet, "/v1beta/interactions/"+receipt.ID, "")
+				var again struct {
+					ID, Status string
+					Error      struct{ Code, Message string }
+				}
+				if err := json.Unmarshal(retrieved.Body.Bytes(), &again); err != nil {
+					t.Fatal(err)
+				}
+				if retrieved.Code != http.StatusOK || again.ID != receipt.ID || again.Status != scenario.status || (scenario.status == "failed" && (again.Error.Code != scenario.code || again.Error.Message != scenario.code)) {
+					t.Errorf("receipt outcome blocked: HTTP %d: %s", retrieved.Code, retrieved.Body.String())
+				} else if result := omniSignal(t, ctx, results); !result.Success || result.AuthID != auth.ID {
+					t.Errorf("receipt switched accounts: %+v", result)
+				}
+			} else if result.Success || result.Error == nil || result.Error.Message != scenario.code || !updated.Unavailable || state.NextRetryAfter.Sub(state.UpdatedAt) != time.Minute {
+				t.Errorf("real failure lost: result=%+v unavailable=%t model_state=%+v", result, updated.Unavailable, state)
 			}
 			stats, err := client.Call(ctx, "stats", nil)
 			if err != nil {

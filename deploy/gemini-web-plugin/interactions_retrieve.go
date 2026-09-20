@@ -77,12 +77,19 @@ func (service *service) retrieveInteraction(ctx context.Context, request executo
 	service.interactionsMu.Lock()
 	operation := service.interactions[body.ID]
 	service.interactionsMu.Unlock()
-	if turn.State == "complete" && turn.ResultStored {
-		payload, err := service.localStore().readInteractionResult(local, continuationKey(body.ID), turn.CallerScope)
-		if err != nil {
-			return nil, err
+	if turn.State == "no_operation" || turn.State == "complete" && turn.ResultStored {
+		// An ended receipt is authoritative even if its old chat handles remain.
+		// Like a stored completion, it must never enter upstream recovery again.
+		view := continuationView{Token: body.ID, State: "outcome_unknown", Error: "missing_upstream_operation"}
+		var payload []byte
+		if turn.State == "complete" {
+			view.State, view.Error = "complete", ""
+			payload, err = service.localStore().readInteractionResult(local, continuationKey(body.ID), turn.CallerScope)
+			if err != nil {
+				return nil, err
+			}
 		}
-		result, err := renderInteraction(record.ID, continuationResult{Payload: payload}, continuationView{Token: body.ID, State: "complete"})
+		result, err := renderInteraction(record.ID, continuationResult{Payload: payload}, view)
 		if err != nil {
 			return nil, err
 		}
@@ -100,7 +107,7 @@ func (service *service) retrieveInteraction(ctx context.Context, request executo
 		if err != nil {
 			return nil, err
 		}
-		if cursor > 1 && !turn.ResultStored {
+		if cursor > 1 && !turn.ResultStored && !(turn.State == "no_operation" && cursor == 2) {
 			return nil, failure(400, "invalid_interaction_event_id")
 		}
 		if operation == nil {

@@ -188,13 +188,40 @@ func (service *service) sendInteractionEvents(stream, token string, cursor int, 
 		return operation.err
 	}
 	var result struct {
-		Status string `json:"status"`
+		Status string                   `json:"status"`
+		Error  struct{ Message string } `json:"error"`
 		Steps  []struct {
 			Content []json.RawMessage `json:"content"`
 		} `json:"steps"`
 	}
 	if json.Unmarshal(operation.result.Payload, &result) != nil {
 		return failure(502, "invalid_interaction_video")
+	}
+	if result.Status == "in_progress" || result.Status == "failed" {
+		message := "interaction_pending_retrieve_receipt"
+		if result.Status == "failed" {
+			if result.Error.Message == "" {
+				return failure(502, "invalid_interaction_video")
+			}
+			if err := emit(2, "interaction.failed", map[string]any{"interaction": json.RawMessage(operation.result.Payload)}); err != nil {
+				return err
+			}
+			message = result.Error.Message
+		}
+		// Preserve outcome/error events as SSE data, not a stream-close error
+		// that the host records as a credential failure. Retain diagnostics.
+		payload, err := json.Marshal(map[string]any{
+			"error": map[string]string{
+				"message": message,
+				"type":    "server_error",
+				"code":    "internal_server_error",
+			},
+			"interaction": json.RawMessage(operation.result.Payload),
+		})
+		if err != nil {
+			return err
+		}
+		return service.streamInteractionCallback("host.stream.emit", stream, fmt.Appendf(nil, "event: error\ndata: %s\n\n", payload), "")
 	}
 	if result.Status != "completed" {
 		return failure(409, "interaction_pending_retrieve_receipt")
