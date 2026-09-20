@@ -151,6 +151,14 @@ func (service *service) sendInteractionEvents(stream, token string, cursor int, 
 		}
 		return service.streamInteractionCallback("host.stream.emit", stream, payload, "")
 	}
+	if cursor > 0 {
+		// Establish native SSE before waiting or closing a resumed replay, so
+		// the host bootstrap cannot retry its pinned account on an empty stream.
+		// Comments carry no event or cursor, including for a completed replay.
+		if err := service.streamInteractionCallback("host.stream.emit", stream, []byte(": replay\n\n"), ""); err != nil {
+			return err
+		}
+	}
 	if err := emit(1, "interaction.created", map[string]any{"interaction": map[string]any{"id": token, "object": "interaction", "model": interactionOmniModel, "status": "in_progress", "steps": []any{}}}); err != nil {
 		return err
 	}
@@ -192,9 +200,7 @@ func (service *service) sendInteractionEvents(stream, token string, cursor int, 
 		return failure(409, "interaction_pending_retrieve_receipt")
 	}
 	if cursor == 6 {
-		// An SSE comment confirms an empty replay to the host stream bootstrap;
-		// it carries no event or cursor and cannot duplicate completed output.
-		return service.streamInteractionCallback("host.stream.emit", stream, []byte(": replay complete\n\n"), "")
+		return nil
 	}
 	if len(result.Steps) != 1 || len(result.Steps[0].Content) != 1 {
 		return failure(502, "invalid_interaction_video")

@@ -172,6 +172,7 @@ func TestInteractionStreamDisconnectRecoversExactlyOneSubmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	interactionAwait(t, closed)
+	assertInteractionComment(t, interactionAwait(t, events))
 	for _, name := range []string{"step.stop", "interaction.completed", "done"} {
 		if event := interactionAwait(t, events); !strings.HasPrefix(string(event), "event: "+name+"\n") {
 			t.Fatalf("replay: %s", event)

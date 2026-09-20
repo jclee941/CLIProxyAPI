@@ -11,7 +11,9 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // Test-only cross-module RPC transport: the host's real RPC adapter and stream
@@ -27,6 +29,20 @@ func TestInteractionRPCFixtureProcess(t *testing.T) {
 	var releaseOnce sync.Once
 	defer releaseOnce.Do(func() { close(release) })
 	fixture := &continuationWebFixture{video: true, beforeSubmit: func() { <-release }}
+	switch os.Getenv("CPA_OMNI_FIXTURE_RETRIEVAL") {
+	case "pending":
+		fixture.interrupted, fixture.pending = true, true
+		// Advance only on the recovery wait signal, never on elapsed wall time.
+		var elapsed atomic.Int64
+		now := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+		service.now = func() time.Time { return now.Add(time.Duration(elapsed.Load())) }
+		service.continuationWait = func(context.Context) error {
+			elapsed.Add(int64(webVideoBudget))
+			return nil
+		}
+	case "mismatch":
+		fixture.interrupted, fixture.wrongReply = true, true
+	}
 	continuationWeb(t, service, fixture)
 	host := &loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}
 	service.host = func(method string, raw []byte) ([]byte, error) {
