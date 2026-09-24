@@ -88,6 +88,32 @@ func TestAccountTheProductCalledOutOfVideoSitsOutUntilItsWindowTurnsOver(t *test
 	}
 }
 
+// One account read 37% of its five hours and 46% of its week when the product
+// said it had no video left. Holding it until the weekly reset benched it for
+// four days although its five hour window turned over within the hour.
+func TestVideoLimitHoldsOnlyUntilTheFiveHourWindowTurnsOver(t *testing.T) {
+	service, local := continuationFixture(t)
+	now := service.now()
+	service.now = func() time.Time { return now }
+	fiveHour, weekly := 0.37, 0.46
+	fiveHourReset, weeklyReset := float64(now.Add(40*time.Minute).Unix()), float64(now.Add(96*time.Hour).Unix())
+	service.observeQuota(local.Target.ID, &usageView{Metrics: []usageMetric{
+		{WindowKind: "5h", UsageFraction: &fiveHour, ResetUnixSeconds: &fiveHourReset},
+		{WindowKind: "weekly", UsageFraction: &weekly, ResetUnixSeconds: &weeklyReset},
+	}})
+
+	service.noteVideoRefusal(local.Target.ID, webNoVideo("죄송하지만, 오늘은 더 이상 영상을 생성해 드릴 수 없습니다. 내일 다시 오시면 더 만들어 드릴 수 있어요."))
+
+	now = time.Unix(int64(fiveHourReset), 0).Add(-time.Minute)
+	if service.quotaAvailable(local.Target.ID) {
+		t.Fatal("released before the five hour window turned over")
+	}
+	now = time.Unix(int64(fiveHourReset), 0)
+	if !service.quotaAvailable(local.Target.ID) {
+		t.Fatal("held on the weekly window after the five hour window turned over")
+	}
+}
+
 // Declined prompts and a model that answers as text say nothing about the
 // account's allowance; holding it for them would starve the fleet.
 func TestDeclinedTurnsDoNotHoldTheirAccount(t *testing.T) {

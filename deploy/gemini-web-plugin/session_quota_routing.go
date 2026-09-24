@@ -14,8 +14,9 @@ const videoLimitHold = 30 * time.Minute
 type quotaSnapshot struct {
 	exhausted bool
 	resetAt   int64
-	// turnover is when the most used observed window resets, the earliest a
-	// limit the product reported can lift.
+	// turnover is when the five hour window resets, the earliest a limit the
+	// product reported can lift. The weekly window often reads more used
+	// without being that limit; holding on it benched idle accounts for days.
 	turnover int64
 	// limitedUntil holds a limit the product reported itself. The windows can
 	// still read below full then, since a video needs more units than are
@@ -37,13 +38,12 @@ func (service *service) observeQuota(id string, usage *usageView) {
 	}
 	snapshot := quotaSnapshot{}
 	unknownReset := false
-	used := -1.0
 	for _, metric := range usage.Metrics {
 		if metric.WindowKind != "5h" && metric.WindowKind != "weekly" {
 			continue
 		}
-		if metric.UsageFraction != nil && metric.ResetUnixSeconds != nil && *metric.UsageFraction > used {
-			used, snapshot.turnover = *metric.UsageFraction, int64(*metric.ResetUnixSeconds)
+		if metric.WindowKind == "5h" && metric.ResetUnixSeconds != nil {
+			snapshot.turnover = int64(*metric.ResetUnixSeconds)
 		}
 		if metric.UsageFraction != nil && *metric.UsageFraction >= 1 ||
 			metric.UsagePercent != nil && *metric.UsagePercent >= 100 ||
