@@ -97,6 +97,10 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 		}
 		return service.executeImages(ctx, raw)
 	case "executor.execute_stream":
+		var routed executorRequest
+		if json.Unmarshal(raw, &routed) == nil && claimsWebChatModel(routed.Model) {
+			return service.executeChatStream(ctx, raw)
+		}
 		return nil, failure(400, "image_streaming_unsupported")
 	case "executor.count_tokens":
 		return nil, failure(400, "count_tokens_not_supported")
@@ -107,4 +111,19 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 	default:
 		return nil, failure(400, "unknown_method")
 	}
+}
+
+// report writes one warning through the host, which is where an operator reads
+// and where the request id is attached; a loaded plugin's own output reaches no
+// log. The core renders only its known field names. A line that cannot be
+// delivered is not worth failing the request it describes.
+func (service *service) report(message string, fields map[string]any) {
+	if service.host == nil {
+		return
+	}
+	payload, err := json.Marshal(map[string]any{"level": "warn", "message": message, "fields": fields})
+	if err != nil {
+		return
+	}
+	_, _ = service.host("host.log", payload)
 }

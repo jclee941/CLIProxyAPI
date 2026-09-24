@@ -68,6 +68,7 @@ type executorRequest struct {
 	Payload         []byte
 	OriginalRequest []byte
 	HostCallbackID  string `json:"host_callback_id,omitempty"`
+	StreamID        string `json:"stream_id,omitempty"`
 }
 
 type executorResponse struct {

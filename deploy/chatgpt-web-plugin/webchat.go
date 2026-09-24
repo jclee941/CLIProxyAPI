@@ -1,14 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 )
@@ -16,7 +13,7 @@ import (
 // Chat runs through the same web conversation the image path uses, because that
 // spends the web allowance rather than the Codex API one. The reply arrives as a
 // stream of patches; the accumulated text is preferred, and the conversation is
-// re-read only when the stream yielded nothing.
+// re-read only when the stream did not deliver a whole answer.
 
 const webChatModel = "gpt-web-chat"
 const webProModel = "gpt-6-pro"
@@ -25,6 +22,11 @@ const webProModel = "gpt-6-pro"
 // text. A chat reply is quick, unlike an image, so waiting the image budget here
 // would hold the plugin long enough for the host's other calls to time out.
 const webChatPollBudget = 45 * time.Second
+
+// webReasoningPollBudget is that re-read for a thinking or Pro turn, which keeps
+// working server-side for minutes after its stream went away. It is the interval
+// WebGPT leaves before checking on a chat it delegated.
+const webReasoningPollBudget = 20 * time.Minute
 
 // webChatMaxCredentials bounds how many accounts one chat turn may try, so a
 // systematic failure cannot multiply the wait by the size of the pool.
@@ -38,7 +40,7 @@ func webChatModels() []modelInfo {
 		Type:                      "openai",
 		DisplayName:               "ChatGPT Web Chat",
 		Name:                      webChatModel,
-		Description:               "Text generation through the ChatGPT web conversation session; spends the web allowance instead of the Codex API allowance",
+		Description:               "Text generation through the ChatGPT web conversation session; reasoning_effort none, low, medium, high, xhigh or pro selects the web Instant, Light, Medium, High, Extra High or Pro preset, and no effort keeps the product's auto routing. Spends the web allowance instead of the Codex API allowance",
 		SupportedInputModalities:  []string{"text"},
 		SupportedOutputModalities: []string{"text"},
 	}, {
@@ -55,23 +57,13 @@ func webChatModels() []modelInfo {
 }
 
 func claimsWebChatModel(model string) bool {
-	switch imagesModelBase(model) {
+	base, _ := webModelParts(model)
+	switch base {
 	case webChatModel, webProModel:
 		return true
 	default:
 		return false
 	}
-}
-
-func claimsWebProModel(model string) bool {
-	return imagesModelBase(model) == webProModel
-}
-
-func webChatUpstreamModel(model string) string {
-	if claimsWebProModel(model) {
-		return webProModel
-	}
-	return webUpstreamModel
 }
 
 func isChatGPTProCredential(entry hostEntry) bool {
@@ -114,25 +106,30 @@ type webChatRequest struct {
 			Parameters  json.RawMessage `json:"parameters"`
 		} `json:"function"`
 	} `json:"tools"`
-	ToolChoice json.RawMessage `json:"tool_choice"`
+	ToolChoice      json.RawMessage `json:"tool_choice"`
+	ReasoningEffort string          `json:"reasoning_effort"`
 }
 
 // webChatToolPrompt states the call contract, because the web product has no
 // function calling of its own. The wording mirrors the block the reply is then
-// scanned for.
+// scanned for. Framed as tool use, the web models treat the contract as tools
+// they do not have: they refuse, or run the command in their own sandbox. Framed
+// as actions an agent carries out for them, Instant, auto and every thinking
+// effort answered with the block when measured live.
 func webChatToolPrompt(request webChatRequest) string {
 	if len(request.Tools) == 0 {
 		return ""
 	}
 	lines := []string{
-		"# Tool Use",
+		"# Response format",
 		"",
-		"Call a tool by replying with only this block:",
+		"You are the reasoning engine of an agent that runs on the user's machine. You cannot reach that machine yourself; the agent can, and it carries out the actions listed below for you. When the agent has to act before you can answer, reply with only the action for it to run, written as this block and nothing else:",
 		"```tool_call",
-		`{"name": "<tool_name>", "arguments": {<arguments>}}`,
+		`{"name": "<action>", "arguments": {<arguments>}}`,
 		"```",
+		`The agent runs it and replies with "[Tool result for <action>]: ...". Once no action is needed, reply with the answer in plain text.`,
 		"",
-		"Available tools:",
+		"Actions the agent can run:",
 	}
 	for _, tool := range request.Tools {
 		entry := "- " + tool.Function.Name
@@ -146,9 +143,9 @@ func webChatToolPrompt(request webChatRequest) string {
 	}
 	if required, forced := webChatToolChoice(request); required {
 		if forced != "" {
-			lines = append(lines, "", `IMPORTANT: You MUST call the tool "`+forced+`". Do not reply with text only.`)
+			lines = append(lines, "", `IMPORTANT: Reply with the "`+forced+`" action block, not with a plain-text answer.`)
 		} else {
-			lines = append(lines, "", "IMPORTANT: You MUST call at least one tool. Do not reply with text only.")
+			lines = append(lines, "", "IMPORTANT: Reply with an action block, not with a plain-text answer.")
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -287,314 +284,188 @@ func webMessageText(raw json.RawMessage) (string, bool) {
 	return builder.String(), true
 }
 
-// webReadReply accumulates the assistant text from the event stream. The stream
-// carries either whole message objects or append patches addressed by JSON
-// pointer, so both are folded into the same buffer.
-func webReadReply(response *http.Response) (string, string) {
-	defer closeBody(response)
-	conversationID := ""
-	text := ""
-	scanner := bufio.NewScanner(response.Body)
-	scanner.Buffer(make([]byte, 0, 64*1024), imagesMaxEventBytes)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" || payload == "[DONE]" {
-			continue
-		}
-		if conversationID == "" {
-			if match := webConversationRE.FindStringSubmatch(payload); len(match) == 2 {
-				conversationID = match[1]
-			}
-		}
-		var event struct {
-			Message *struct {
-				Author struct {
-					Role string `json:"role"`
-				} `json:"author"`
-				Content struct {
-					ContentType string   `json:"content_type"`
-					Parts       []string `json:"parts"`
-				} `json:"content"`
-			} `json:"message"`
-			Pointer   string          `json:"p"`
-			Operation string          `json:"o"`
-			Value     json.RawMessage `json:"v"`
-		}
-		webTraceEvent(payload)
-		if json.Unmarshal([]byte(payload), &event) != nil {
-			continue
-		}
-		if message := event.Message; message != nil {
-			if message.Author.Role == "assistant" && message.Content.ContentType == "text" && len(message.Content.Parts) > 0 {
-				// A whole message can arrive after deltas; keep whichever is longer
-				// so a partial snapshot cannot discard what was accumulated.
-				if len(message.Content.Parts[0]) > len(text) {
-					text = message.Content.Parts[0]
-				}
-			}
-			continue
-		}
-		webAccumulate(json.RawMessage(payload), "", &text)
-	}
-	return text, conversationID
+type webChatPlan struct {
+	model      string
+	stream     string
+	callbackID string
+	turn       webTurn
+	tools      bool
+	candidates []hostEntry
 }
 
-// webTextPointer reports whether a JSON pointer addresses the reply text. An
-// empty pointer is inherited from an event that carried no path of its own, which
-// the product uses for the plain text delta.
-func webTextPointer(pointer string) bool {
-	return pointer == "" || strings.HasSuffix(pointer, "/parts/0")
-}
-
-// webAccumulate folds one stream event into the reply. The product nests its
-// deltas: an event may carry the fragment directly, wrap it in a counter envelope,
-// or hold a list of operations, and each level may restate the pointer. Observed
-// shapes are {"c":n,"v":{...}}, {"o":"patch","v":[...]}, {"o":"append","p":...,
-// "v":"..."} and a bare {"v":"..."}; handling only the flat ones truncates the
-// reply at the first nested delta.
-func webAccumulate(raw json.RawMessage, pointer string, text *string) {
-	trimmed := strings.TrimSpace(string(raw))
-	if trimmed == "" {
-		return
-	}
-	switch trimmed[0] {
-	case '"':
-		var fragment string
-		if json.Unmarshal(raw, &fragment) == nil && fragment != "" && webTextPointer(pointer) {
-			*text += fragment
-		}
-	case '[':
-		var items []json.RawMessage
-		if json.Unmarshal(raw, &items) != nil {
-			return
-		}
-		for _, item := range items {
-			webAccumulate(item, pointer, text)
-		}
-	case '{':
-		var node struct {
-			Pointer *string         `json:"p"`
-			Value   json.RawMessage `json:"v"`
-		}
-		if json.Unmarshal(raw, &node) != nil || len(node.Value) == 0 {
-			return
-		}
-		next := pointer
-		if node.Pointer != nil && *node.Pointer != "" {
-			next = *node.Pointer
-		}
-		webAccumulate(node.Value, next, text)
-	}
-}
-
-// webChatTrace turns on a one-line-per-event record of the stream's shape. It is
-// a build-time switch because the reply patches are undocumented and the only
-// way to learn their shapes is to observe a real turn.
-const webChatTrace = false
-
-// webTraceEvent records the structure of one stream event: which keys it carries,
-// the patch operation and pointer, and the type of the value. The value itself is
-// never recorded, so no reply text reaches the log.
-func webTraceEvent(payload string) {
-	if !webChatTrace {
-		return
-	}
-	var event map[string]json.RawMessage
-	if json.Unmarshal([]byte(payload), &event) != nil {
-		fmt.Fprintf(os.Stderr, "WEBCHATDBG non-object len=%d head=%.40q\n", len(payload), payload)
-		return
-	}
-	keys := make([]string, 0, len(event))
-	for key := range event {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	operation, pointer, kind := "", "", ""
-	_ = json.Unmarshal(event["o"], &operation)
-	_ = json.Unmarshal(event["p"], &pointer)
-	if raw, present := event["v"]; present {
-		trimmed := strings.TrimSpace(string(raw))
-		switch {
-		case strings.HasPrefix(trimmed, `"`):
-			kind = "string"
-		case strings.HasPrefix(trimmed, "["):
-			kind = "array"
-		case strings.HasPrefix(trimmed, "{"):
-			kind = "object"
-		default:
-			kind = "scalar"
-		}
-	}
-	fmt.Fprintf(os.Stderr, "WEBCHATDBG keys=%s o=%q p=%q v=%s\n", strings.Join(keys, ","), operation, pointer, kind)
-}
-
-// webFinalReply re-reads the conversation when the stream produced no text, so a
-// patch shape this plugin does not recognise still yields an answer.
-func (client *webClient) webFinalReply(ctx context.Context, conversationID string) (string, error) {
-	if conversationID == "" {
-		return "", failure(502, "web_conversation_missing")
-	}
-	path := "/backend-api/conversation/" + conversationID
-	deadline := time.Now().Add(webChatPollBudget)
-	for time.Now().Before(deadline) {
-		raw, err := client.call(ctx, http.MethodGet, path,
-			client.header(path, map[string]string{"Accept": "application/json"}), nil, "web_conversation_read_failed")
-		if err == nil {
-			if text := webLatestAssistantText(raw); text != "" {
-				return text, nil
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return "", failure(499, "web_client_disconnected")
-		case <-time.After(webPollInterval):
-		}
-	}
-	return "", failure(504, "web_reply_not_ready")
-}
-
-// webLatestAssistantText picks the newest assistant turn out of the conversation
-// mapping, which is keyed by message id rather than ordered.
-func webLatestAssistantText(raw []byte) string {
-	var conversation struct {
-		Mapping map[string]struct {
-			Message *struct {
-				Author struct {
-					Role string `json:"role"`
-				} `json:"author"`
-				CreateTime float64 `json:"create_time"`
-				Content    struct {
-					ContentType string   `json:"content_type"`
-					Parts       []string `json:"parts"`
-				} `json:"content"`
-			} `json:"message"`
-		} `json:"mapping"`
-	}
-	if json.Unmarshal(raw, &conversation) != nil {
-		return ""
-	}
-	text, newest := "", -1.0
-	for _, node := range conversation.Mapping {
-		message := node.Message
-		if message == nil || message.Author.Role != "assistant" || message.Content.ContentType != "text" {
-			continue
-		}
-		if len(message.Content.Parts) == 0 || message.Content.Parts[0] == "" {
-			continue
-		}
-		if message.CreateTime >= newest {
-			text, newest = message.Content.Parts[0], message.CreateTime
-		}
-	}
-	return text
-}
-
-func (client *webClient) generateReply(ctx context.Context, prompt, model string) (string, error) {
-	if err := client.bootstrap(ctx); err != nil {
-		return "", err
-	}
-	requirements, err := client.chatRequirements(ctx)
-	if err != nil {
-		return "", err
-	}
-	conduitToken, err := client.prepareConversation(ctx, prompt, requirements, model, nil)
-	if err != nil {
-		return "", err
-	}
-	response, err := client.startGeneration(ctx, prompt, requirements, conduitToken, model, nil)
-	if err != nil {
-		return "", err
-	}
-	// The accumulated stream is the reply. Re-reading the conversation first was
-	// tried and measured worse: the stored shape this plugin knows how to read is
-	// not the one the product returns, so every turn spent the whole poll budget
-	// before falling back here anyway.
-	text, conversationID := webReadReply(response)
-	if strings.TrimSpace(text) != "" {
-		return text, nil
-	}
-	return client.webFinalReply(ctx, conversationID)
-}
-
-// executeChat walks the ChatGPT credentials until one completes a web
-// conversation turn, mirroring how the image path spreads across accounts.
-func (service *service) executeChat(ctx context.Context, raw []byte) (interface{}, error) {
+// planChat parses an execution request into the turn to run. The Pro model
+// tries Pro credentials first because only they carry its allowance; every
+// other turn rotates across the pool.
+func (service *service) planChat(raw []byte) (webChatPlan, error) {
 	var request executorRequest
 	if json.Unmarshal(raw, &request) != nil {
-		return nil, failure(400, "invalid_execution_request")
+		return webChatPlan{}, failure(400, "invalid_execution_request")
 	}
 	if !claimsWebChatModel(request.Model) {
-		return nil, failure(400, "unsupported_model")
+		return webChatPlan{}, failure(400, "unsupported_model")
 	}
 	payload := request.Payload
 	if len(payload) == 0 {
 		payload = request.OriginalRequest
 	}
-	prompt, request2, err := webChatPrompt(payload)
+	prompt, chat, err := webChatPrompt(payload)
 	if err != nil {
-		return nil, err
+		return webChatPlan{}, err
 	}
-	toolsOffered := len(request2.Tools) > 0
+	mode, err := webChatMode(request.Model, chat)
+	if err != nil {
+		return webChatPlan{}, err
+	}
 	if request.HostCallbackID == "" {
-		return nil, failure(401, "authenticated_execution_callback_required")
+		return webChatPlan{}, failure(401, "authenticated_execution_callback_required")
 	}
-	candidates, err := service.imageCandidates(request.HostCallbackID)
+	entries, err := service.imageCandidates(request.HostCallbackID)
+	if err != nil {
+		return webChatPlan{}, err
+	}
+	start := int(nextImageCredential.Add(1)-1) % len(entries)
+	if mode.Model == webProModel {
+		entries, start = preferProCredentials(entries), 0
+	}
+	plan := webChatPlan{
+		model:      request.Model,
+		stream:     request.StreamID,
+		callbackID: request.HostCallbackID,
+		turn:       webTurn{Prompt: prompt, Mode: mode},
+		tools:      len(chat.Tools) > 0,
+	}
+	for offset := 0; offset < min(len(entries), webChatMaxCredentials); offset++ {
+		plan.candidates = append(plan.candidates, entries[(start+offset)%len(entries)])
+	}
+	return plan, nil
+}
+
+func (service *service) clientFor(callbackID string, entry hostEntry) (*webClient, error) {
+	token, err := service.tokenFor(callbackID, entry)
 	if err != nil {
 		return nil, err
 	}
-	start := int(nextImageCredential.Add(1)-1) % len(candidates)
-	if claimsWebProModel(request.Model) {
-		candidates = preferProCredentials(candidates)
-		start = 0
+	return newWebClient(token)
+}
+
+// startReply runs a turn up to the point the product starts answering.
+func (client *webClient) startReply(ctx context.Context, turn webTurn) (*http.Response, error) {
+	if err := client.bootstrap(ctx); err != nil {
+		return nil, err
+	}
+	requirements, err := client.chatRequirements(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conduitToken, err := client.prepareConversation(ctx, turn, requirements)
+	if err != nil {
+		return nil, err
+	}
+	return client.startGeneration(ctx, turn, requirements, conduitToken)
+}
+
+// finishReply reads the answer, handing each growth to onDelta when one is set.
+// The accumulated stream is the reply. Re-reading the conversation first was
+// tried and measured worse: the stored shape this plugin knows how to read is
+// not the one the product returns, so every turn spent the whole poll budget
+// before falling back anyway. The re-read only completes a stream that ended
+// without a whole answer, and a thinking turn gets as long as it may still run.
+func (client *webClient) finishReply(ctx context.Context, response *http.Response, mode webMode, onDelta func(string) error) (webReply, error) {
+	reply, err := webStreamReply(response, onDelta)
+	if err != nil {
+		return reply, err
+	}
+	settled := reply.Complete || reply.ConversationID == ""
+	if settled && strings.TrimSpace(reply.Text) != "" {
+		return reply, nil
+	}
+	budget := webChatPollBudget
+	if mode.reasoning() {
+		budget = webReasoningPollBudget
+	}
+	text, err := client.webFinalReply(ctx, reply.ConversationID, budget)
+	if err != nil {
+		return reply, err
+	}
+	rest, extends := strings.CutPrefix(text, reply.Text)
+	reply.Text = text
+	if onDelta != nil && extends && rest != "" {
+		return reply, onDelta(rest)
+	}
+	return reply, nil
+}
+
+func (client *webClient) generateReply(ctx context.Context, turn webTurn) (webReply, error) {
+	response, err := client.startReply(ctx, turn)
+	if err != nil {
+		return webReply{}, err
+	}
+	return client.finishReply(ctx, response, turn.Mode, nil)
+}
+
+// executeChat walks the ChatGPT credentials until one completes a web
+// conversation turn, mirroring how the image path spreads across accounts.
+func (service *service) executeChat(ctx context.Context, raw []byte) (interface{}, error) {
+	plan, err := service.planChat(raw)
+	if err != nil {
+		return nil, err
 	}
 	var lastErr error = failure(503, "web_chat_unavailable")
-	attempts := min(len(candidates), webChatMaxCredentials)
-	upstream := webChatUpstreamModel(request.Model)
-	for offset := 0; offset < attempts; offset++ {
-		entry := candidates[(start+offset)%len(candidates)]
-		token, tokenErr := service.tokenFor(request.HostCallbackID, entry)
-		if tokenErr != nil {
-			lastErr = tokenErr
+	for _, entry := range plan.candidates {
+		client, err := service.clientFor(plan.callbackID, entry)
+		if err != nil {
+			lastErr = err
 			continue
 		}
-		client, clientErr := newWebClient(token)
-		if clientErr != nil {
-			lastErr = clientErr
+		reply, err := client.generateReply(ctx, plan.turn)
+		service.discard(ctx, client, reply.ConversationID)
+		if err != nil {
+			lastErr = err
 			continue
 		}
-		text, generateErr := client.generateReply(ctx, prompt, upstream)
-		if generateErr != nil {
-			lastErr = generateErr
-			continue
-		}
-		body, renderErr := webChatPayload(request.Model, text, toolsOffered)
-		if renderErr != nil {
-			return nil, renderErr
+		service.checkServed(plan.turn.Mode, reply)
+		body, err := webChatPayload(plan.model, reply, plan.tools)
+		if err != nil {
+			return nil, err
 		}
 		return executorResponse{Payload: body, Headers: http.Header{"Content-Type": []string{"application/json"}}}, nil
 	}
 	return nil, lastErr
 }
 
-func webChatPayload(model, text string, toolsOffered bool) ([]byte, error) {
-	message := map[string]interface{}{"role": "assistant", "content": text}
+// checkServed reports a turn the product answered on another model or effort
+// than was asked, which is what it does once an allowance runs out. WebGPT
+// checks the picker before it sends; the stream is where this plugin can see
+// the same thing. The product's own auto routing asks for nothing to check.
+func (service *service) checkServed(mode webMode, reply webReply) {
+	if mode.Model == webUpstreamModel || reply.Model == "" {
+		return
+	}
+	if reply.Model == mode.Model && reply.Effort == mode.Effort {
+		return
+	}
+	service.report("chatgpt-web: turn served on a different mode", map[string]any{
+		"provider": provider, "model": mode.Model, "level": mode.Effort, "state": reply.Model + " " + reply.Effort,
+	})
+}
+
+// served names the preset the product answered on, such as gpt-5-6-thinking/max.
+// Responses carry it as system_fingerprint, so a caller can see which preset ran
+// and not only which one it asked for.
+func (reply webReply) served() string {
+	if reply.Effort == "" {
+		return reply.Model
+	}
+	return reply.Model + "/" + reply.Effort
+}
+
+func webChatPayload(model string, reply webReply, toolsOffered bool) ([]byte, error) {
+	message := map[string]interface{}{"role": "assistant", "content": reply.Text}
 	finish := "stop"
 	if toolsOffered {
-		clean, calls := webParseToolCalls(text)
+		clean, calls := webParseToolCalls(reply.Text)
 		if len(calls) > 0 {
-			rendered := make([]interface{}, 0, len(calls))
-			for index, call := range calls {
-				rendered = append(rendered, map[string]interface{}{
-					"id":       fmt.Sprintf("call_web_%d", index),
-					"type":     "function",
-					"function": map[string]string{"name": call.Name, "arguments": call.Arguments},
-				})
-			}
-			message["tool_calls"] = rendered
+			message["tool_calls"] = webRenderToolCalls(calls, false)
 			message["content"] = nil
 			if strings.TrimSpace(clean) != "" {
 				message["content"] = clean
@@ -613,9 +484,28 @@ func webChatPayload(model, text string, toolsOffered bool) ([]byte, error) {
 			"finish_reason": finish,
 		}},
 	}
+	if served := reply.served(); served != "" {
+		body["system_fingerprint"] = served
+	}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return nil, failure(500, "web_response_invalid")
 	}
 	return raw, nil
+}
+
+func webRenderToolCalls(calls []webToolCall, streamed bool) []interface{} {
+	rendered := make([]interface{}, 0, len(calls))
+	for index, call := range calls {
+		item := map[string]interface{}{
+			"id":       fmt.Sprintf("call_web_%d", index),
+			"type":     "function",
+			"function": map[string]string{"name": call.Name, "arguments": call.Arguments},
+		}
+		if streamed {
+			item["index"] = index
+		}
+		rendered = append(rendered, item)
+	}
+	return rendered
 }

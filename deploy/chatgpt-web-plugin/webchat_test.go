@@ -40,7 +40,7 @@ func TestWebChatCarriesToolsBothWays(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
-	for _, want := range []string{"# Tool Use", "get_weather", "```tool_call", "MUST call at least one tool"} {
+	for _, want := range []string{"get_weather", "```tool_call", `"city":{"type":"string"}`} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q: %q", want, prompt)
 		}
@@ -48,9 +48,13 @@ func TestWebChatCarriesToolsBothWays(t *testing.T) {
 	if len(request.Tools) != 1 {
 		t.Fatalf("tools = %d", len(request.Tools))
 	}
+	optional, _, err := webChatPrompt([]byte(strings.Replace(string(payload), `"required"`, `"auto"`, 1)))
+	if err != nil || optional == prompt {
+		t.Fatalf("tool_choice required left the prompt unchanged, err = %v", err)
+	}
 
 	reply := "```tool_call\n{\"name\": \"get_weather\", \"arguments\": {\"city\": \"Seoul\"}}\n```"
-	raw, err := webChatPayload(webChatModel, reply, true)
+	raw, err := webChatPayload(webChatModel, webReply{Text: reply}, true)
 	if err != nil {
 		t.Fatalf("payload: %v", err)
 	}
@@ -91,12 +95,12 @@ func TestWebReadReplyHandlesBothStreamShapes(t *testing.T) {
 		"data: [DONE]",
 		"",
 	}, "\n")
-	text, conversation := webReadReply(sseResponse(whole))
-	if text != "full answer" {
-		t.Fatalf("text = %q", text)
+	reply, err := webStreamReply(sseResponse(whole), nil)
+	if err != nil || reply.Text != "full answer" {
+		t.Fatalf("text = %q, err = %v", reply.Text, err)
 	}
-	if conversation != "conv-1" {
-		t.Fatalf("conversation = %q", conversation)
+	if reply.ConversationID != "conv-1" {
+		t.Fatalf("conversation = %q", reply.ConversationID)
 	}
 
 	patches := strings.Join([]string{
@@ -106,12 +110,12 @@ func TestWebReadReplyHandlesBothStreamShapes(t *testing.T) {
 		"data: [DONE]",
 		"",
 	}, "\n")
-	text, conversation = webReadReply(sseResponse(patches))
-	if text != "partial" {
-		t.Fatalf("patched text = %q", text)
+	reply, err = webStreamReply(sseResponse(patches), nil)
+	if err != nil || reply.Text != "partial" {
+		t.Fatalf("patched text = %q, err = %v", reply.Text, err)
 	}
-	if conversation != "conv-2" {
-		t.Fatalf("conversation = %q", conversation)
+	if reply.ConversationID != "conv-2" {
+		t.Fatalf("conversation = %q", reply.ConversationID)
 	}
 }
 
@@ -129,12 +133,12 @@ func TestWebReadReplyFoldsEveryObservedPatchShape(t *testing.T) {
 		"data: [DONE]",
 		"",
 	}, "\n")
-	text, conversation := webReadReply(sseResponse(stream))
-	if text != "Hello, world! 1, 2, 3, DONE" {
-		t.Fatalf("text = %q", text)
+	reply, err := webStreamReply(sseResponse(stream), nil)
+	if err != nil || reply.Text != "Hello, world! 1, 2, 3, DONE" {
+		t.Fatalf("text = %q, err = %v", reply.Text, err)
 	}
-	if conversation != "conv-9" {
-		t.Fatalf("conversation = %q", conversation)
+	if reply.ConversationID != "conv-9" {
+		t.Fatalf("conversation = %q", reply.ConversationID)
 	}
 }
 
@@ -146,8 +150,8 @@ func TestWebReadReplyIgnoresUnrelatedPaths(t *testing.T) {
 		"data: [DONE]",
 		"",
 	}, "\n")
-	if text, _ := webReadReply(sseResponse(stream)); text != "real" {
-		t.Fatalf("text = %q", text)
+	if reply, err := webStreamReply(sseResponse(stream), nil); err != nil || reply.Text != "real" {
+		t.Fatalf("text = %q, err = %v", reply.Text, err)
 	}
 }
 
@@ -167,7 +171,7 @@ func TestWebLatestAssistantTextPicksTheNewestTurn(t *testing.T) {
 }
 
 func TestWebChatModelIsRoutedAndRendered(t *testing.T) {
-	raw, err := webChatPayload(webChatModel, "answer", false)
+	raw, err := webChatPayload(webChatModel, webReply{Text: "answer"}, false)
 	if err != nil {
 		t.Fatalf("payload: %v", err)
 	}
@@ -195,11 +199,11 @@ func TestWebChatExposesGpt6ProOnTheWebSession(t *testing.T) {
 	if !claimsWebChatModel("GPT-6-Pro") {
 		t.Fatal("gpt-6-pro must be claimed by the web chat path")
 	}
-	if webChatUpstreamModel(webProModel) != webProModel {
-		t.Fatalf("pro upstream = %q", webChatUpstreamModel(webProModel))
+	if mode, err := webChatMode(webProModel, webChatRequest{}); err != nil || mode.Model != webProModel {
+		t.Fatalf("pro mode = %+v, err = %v", mode, err)
 	}
-	if webChatUpstreamModel(webChatModel) != webUpstreamModel {
-		t.Fatalf("default chat must stay auto, got %q", webChatUpstreamModel(webChatModel))
+	if mode, err := webChatMode(webChatModel, webChatRequest{}); err != nil || mode.Model != webUpstreamModel || mode.Effort != "" {
+		t.Fatalf("default chat must stay auto, got %+v, err = %v", mode, err)
 	}
 }
 

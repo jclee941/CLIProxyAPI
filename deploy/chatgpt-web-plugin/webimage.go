@@ -295,13 +295,32 @@ func (client *webClient) chatRequirements(ctx context.Context) (webRequirements,
 	return webRequirements{Token: finalized.Token, ProofToken: proofToken}, nil
 }
 
-func (client *webClient) prepareConversation(ctx context.Context, prompt string, requirements webRequirements, model string, hints []string) (string, error) {
+// webTurn is what one conversation turn asks the product for. Hints are the
+// system_hints the web client sends, such as picture_v2 for an image.
+type webTurn struct {
+	Prompt string
+	Mode   webMode
+	Hints  []string
+}
+
+// fill adds the fields prepare and start share. The backend validates the
+// effort at prepare as well as at start, so both carry it.
+func (turn webTurn) fill(body map[string]interface{}) {
+	body["model"] = turn.Mode.Model
+	if turn.Mode.Effort != "" {
+		body["thinking_effort"] = turn.Mode.Effort
+	}
+	if len(turn.Hints) > 0 {
+		body["system_hints"] = turn.Hints
+	}
+}
+
+func (client *webClient) prepareConversation(ctx context.Context, turn webTurn, requirements webRequirements) (string, error) {
 	path := "/backend-api/f/conversation/prepare"
 	body := map[string]interface{}{
 		"action":                "next",
 		"fork_from_shared_post": false,
 		"parent_message_id":     newDeviceID(),
-		"model":                 model,
 		"client_prepare_state":  "success",
 		"timezone_offset_min":   -480,
 		"timezone":              "Asia/Shanghai",
@@ -309,15 +328,13 @@ func (client *webClient) prepareConversation(ctx context.Context, prompt string,
 		"partial_query": map[string]interface{}{
 			"id":      newDeviceID(),
 			"author":  map[string]interface{}{"role": "user"},
-			"content": map[string]interface{}{"content_type": "text", "parts": []string{prompt}},
+			"content": map[string]interface{}{"content_type": "text", "parts": []string{turn.Prompt}},
 		},
 		"supports_buffering":     true,
 		"supported_encodings":    []string{"v1"},
 		"client_contextual_info": map[string]interface{}{"app_name": "chatgpt.com"},
 	}
-	if len(hints) > 0 {
-		body["system_hints"] = hints
-	}
+	turn.fill(body)
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return "", failure(500, "web_request_encoding_failed")
@@ -336,7 +353,7 @@ func (client *webClient) prepareConversation(ctx context.Context, prompt string,
 	return prepared.ConduitToken, nil
 }
 
-func (client *webClient) startGeneration(ctx context.Context, prompt string, requirements webRequirements, conduitToken, model string, hints []string) (*http.Response, error) {
+func (client *webClient) startGeneration(ctx context.Context, turn webTurn, requirements webRequirements, conduitToken string) (*http.Response, error) {
 	path := "/backend-api/f/conversation"
 	metadata := map[string]interface{}{
 		"developer_mode_connector_ids": []string{},
@@ -344,8 +361,8 @@ func (client *webClient) startGeneration(ctx context.Context, prompt string, req
 		"selected_all_github_repos":    false,
 		"serialization_metadata":       map[string]interface{}{"custom_symbol_offsets": []interface{}{}},
 	}
-	if len(hints) > 0 {
-		metadata["system_hints"] = hints
+	if len(turn.Hints) > 0 {
+		metadata["system_hints"] = turn.Hints
 	}
 	body := map[string]interface{}{
 		"action": "next",
@@ -353,11 +370,10 @@ func (client *webClient) startGeneration(ctx context.Context, prompt string, req
 			"id":          newDeviceID(),
 			"author":      map[string]interface{}{"role": "user"},
 			"create_time": float64(time.Now().UnixMilli()) / 1000,
-			"content":     map[string]interface{}{"content_type": "text", "parts": []string{prompt}},
+			"content":     map[string]interface{}{"content_type": "text", "parts": []string{turn.Prompt}},
 			"metadata":    metadata,
 		}},
 		"parent_message_id":        newDeviceID(),
-		"model":                    model,
 		"client_prepare_state":     "sent",
 		"timezone_offset_min":      -480,
 		"timezone":                 "Asia/Shanghai",
@@ -378,9 +394,7 @@ func (client *webClient) startGeneration(ctx context.Context, prompt string, req
 		"paragen_cot_summary_display_override": "allow",
 		"force_parallel_switch":                "auto",
 	}
-	if len(hints) > 0 {
-		body["system_hints"] = hints
-	}
+	turn.fill(body)
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, failure(500, "web_request_encoding_failed")
@@ -488,6 +502,28 @@ func (client *webClient) pollConversation(ctx context.Context, references *webIm
 	return failure(504, "web_image_not_ready")
 }
 
+// deleteConversation does what the product's "Delete chat" does. Without it
+// every API call stays behind as a chat in the account owner's own ChatGPT
+// history; WebGPT deletes the chats it delegates to for the same reason.
+func (client *webClient) deleteConversation(ctx context.Context, conversationID string) error {
+	path := "/backend-api/conversation/" + conversationID
+	_, err := client.call(ctx, http.MethodPatch, path,
+		client.header(path, map[string]string{"Content-Type": "application/json", "Accept": "application/json"}),
+		[]byte(`{"is_visible":false}`), "web_conversation_delete_failed")
+	return err
+}
+
+// discard deletes the conversation a turn opened. The answer is already in hand
+// or already lost, so a failure is reported rather than returned.
+func (service *service) discard(ctx context.Context, client *webClient, conversationID string) {
+	if conversationID == "" {
+		return
+	}
+	if err := client.deleteConversation(ctx, conversationID); err != nil {
+		service.report("chatgpt-web: conversation cleanup failed", map[string]any{"provider": provider, "error": err.Error()})
+	}
+}
+
 func (client *webClient) downloadURL(ctx context.Context, path string) string {
 	raw, err := client.call(ctx, http.MethodGet, path,
 		client.header(path, map[string]string{"Accept": "application/json"}), nil, "web_download_url_failed")
@@ -573,29 +609,21 @@ func (client *webClient) getBlob(ctx context.Context, url string, header http.He
 	return blob, response.StatusCode
 }
 
-func (client *webClient) generate(ctx context.Context, prompt string) (string, error) {
-	if err := client.bootstrap(ctx); err != nil {
-		return "", err
-	}
-	requirements, err := client.chatRequirements(ctx)
+// generate runs an image turn and returns the image with the conversation it
+// opened, which the caller deletes once the image is in hand.
+func (client *webClient) generate(ctx context.Context, prompt string) (string, string, error) {
+	response, err := client.startReply(ctx, webTurn{Prompt: prompt, Mode: webMode{Model: webUpstreamModel}, Hints: []string{"picture_v2"}})
 	if err != nil {
-		return "", err
-	}
-	conduitToken, err := client.prepareConversation(ctx, prompt, requirements, webUpstreamModel, []string{"picture_v2"})
-	if err != nil {
-		return "", err
-	}
-	response, err := client.startGeneration(ctx, prompt, requirements, conduitToken, webUpstreamModel, []string{"picture_v2"})
-	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	references := webReadStream(response)
 	if len(references.fileIDs) == 0 && len(references.sedimentIDs) == 0 {
 		if pollErr := client.pollConversation(ctx, &references); pollErr != nil {
-			return "", pollErr
+			return "", references.conversationID, pollErr
 		}
 	}
-	return client.fetchImage(ctx, references)
+	image, err := client.fetchImage(ctx, references)
+	return image, references.conversationID, err
 }
 
 // generateWebImage walks the ChatGPT credentials until one completes a web
@@ -627,7 +655,8 @@ func (service *service) generateWebImage(ctx context.Context, callbackID string,
 			lastErr = clientErr
 			continue
 		}
-		result, generateErr := client.generate(ctx, imagePromptWithHints(request))
+		result, conversationID, generateErr := client.generate(ctx, imagePromptWithHints(request))
+		service.discard(ctx, client, conversationID)
 		if generateErr != nil {
 			// Another account would reproduce the same refusal for the same
 			// prompt, so the walk stops rather than spending a second budget.

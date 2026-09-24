@@ -151,18 +151,20 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
     <section class="view view-api">
       <header class="heading-copy">
         <h1>API 레퍼런스</h1>
-        <p class="hint">이 플러그인이 제공하는 두 모델의 호출 방법입니다. <code>$CLIPROXY</code>는 이 프록시의 베이스 URL, <code>$CLIPROXY_KEY</code>는 발급받은 API 키입니다.</p>
+        <p class="hint">이 플러그인이 제공하는 모델의 호출 방법입니다. <code>$CLIPROXY</code>는 이 프록시의 베이스 URL, <code>$CLIPROXY_KEY</code>는 발급받은 API 키입니다.</p>
       </header>
 
       <details class="api-endpoint" open>
         <summary><span class="api-method">POST</span><code>/v1/chat/completions</code><span class="api-tag api-tag-cost">웹 세션 한도 소비</span></summary>
         <div class="api-body">
           <h3>요청</h3>
-          <pre class="api-sample"><code>curl -X POST "$CLIPROXY/v1/chat/completions" \
+          <pre class="api-sample"><code>curl -N -X POST "$CLIPROXY/v1/chat/completions" \
   -H "Authorization: Bearer $CLIPROXY_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-6-pro",
+    "model": "gpt-web-chat",
+    "reasoning_effort": "xhigh",
+    "stream": true,
     "messages": [{ "role": "user", "content": "한 문장으로 자기소개 해줘" }]
   }'</code></pre>
 
@@ -170,19 +172,39 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
           <div class="api-scroll"><table class="api-table">
             <thead><tr><th>필드</th><th>설명</th></tr></thead>
             <tbody>
-              <tr><td><code>model</code></td><td><code>gpt-web-chat</code>은 웹 기본(auto), <code>gpt-6-pro</code>는 ChatGPT GPT-6 Pro입니다. 둘 다 웹 세션으로 라우팅됩니다.</td></tr>
+              <tr><td><code>model</code></td><td><code>gpt-web-chat</code>은 ChatGPT 웹 모델 선택기의 프리셋을 <code>reasoning_effort</code>로 고릅니다. <code>gpt-6-pro</code>는 GPT-6 Pro이며 추론 수준 지정은 무시됩니다. <code>gpt-web-chat(xhigh)</code>처럼 모델 이름 뒤 괄호로도 수준을 줄 수 있고, 괄호 값이 본문보다 우선합니다.</td></tr>
+              <tr><td><code>reasoning_effort</code></td><td>생략하거나 <code>auto</code>면 웹 기본 자동 라우팅입니다. <code>none</code> → Instant, <code>minimal</code>·<code>low</code> → Light, <code>medium</code>(<code>m</code>) → Medium, <code>high</code>(<code>h</code>) → High, <code>xhigh</code>(<code>xh</code>) → Extra High, <code>pro</code>(<code>p</code>) → Pro. <code>/v1/responses</code>의 <code>reasoning.effort</code>도 같은 값으로 받습니다. 그 밖의 값은 <code>400 unsupported_reasoning_effort</code>입니다.</td></tr>
+              <tr><td><code>stream</code></td><td><code>true</code>면 답을 받는 대로 <code>chat.completion.chunk</code>로 흘려보내고 <code>data: [DONE]</code>으로 끝냅니다. 첫 청크는 모델이 생각하는 동안 먼저 도착합니다. <code>/v1/responses</code> 스트리밍(Codex 등)도 같은 경로로 동작합니다.</td></tr>
               <tr><td><code>messages</code></td><td>여러 턴을 보낼 수 있습니다. <code>tool</code> 역할과 이전 <code>tool_calls</code>도 이어붙여 대화 맥락으로 전달합니다.</td></tr>
-              <tr><td><code>tools</code></td><td>웹 제품에는 함수 호출이 없어, 도구 계약을 프롬프트로 지시하고 응답에서 호출 블록을 파싱해 <code>tool_calls</code>로 복원합니다.</td></tr>
-              <tr><td><code>tool_choice</code></td><td>도구 사용 강제 여부를 같은 프롬프트 지시에 반영합니다.</td></tr>
+              <tr><td><code>tools</code></td><td>웹 제품에는 함수 호출이 없어, 도구 계약을 프롬프트로 지시하고 응답에서 호출 블록을 파싱해 <code>tool_calls</code>로 복원합니다. 스트리밍에서는 호출 블록이 시작되기 전까지의 본문만 먼저 보내고, 호출은 끝에서 <code>tool_calls</code> 청크로 보냅니다.</td></tr>
+              <tr><td><code>tool_choice</code></td><td>도구 사용 강제 여부를 같은 프롬프트 지시에 반영합니다. <code>required</code>는 프록시의 구조화 출력 검사가 답을 끝까지 모은 뒤 전달하므로 스트리밍이어도 한 번에 도착합니다.</td></tr>
             </tbody>
           </table></div>
 
-          <h3>제약</h3>
+          <h3>응답</h3>
+          <div class="api-scroll"><table class="api-table">
+            <thead><tr><th>필드</th><th>설명</th></tr></thead>
+            <tbody>
+              <tr><td><code>system_fingerprint</code></td><td>실제로 답한 웹 프리셋입니다. 예: <code>gpt-5-6-thinking/max</code>(Extra High), <code>gpt-6-pro</code>. 자동 라우팅이면 제품이 고른 모델이 들어갑니다. 스트리밍에서는 마지막 청크들에 실립니다.</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3>동작</h3>
           <ul class="api-limits">
-            <li>스트리밍 불가. <code>stream: true</code>는 <code>image_streaming_unsupported</code>로 거부합니다.</li>
+            <li>요청마다 열린 ChatGPT 대화는 답을 받은 뒤 삭제되어 계정의 채팅 기록에 남지 않습니다.</li>
             <li>텍스트 입출력만 지원합니다.</li>
             <li>Codex API 한도가 아니라 브라우저 세션 한도를 소비합니다.</li>
           </ul>
+
+          <h3>오류</h3>
+          <div class="api-scroll"><table class="api-table">
+            <thead><tr><th>코드</th><th>의미</th></tr></thead>
+            <tbody>
+              <tr><td><code>unsupported_reasoning_effort</code></td><td>400. 웹 프리셋에 없는 추론 수준입니다. 생성 전에 거부하므로 한도를 쓰지 않습니다.</td></tr>
+              <tr><td><code>web_reply_not_ready</code></td><td>504. 스트림이 완성된 답 없이 끝났고, 대화를 다시 읽어도 기다리는 동안 답이 완성되지 않았습니다. 일반 턴은 45초, 추론·Pro 턴은 20분까지 기다립니다.</td></tr>
+              <tr><td><code>web_transport_failed</code></td><td>업스트림 연결이 실패했습니다. 전송 전 실패는 자동으로 재시도합니다.</td></tr>
+            </tbody>
+          </table></div>
         </div>
       </details>
 
@@ -222,6 +244,7 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
             </tbody>
           </table></div>
           <p class="hint">실패해도 HTTP 상태는 <code>200</code>으로 도착할 수 있습니다. 성공·실패는 상태코드가 아니라 본문의 <code>error</code> 객체 유무로 판단하세요.</p>
+          <p class="hint">이미지를 받은 뒤 생성에 쓴 ChatGPT 대화는 삭제되어 계정의 채팅 기록에 남지 않습니다.</p>
         </div>
       </details>
 
