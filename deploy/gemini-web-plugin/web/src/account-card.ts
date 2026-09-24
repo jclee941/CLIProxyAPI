@@ -12,6 +12,15 @@ const statuses = {
 const windows = { '5h': '5시간', weekly: '주간', ai_credit: 'AI 크레딧', unknown: '기타 사용량' } as const;
 const number = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 1 });
 
+// The plugin names only the tier it has observed (code 2 as PRO). Another code
+// is still what Google reported, so it is shown as its code: when Google moved
+// every account to code 3 the badge disappeared from all of them.
+export function tierLabel(usage: Account['usage']): string | undefined {
+  if (usage?.tier) return usage.tier;
+  if (usage?.tier_code !== null && usage?.tier_code !== undefined) return `코드 ${usage.tier_code}`;
+  return undefined;
+}
+
 function metricView(metric: Metric): HTMLElement {
   const section = element('section', 'metric');
   const title = windows[metric.window_kind];
@@ -66,7 +75,8 @@ export function accountCard(account: Account, state: CardState, actions: CardAct
   const status = statuses[account.status];
   tags.append(badge(state.error ? '확인 실패' : status.label, state.error ? 'warning' : status.tone));
   if (!account.enabled) tags.append(badge('비활성'));
-  if (account.usage?.tier) tags.append(badge(`Google 보고 등급 · ${account.usage.tier}`, 'info'));
+  const tier = tierLabel(account.usage);
+  if (tier) tags.append(badge(`Google 보고 등급 · ${tier}`, 'info'));
   header.append(title, tags);
   card.append(header);
 

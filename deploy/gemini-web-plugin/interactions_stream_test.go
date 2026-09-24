@@ -10,40 +10,45 @@ import (
 	"time"
 )
 
-// The stream close carries a string and no status, so the host reports every
-// streamed failure as internal_server_error. A turn the product declined is not
-// an internal fault and will never succeed on a retry, so the outcome has to
-// reach the caller somewhere it survives: the interaction's own status field.
-func TestDeclinedTurnIsStatedAsAFailedInteractionOnTheStream(t *testing.T) {
+// A turn the product declined is not an internal fault and will never succeed
+// on a retry, so the outcome reaches the caller where it survives: the
+// interaction's own status field, then the error event. The close itself must
+// carry nothing. The host records a close that carries an error against the
+// credential, and the sixty second cooldown that followed every declined turn
+// refused the caller's retry of its chain with continuation_account_unavailable.
+func TestDeclinedTurnIsStatedOnTheStreamAndClosesWithoutCoolingTheAccount(t *testing.T) {
 	service := newService(nil)
-	var emitted [][]byte
-	service.host = func(method string, raw []byte) ([]byte, error) {
-		var call struct {
-			Payload []byte `json:"payload"`
-			Error   string `json:"error"`
-		}
-		if json.Unmarshal(raw, &call) == nil && method == "host.stream.emit" {
-			emitted = append(emitted, call.Payload)
-		}
-		return []byte(`{"ok":true,"result":{}}`), nil
-	}
+	calls := interactionStreamCalls(service)
 	operation := &interactionOperation{done: make(chan struct{}), err: webNoVideo("Daily video limit reached.")}
 	close(operation.done)
+	t.Cleanup(func() {
+		if err := service.shutdownSessions(); err != nil {
+			t.Error(err)
+		}
+	})
 
-	err := service.sendInteractionEvents("s", "tok", 0, operation)
+	if _, err := service.subscribeInteraction("s", "tok", 0, operation); err != nil {
+		t.Fatal(err)
+	}
 
-	if safeCredentialCode(err) != "no_video_generated" {
-		t.Fatalf("the close no longer carries the refusal: %v", err)
+	var emitted [][]byte
+	for {
+		call := interactionAwait(t, calls)
+		if call.Method == "host.stream.close" {
+			if call.Error != "" {
+				t.Fatalf("the close carried the refusal, which cools the account: %q", call.Error)
+			}
+			break
+		}
+		emitted = append(emitted, call.Payload)
 	}
 	joined := string(bytes.Join(emitted, []byte("\n")))
-	if !strings.Contains(joined, "interaction.failed") {
+	if !strings.Contains(joined, "event: interaction.failed") || !strings.Contains(joined, `"status":"failed"`) {
 		t.Fatalf("no failed interaction was stated on the stream: %s", joined)
 	}
-	if !strings.Contains(joined, `"status":"failed"`) {
-		t.Fatalf("the interaction did not report itself failed: %s", joined)
-	}
-	if !strings.Contains(joined, "Daily video limit reached.") {
-		t.Fatalf("what the product said never reached the caller: %s", joined)
+	last := string(emitted[len(emitted)-1])
+	if !strings.HasPrefix(last, "event: error\ndata: ") || !strings.Contains(last, "no_video_generated: Daily video limit reached.") {
+		t.Fatalf("the error event a subscriber waits for did not follow the failure: %s", last)
 	}
 }
 

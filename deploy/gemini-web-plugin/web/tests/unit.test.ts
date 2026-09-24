@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { tierLabel } from '../src/account-card';
 import { decodeStoredAuth, HostAuthError, resolveHostAuth } from '../src/auth';
 import { accountsResponseSchema, isWebToken } from '../src/contract';
 
@@ -99,6 +100,14 @@ describe('Google observation boundary', () => {
   test('does not substitute accounts when the server returns an empty list', () => {
     const parsed = accountsResponseSchema.parse({ provider: 'gemini-web', accounts: [] });
     expect(parsed.accounts).toEqual([]);
+  });
+
+  test('shows a tier Google reported only as a code instead of dropping it', () => {
+    const usage = accountsResponseSchema.parse(observation).accounts[0]?.usage ?? null;
+    expect(tierLabel(usage && { ...usage, tier: 'PRO', tier_code: 2 })).toBe('PRO');
+    expect(tierLabel(usage && { ...usage, tier: null, tier_code: 3 })).toBe('코드 3');
+    expect(tierLabel(usage)).toBeUndefined();
+    expect(tierLabel(null)).toBeUndefined();
   });
 });
 

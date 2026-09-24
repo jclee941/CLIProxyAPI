@@ -45,8 +45,10 @@ type continuationWebFixture struct {
 	video          bool
 	pending        bool
 	wrongReply     bool
-	beforeSubmit   func()
-	duringModels   func()
+	// answer is the prose a non-video candidate carries; empty keeps "answer".
+	answer       string
+	beforeSubmit func()
+	duringModels func()
 }
 
 func continuationWeb(t *testing.T, service *service, fixture *continuationWebFixture) *httptest.Server {
@@ -92,7 +94,11 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 			}
 			fixture.fields = append(fixture.fields, fields)
 			n := len(fixture.fields)
-			candidate := slots(13, map[int]any{0: fmt.Sprintf("rc_%d", n), 1: []any{"answer"}, 8: []any{2}})
+			answer := "answer"
+			if fixture.answer != "" {
+				answer = fixture.answer
+			}
+			candidate := slots(13, map[int]any{0: fmt.Sprintf("rc_%d", n), 1: []any{answer}, 8: []any{2}})
 			if fixture.video {
 				candidate = videoCandidate(origin+"/video", false).([]any)
 				candidate[0] = fmt.Sprintf("rc_%d", n)

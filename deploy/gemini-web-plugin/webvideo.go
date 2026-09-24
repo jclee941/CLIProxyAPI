@@ -204,6 +204,28 @@ func webNoVideo(text string) error {
 	return refusal
 }
 
+// webVideoLimitReplies are what the product answers a video turn with when the
+// account has no video allowance left. Nothing structured marks that case: the
+// turn fails like a declined prompt, and only the prose differs. These match
+// the three replies production accounts gave, 161 times in the kept logs:
+// "you can make more videos once the limit resets, check usage in settings",
+// "I can't make more videos today, but I can find some on the web", and
+// "sorry, I can't make more videos today, come back tomorrow". A wording not
+// listed here fails the turn exactly as before and holds nothing.
+var webVideoLimitReplies = []string{
+	"한도가 재설정되는 대로 동영상을 더 생성할 수 있습니다",
+	"오늘은 더 이상 영상을 생성해 드릴 수 없",
+}
+
+func webVideoLimitReply(text string) bool {
+	for _, reply := range webVideoLimitReplies {
+		if strings.Contains(text, reply) {
+			return true
+		}
+	}
+	return false
+}
+
 // webResponseFrames decodes every payload frame in a generation stream, which is
 // not length-prefixed and so is filtered by shape.
 func webResponseFrames(raw []byte) ([]any, error) {

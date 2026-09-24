@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -49,6 +50,89 @@ func TestWeeklyExhaustionExcludesAccountUntilItsReset(t *testing.T) {
 	pick := service.pickServableAccount(interactionOmniModel, slotCandidates(local.Target.ID))
 	if !pick.Handled || pick.AuthID != local.Target.ID {
 		t.Fatalf("account was not eligible after weekly reset: %+v", pick)
+	}
+}
+
+// The product told this account it had no video left while its five hour
+// window read 96%, so rotation kept handing it new turns, each spending twenty
+// seconds to be told the same thing, until the window turned over.
+func TestAccountTheProductCalledOutOfVideoSitsOutUntilItsWindowTurnsOver(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("other")})
+	now := service.now()
+	service.now = func() time.Time { return now }
+	fiveHour, weekly := 0.96, 0.46
+	fiveHourReset, weeklyReset := float64(now.Add(2*time.Hour).Unix()), float64(now.Add(72*time.Hour).Unix())
+	observed := &usageView{Metrics: []usageMetric{
+		{WindowKind: "5h", UsageFraction: &fiveHour, ResetUnixSeconds: &fiveHourReset},
+		{WindowKind: "weekly", UsageFraction: &weekly, ResetUnixSeconds: &weeklyReset},
+	}}
+	service.observeQuota(local.Target.ID, observed)
+	if !service.quotaAvailable(local.Target.ID) {
+		t.Fatal("an account reading 96% was excluded before the product said anything")
+	}
+
+	service.noteVideoRefusal(local.Target.ID, webNoVideo("한도가 재설정되는 대로 동영상을 더 생성할 수 있습니다. 설정에서 사용량을 확인해 보세요."))
+	// The listing observes the same windows again a minute later.
+	service.observeQuota(local.Target.ID, observed)
+
+	for range 4 {
+		if pick := service.pickServableAccount(interactionOmniModel, slotCandidates(local.Target.ID, other.ID)); pick.AuthID != other.ID {
+			t.Fatalf("an account out of video was handed a new turn: %+v", pick)
+		}
+	}
+	now = time.Unix(int64(fiveHourReset), 0)
+	if !service.quotaAvailable(local.Target.ID) {
+		t.Fatal("the account stayed out after its five hour window turned over")
+	}
+}
+
+// Declined prompts and a model that answers as text say nothing about the
+// account's allowance; holding it for them would starve the fleet.
+func TestDeclinedTurnsDoNotHoldTheirAccount(t *testing.T) {
+	service, local := continuationFixture(t)
+	for _, err := range []error{
+		webNoVideo("실제 인물이 그런 상황에 있는 동영상은 만들 수 없습니다. 다른 것으로 도와드릴까요?"),
+		webNoVideo("저는 언어 모델일 뿐이라서 그것을 도와드릴 수가 없습니다."),
+		failure(502, "web_response_failed"),
+	} {
+		service.noteVideoRefusal(local.Target.ID, err)
+	}
+	if !service.quotaAvailable(local.Target.ID) {
+		t.Fatal("a declined turn took the account out of rotation")
+	}
+}
+
+func TestVideoLimitWithoutAnObservedWindowHoldsForAFixedTime(t *testing.T) {
+	service, local := continuationFixture(t)
+	now := service.now()
+	service.now = func() time.Time { return now }
+	service.noteVideoRefusal(local.Target.ID, webNoVideo("죄송하지만, 오늘은 더 이상 영상을 생성해 드릴 수 없습니다. 내일 다시 오시면 더 만들어 드릴 수 있어요."))
+	now = now.Add(videoLimitHold - time.Minute)
+	if service.quotaAvailable(local.Target.ID) {
+		t.Fatal("released before the hold passed")
+	}
+	now = now.Add(time.Minute)
+	if !service.quotaAvailable(local.Target.ID) {
+		t.Fatal("held past the hold")
+	}
+}
+
+// The executor is where the product's answer arrives, so the limit has to
+// reach the scheduler from a real turn, not only from a direct call.
+func TestLimitAnswerToATurnTakesItsAccountOutOfRotation(t *testing.T) {
+	service, local := continuationFixture(t)
+	continuationWeb(t, service, &continuationWebFixture{answer: "오늘은 더 이상 영상을 생성해 드릴 수 없지만, 웹에서 영상을 찾아드릴 수는 있어요."})
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+
+	result := interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`)
+
+	if result.OK || result.Error.Code != "gemini_web_omni:no_video_generated" {
+		t.Fatalf("turn: %+v", result.Error)
+	}
+	if service.quotaAvailable(local.Target.ID) {
+		t.Fatal("the account the product called out of video stayed in rotation")
 	}
 }
 

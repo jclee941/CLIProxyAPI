@@ -126,6 +126,24 @@ func (service *service) streamInteractionCallback(method, stream string, payload
 	return nil
 }
 
+// emitInteractionError writes an outcome as an SSE error event carrying the
+// interaction, in the shape the host gives a failed close, so that the stream
+// can still close cleanly afterwards.
+func (service *service) emitInteractionError(stream, message string, interaction any) error {
+	payload, err := json.Marshal(map[string]any{
+		"error": map[string]string{
+			"message": message,
+			"type":    "server_error",
+			"code":    "internal_server_error",
+		},
+		"interaction": interaction,
+	})
+	if err != nil {
+		return err
+	}
+	return service.streamInteractionCallback("host.stream.emit", stream, fmt.Appendf(nil, "event: error\ndata: %s\n\n", payload), "")
+}
+
 func (service *service) subscribeInteraction(stream, token string, cursor int, operation *interactionOperation) (interface{}, error) {
 	if err := service.lifecycle.enter(); err != nil {
 		return nil, err
@@ -174,24 +192,26 @@ func (service *service) sendInteractionEvents(stream, token string, cursor int, 
 		return failure(503, "plugin_shutdown")
 	}
 	if operation.err != nil {
-		// A turn the product answered without a video is an outcome, not a
-		// transport fault, but the stream close carries a string and no status,
-		// so it reaches the caller as internal_server_error - which says the
-		// turn may succeed on a retry when it never will. The Interactions
-		// object has a status field for exactly this, so the outcome is stated
-		// there too. The close still follows: a subscriber already watching for
-		// the error event must not be left waiting on one that never comes.
-		if safeCredentialCode(operation.err) == "no_video_generated" {
-			failed := map[string]any{
-				"id": token, "object": "interaction", "model": interactionOmniModel,
-				"status": "failed", "steps": []any{},
-				"error": map[string]string{"code": "no_video_generated", "message": safeCredentialMessage(operation.err)},
-			}
-			if err := emit(2, "interaction.failed", map[string]any{"interaction": failed}); err != nil {
-				return err
-			}
+		if safeCredentialCode(operation.err) != "no_video_generated" {
+			return operation.err
 		}
-		return operation.err
+		// A turn the product answered without a video is an outcome, not a
+		// transport fault. The Interactions object has a status field for
+		// exactly this, so the outcome is stated there, and the error event a
+		// subscriber may be watching for follows as data. The stream then
+		// closes cleanly: a close carrying the refusal was recorded by the host
+		// as a credential failure, so the account sat out a sixty second
+		// cooldown and the caller's retry of a chain that has to stay on it was
+		// refused as continuation_account_unavailable without reaching it.
+		failed := map[string]any{
+			"id": token, "object": "interaction", "model": interactionOmniModel,
+			"status": "failed", "steps": []any{},
+			"error": map[string]string{"code": "no_video_generated", "message": safeCredentialMessage(operation.err)},
+		}
+		if err := emit(2, "interaction.failed", map[string]any{"interaction": failed}); err != nil {
+			return err
+		}
+		return service.emitInteractionError(stream, safeCredentialMessage(operation.err), failed)
 	}
 	var result struct {
 		Status string                   `json:"status"`
@@ -216,18 +236,7 @@ func (service *service) sendInteractionEvents(stream, token string, cursor int, 
 		}
 		// Preserve outcome/error events as SSE data, not a stream-close error
 		// that the host records as a credential failure. Retain diagnostics.
-		payload, err := json.Marshal(map[string]any{
-			"error": map[string]string{
-				"message": message,
-				"type":    "server_error",
-				"code":    "internal_server_error",
-			},
-			"interaction": json.RawMessage(operation.result.Payload),
-		})
-		if err != nil {
-			return err
-		}
-		return service.streamInteractionCallback("host.stream.emit", stream, fmt.Appendf(nil, "event: error\ndata: %s\n\n", payload), "")
+		return service.emitInteractionError(stream, message, json.RawMessage(operation.result.Payload))
 	}
 	if result.Status != "completed" {
 		return failure(409, "interaction_pending_retrieve_receipt")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"sort"
 )
 
@@ -240,13 +241,15 @@ func (service *service) nativeUsage(ctx context.Context, reference string, token
 		metric.ResetUnixSeconds = jsonNumber(jsonField(row, 3, 0, 0))
 		// The fraction is what the account reports; the percentage is what every
 		// reader of this actually displays, and it was the upstream that used to
-		// derive it.
+		// derive it. It is rounded because it is only ever shown: multiplying the
+		// fraction by 100 put readings like 53.578610000000005% on screen.
 		if metric.UsageFraction != nil {
-			percent := *metric.UsageFraction * 100
+			percent := math.Round(*metric.UsageFraction*100*100) / 100
 			metric.UsagePercent = &percent
 		}
 		result.Metrics = append(result.Metrics, metric)
 	}
+	orderUsageWindows(result.Metrics)
 	return result, nil
 }
 
@@ -290,12 +293,19 @@ func (service *service) usage(ctx context.Context, reference string, token sessi
 		}
 		result.Metrics = append(result.Metrics, metric.usageMetric)
 	}
-	// Google returns the windows in per-account order, so the dashboard showed
-	// them swapped between cards and between refreshes.
-	sort.SliceStable(result.Metrics, func(first, second int) bool {
-		return usageWindowRank(result.Metrics[first].WindowKind) < usageWindowRank(result.Metrics[second].WindowKind)
-	})
+	orderUsageWindows(result.Metrics)
 	return result, nil
+}
+
+// orderUsageWindows puts the windows in one order for every account. Google
+// returns them in per-account order, so the dashboard showed 5h and weekly
+// swapped between cards and between refreshes. Both readers of the product
+// have to do this: the native one was added without it and brought the swap
+// back.
+func orderUsageWindows(metrics []usageMetric) {
+	sort.SliceStable(metrics, func(first, second int) bool {
+		return usageWindowRank(metrics[first].WindowKind) < usageWindowRank(metrics[second].WindowKind)
+	})
 }
 
 func usageWindowRank(window string) int {

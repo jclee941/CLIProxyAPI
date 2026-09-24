@@ -113,6 +113,7 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	}
 	video, err := session.generateVideo(ctx, prompt, account, model, options.framing(), attachments)
 	if err != nil {
+		service.noteVideoRefusal(record.ID, err)
 		return httpResponse{}, err
 	}
 	body, err := json.Marshal(map[string]any{

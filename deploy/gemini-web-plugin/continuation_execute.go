@@ -264,6 +264,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			if releaseErr := service.releaseAfter(execution, turn, "no_video"); releaseErr != nil {
 				return nil, releaseErr
 			}
+			service.noteVideoRefusal(execution.local.Target.ID, err)
 			return nil, err
 		}
 		if !state.Ready {
