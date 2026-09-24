@@ -192,8 +192,9 @@ func (h *Handler) DeleteLogs(c *gin.Context) {
 	})
 }
 
-// GetRequestErrorLogs lists error request log files when RequestLog is disabled.
-// It returns an empty list when RequestLog is enabled.
+// GetRequestErrorLogs lists error request log files.
+// It discovers both error-* prefixed logs and existing retained request failure logs
+// even when RequestLog is enabled.
 func (h *Handler) GetRequestErrorLogs(c *gin.Context) {
 	if h == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "handler unavailable"})
@@ -201,10 +202,6 @@ func (h *Handler) GetRequestErrorLogs(c *gin.Context) {
 	}
 	if h.cfg == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "configuration unavailable"})
-		return
-	}
-	if h.cfg.RequestLog {
-		c.JSON(http.StatusOK, gin.H{"files": []any{}})
 		return
 	}
 
@@ -236,7 +233,11 @@ func (h *Handler) GetRequestErrorLogs(c *gin.Context) {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasPrefix(name, "error-") || !strings.HasSuffix(name, ".log") {
+		if !strings.HasSuffix(name, ".log") || name == defaultLogFileName || strings.HasPrefix(name, defaultLogFileName+".") || strings.HasPrefix(name, ".") {
+			continue
+		}
+		fullPath := filepath.Join(dir, name)
+		if !logging.IsRequestErrorLogFile(fullPath) {
 			continue
 		}
 		info, errInfo := entry.Info()
@@ -366,7 +367,7 @@ func (h *Handler) DownloadRequestErrorLog(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid log file name"})
 		return
 	}
-	if !strings.HasPrefix(name, "error-") || !strings.HasSuffix(name, ".log") {
+	if !strings.HasSuffix(name, ".log") || name == defaultLogFileName || strings.HasPrefix(name, defaultLogFileName+".") || strings.HasPrefix(name, ".") {
 		c.JSON(http.StatusNotFound, gin.H{"error": "log file not found"})
 		return
 	}
@@ -394,6 +395,11 @@ func (h *Handler) DownloadRequestErrorLog(c *gin.Context) {
 	}
 	if info.IsDir() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid log file"})
+		return
+	}
+
+	if !logging.IsRequestErrorLogFile(fullPath) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "log file not found"})
 		return
 	}
 
