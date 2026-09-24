@@ -211,6 +211,7 @@ func MaskAuthorizationHeader(value string) string {
 // Behavior by header key (case-insensitive):
 //   - "Authorization": Preserve the auth type prefix (e.g., "Bearer ") and mask only the credential part.
 //   - Headers containing "api-key": Mask the entire value using HideAPIKey.
+//   - "X-Goog-Upload-URL": Fully redact the bearer session URL, including short values.
 //   - Others: Return the original value unchanged.
 //
 // Parameters:
@@ -222,6 +223,8 @@ func MaskAuthorizationHeader(value string) string {
 func MaskSensitiveHeaderValue(key, value string) string {
 	lowerKey := strings.ToLower(strings.TrimSpace(key))
 	switch {
+	case lowerKey == "x-goog-upload-url":
+		return "[REDACTED]"
 	case strings.Contains(lowerKey, "authorization"):
 		return MaskAuthorizationHeader(value)
 	case strings.Contains(lowerKey, "api-key"),
@@ -254,6 +257,11 @@ func MaskSensitiveQuery(raw string) string {
 		decodedKey, err := url.QueryUnescape(keyPart)
 		if err != nil {
 			decodedKey = keyPart
+		}
+		if strings.TrimSuffix(strings.ToLower(strings.TrimSpace(decodedKey)), "[]") == "upload_id" {
+			parts[i] = keyPart + "=" + url.QueryEscape("[REDACTED]")
+			changed = true
+			continue
 		}
 		if !shouldMaskQueryParam(decodedKey) {
 			continue
