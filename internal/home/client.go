@@ -1607,10 +1607,16 @@ func pluginSyncDialer(options *redis.Options) func(context.Context, string, stri
 	}
 }
 
+// pluginSyncCanceledDeadline has always passed, so a connection holding it
+// fails its next read or write at once.
+var pluginSyncCanceledDeadline = time.Unix(1, 0)
+
 type pluginSyncCancelableConn struct {
 	net.Conn
-	done chan struct{}
-	once sync.Once
+	done     chan struct{}
+	once     sync.Once
+	mu       sync.Mutex
+	canceled bool
 }
 
 func newPluginSyncCancelableConn(ctx context.Context, conn net.Conn) net.Conn {
@@ -1618,13 +1624,52 @@ func newPluginSyncCancelableConn(ctx context.Context, conn net.Conn) net.Conn {
 	go func() {
 		select {
 		case <-ctx.Done():
-			if errDeadline := conn.SetDeadline(time.Now()); errDeadline != nil {
-				_ = conn.Close()
-			}
+			wrapped.cancel()
 		case <-wrapped.done:
 		}
 	}()
 	return wrapped
+}
+
+// cancel expires the connection's deadlines and keeps them expired. go-redis
+// sets a fresh read deadline before reading each reply, so a deadline expired
+// only once was replaced whenever cancellation landed between writing the
+// command and reading its reply, and the command waited out the whole plugin
+// sync read timeout instead of returning context.Canceled.
+func (c *pluginSyncCancelableConn) cancel() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.canceled = true
+	if errDeadline := c.Conn.SetDeadline(pluginSyncCanceledDeadline); errDeadline != nil {
+		_ = c.Conn.Close()
+	}
+}
+
+func (c *pluginSyncCancelableConn) SetDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.canceled {
+		t = pluginSyncCanceledDeadline
+	}
+	return c.Conn.SetDeadline(t)
+}
+
+func (c *pluginSyncCancelableConn) SetReadDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.canceled {
+		t = pluginSyncCanceledDeadline
+	}
+	return c.Conn.SetReadDeadline(t)
+}
+
+func (c *pluginSyncCancelableConn) SetWriteDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.canceled {
+		t = pluginSyncCanceledDeadline
+	}
+	return c.Conn.SetWriteDeadline(t)
 }
 
 func (c *pluginSyncCancelableConn) Close() error {
