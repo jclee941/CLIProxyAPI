@@ -1,8 +1,8 @@
-diff --git a/apps/web/src/components/quota/geminiWebQuotaConfig.test.ts b/apps/web/src/components/quota/geminiWebQuotaConfig.test.ts
+diff --git c/apps/web/src/components/quota/geminiWebQuotaConfig.test.ts i/apps/web/src/components/quota/geminiWebQuotaConfig.test.ts
 new file mode 100644
 index 0000000..254bc83
 --- /dev/null
-+++ b/apps/web/src/components/quota/geminiWebQuotaConfig.test.ts
++++ i/apps/web/src/components/quota/geminiWebQuotaConfig.test.ts
 @@ -0,0 +1,70 @@
 +import { describe, expect, it } from 'vitest';
 +import type { GeminiWebAccount } from '@/services/api/geminiWebDto';
@@ -74,11 +74,11 @@ index 0000000..254bc83
 +    expect(preserveGeminiWebObservation(previous, next)).toEqual(next);
 +  });
 +});
-diff --git a/apps/web/src/components/quota/geminiWebQuotaConfig.ts b/apps/web/src/components/quota/geminiWebQuotaConfig.ts
+diff --git c/apps/web/src/components/quota/geminiWebQuotaConfig.ts i/apps/web/src/components/quota/geminiWebQuotaConfig.ts
 new file mode 100644
 index 0000000..d852328
 --- /dev/null
-+++ b/apps/web/src/components/quota/geminiWebQuotaConfig.ts
++++ i/apps/web/src/components/quota/geminiWebQuotaConfig.ts
 @@ -0,0 +1,44 @@
 +import { geminiWebApi } from '@/services/api/geminiWeb';
 +import type { GeminiWebAccount } from '@/services/api/geminiWebDto';
@@ -124,10 +124,10 @@ index 0000000..d852328
 +  }
 +  return next;
 +}
-diff --git a/apps/web/src/components/quota/index.ts b/apps/web/src/components/quota/index.ts
+diff --git c/apps/web/src/components/quota/index.ts i/apps/web/src/components/quota/index.ts
 index afb876e..e462422 100644
---- a/apps/web/src/components/quota/index.ts
-+++ b/apps/web/src/components/quota/index.ts
+--- c/apps/web/src/components/quota/index.ts
++++ i/apps/web/src/components/quota/index.ts
 @@ -7,10 +7,11 @@ export {
    buildObservedCodexQuotaState,
    getQuotaStoreKey,
@@ -140,10 +140,10 @@ index afb876e..e462422 100644
    type QuotaRefreshResult,
    type QuotaSetter,
    type QuotaUpdater,
-diff --git a/apps/web/src/components/quota/quotaConfigs.ts b/apps/web/src/components/quota/quotaConfigs.ts
+diff --git c/apps/web/src/components/quota/quotaConfigs.ts i/apps/web/src/components/quota/quotaConfigs.ts
 index 0851533..9dca1d3 100644
---- a/apps/web/src/components/quota/quotaConfigs.ts
-+++ b/apps/web/src/components/quota/quotaConfigs.ts
+--- c/apps/web/src/components/quota/quotaConfigs.ts
++++ i/apps/web/src/components/quota/quotaConfigs.ts
 @@ -49,11 +49,11 @@ import {
    buildQuotaCredentialIdentity,
    getQuotaCredentialStoreKey,
@@ -157,10 +157,10 @@ index 0851533..9dca1d3 100644
    type: QuotaType;
    i18nPrefix: string;
    fetchQuota: (
-diff --git a/apps/web/src/features/accounts/AccountsPage.tsx b/apps/web/src/features/accounts/AccountsPage.tsx
+diff --git c/apps/web/src/features/accounts/AccountsPage.tsx i/apps/web/src/features/accounts/AccountsPage.tsx
 index 7013705..41f1d54 100644
---- a/apps/web/src/features/accounts/AccountsPage.tsx
-+++ b/apps/web/src/features/accounts/AccountsPage.tsx
+--- c/apps/web/src/features/accounts/AccountsPage.tsx
++++ i/apps/web/src/features/accounts/AccountsPage.tsx
 @@ -5891,10 +5891,18 @@ export function AccountsPage() {
                XAI_CONFIG,
                setXaiQuota,
@@ -281,10 +281,10 @@ index 7013705..41f1d54 100644
                onClick={() => handleBatchStatus(selectedRow.disabled, [selectedRow])}
                disabled={
                  disableControls || configurationSaving || statusUpdating || selectedRow.runtimeOnly
-diff --git a/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx b/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx
+diff --git c/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx i/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx
 index 4d2fdaf..ba48b04 100644
---- a/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx
-+++ b/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx
+--- c/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx
++++ i/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx
 @@ -1,9 +1,11 @@
  import { useId, useState } from 'react';
  import { useTranslation } from 'react-i18next';
@@ -338,11 +338,11 @@ index 4d2fdaf..ba48b04 100644
              <h3>{t('accounts.detail_quota_standard_title', { defaultValue: '标准额度' })}</h3>
              <span>
                {t('accounts.detail_quota_standard_desc', {
-diff --git a/apps/web/src/features/accounts/components/accountDetail/GeminiWebQuotaPanel.tsx b/apps/web/src/features/accounts/components/accountDetail/GeminiWebQuotaPanel.tsx
+diff --git c/apps/web/src/features/accounts/components/accountDetail/GeminiWebQuotaPanel.tsx i/apps/web/src/features/accounts/components/accountDetail/GeminiWebQuotaPanel.tsx
 new file mode 100644
 index 0000000..d65975c
 --- /dev/null
-+++ b/apps/web/src/features/accounts/components/accountDetail/GeminiWebQuotaPanel.tsx
++++ i/apps/web/src/features/accounts/components/accountDetail/GeminiWebQuotaPanel.tsx
 @@ -0,0 +1,221 @@
 +import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 +import { useNavigate } from 'react-router-dom';
@@ -565,11 +565,459 @@ index 0000000..d65975c
 +    </section>
 +  );
 +}
-diff --git a/apps/web/src/features/oauth/OAuthPage.geminiWeb.test.tsx b/apps/web/src/features/oauth/OAuthPage.geminiWeb.test.tsx
+diff --git a/apps/web/src/features/logs/LogsPage.module.scss b/apps/web/src/features/logs/LogsPage.module.scss
+index 168945eecefdaac478f49c6f9675ccf522a19117..a12b0ba29aaf9defad09ede70925ea7637154455 100644
+--- a/apps/web/src/features/logs/LogsPage.module.scss
++++ b/apps/web/src/features/logs/LogsPage.module.scss
+@@ -725,5 +725,28 @@
+ 
+   .errorPanel {
+     height: 280px;
+   }
+ }
++
++.requestLogViewer {
++  width: 100%;
++  max-height: 60vh;
++  overflow: auto;
++  background: var(--bg-body);
++  color: var(--text-primary);
++  padding: $spacing-md;
++  border-radius: var(--border-radius-md);
++  border: 1px solid var(--border-color);
++  font-family: var(--font-mono);
++  font-size: 12px;
++  line-height: 1.5;
++  white-space: pre-wrap;
++  word-wrap: break-word;
++}
++
++.payloadTabs {
++  display: flex;
++  flex-wrap: wrap;
++  gap: $spacing-sm;
++  margin-bottom: $spacing-sm;
++}
+diff --git a/apps/web/src/features/logs/LogsPage.tsx b/apps/web/src/features/logs/LogsPage.tsx
+index c9000a85056e7627183df9179b2a927bfd7fe397..9f247fac593620810e3b5a221b756d48395b067a 100644
+--- a/apps/web/src/features/logs/LogsPage.tsx
++++ b/apps/web/src/features/logs/LogsPage.tsx
+@@ -38,10 +38,11 @@ import {
+ } from './hooks/logTypes';
+ import { parseLogLine } from './hooks/logParsing';
+ import { useLogFilters } from './hooks/useLogFilters';
+ import { isNearBottom, useLogScroller } from './hooks/useLogScroller';
+ import { isFileLogsAvailable } from './logFeatureAvailability';
++import { splitLogPayloads } from './logPayloads';
+ import styles from './LogsPage.module.scss';
+ 
+ interface ErrorLogItem {
+   name: string;
+   size?: number;
+@@ -93,11 +94,11 @@ export function LogsPage() {
+   );
+   const requestLogEnabled = config?.requestLog ?? false;
+   const [logState, setLogState] = useState<LogState>({ buffer: [], visibleFrom: 0 });
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState('');
+-  const [autoRefresh, setAutoRefresh] = useLocalStorage('logsPage.autoRefresh', false);
++  const [autoRefresh, setAutoRefresh] = useLocalStorage('logsPage.autoRefresh', true);
+   const [searchQuery, setSearchQuery] = useState('');
+   const deferredSearchQuery = useDeferredValue(searchQuery);
+   const [hideManagementLogs, setHideManagementLogs] = useLocalStorage(
+     'logsPage.hideManagementLogs',
+     true
+@@ -109,11 +110,20 @@ export function LogsPage() {
+   );
+   const [errorLogs, setErrorLogs] = useState<ErrorLogItem[]>([]);
+   const [loadingErrors, setLoadingErrors] = useState(false);
+   const [errorLogsError, setErrorLogsError] = useState('');
+   const [requestLogId, setRequestLogId] = useState<string | null>(null);
++  const [errorLogName, setErrorLogName] = useState<string | null>(null);
+   const [requestLogDownloading, setRequestLogDownloading] = useState(false);
++  const [requestLogContent, setRequestLogContent] = useState<string | null>(null);
++  const [requestLogLoading, setRequestLogLoading] = useState(false);
++  const [requestLogError, setRequestLogError] = useState('');
++  const [requestLogView, setRequestLogView] = useState<'request' | 'response' | 'raw'>('request');
++  const payloads = useMemo(() => splitLogPayloads(requestLogContent ?? ''), [requestLogContent]);
++  const visibleLogView = requestLogView !== 'raw' && payloads[requestLogView] !== null
++    ? requestLogView : 'raw';
++  const visibleLogText = visibleLogView === 'raw' ? requestLogContent : payloads[visibleLogView];
+ 
+   const logScrollerRef = useRef<ReturnType<typeof useLogScroller> | null>(null);
+   const longPressRef = useRef<{
+     timer: number | null;
+     startX: number;
+@@ -223,13 +233,11 @@ export function LogsPage() {
+         const visibleFrom = Math.max(buffer.length - INITIAL_DISPLAY_LINES, 0);
+         setLogState({ buffer, visibleFrom });
+       }
+     } catch (err: unknown) {
+       console.error('Failed to load logs:', err);
+-      if (!incremental) {
+-        setError(getErrorMessage(err) || t('logs.load_error'));
+-      }
++      setError(getErrorMessage(err) || t('logs.load_error'));
+     } finally {
+       if (!incremental) {
+         setLoading(false);
+       }
+       logRequestInFlightRef.current = false;
+@@ -351,21 +359,15 @@ export function LogsPage() {
+     }, 8000);
+     return () => window.clearInterval(id);
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [autoRefresh, connectionStatus, canLoadFileLogs]);
+ 
+-  const visibleLines = useMemo(
+-    () => logState.buffer.slice(logState.visibleFrom),
+-    [logState.buffer, logState.visibleFrom]
+-  );
+-
+   const trimmedSearchQuery = deferredSearchQuery.trim();
+   const isSearching = trimmedSearchQuery.length > 0;
+-  const baseLines = isSearching ? logState.buffer : visibleLines;
+ 
+   const parsedSearchLines = useMemo(() => {
+-    let working = baseLines;
++    let working = logState.buffer;
+ 
+     if (hideManagementLogs) {
+       working = working.filter((line) => !line.includes(MANAGEMENT_API_PREFIX));
+     }
+ 
+@@ -373,18 +375,18 @@ export function LogsPage() {
+       const queryLowered = trimmedSearchQuery.toLowerCase();
+       working = working.filter((line) => line.toLowerCase().includes(queryLowered));
+     }
+ 
+     return working.map((line) => parseLogLine(line));
+-  }, [baseLines, hideManagementLogs, trimmedSearchQuery]);
++  }, [logState.buffer, hideManagementLogs, trimmedSearchQuery]);
+ 
+   const filters = useLogFilters({ parsedLines: parsedSearchLines });
+   const structuredFiltersPanelId = 'logs-structured-filters';
+   const structuredFilterCount =
+     filters.methodFilters.length + filters.statusFilters.length + filters.pathFilters.length;
+ 
+-  const { filteredParsedLines, filteredLines, removedCount } = useMemo(() => {
++  const { filteredParsedLines, filteredLines, removedCount, availableLineCount } = useMemo(() => {
+     const filteredParsed = parsedSearchLines.filter((line) => {
+       if (
+         filters.methodFilterSet.size > 0 &&
+         (!line.method || !filters.methodFilterSet.has(line.method))
+       ) {
+@@ -404,17 +406,23 @@ export function LogsPage() {
+       }
+ 
+       return true;
+     });
+ 
++    const visible = isSearching
++      ? filteredParsed
++      : filteredParsed.slice(-(logState.buffer.length - logState.visibleFrom));
+     return {
+-      filteredParsedLines: filteredParsed,
+-      filteredLines: filteredParsed.map((line) => line.raw),
+-      removedCount: Math.max(baseLines.length - filteredParsed.length, 0)
++      filteredParsedLines: visible,
++      filteredLines: visible.map((line) => line.raw),
++      removedCount: logState.buffer.length - filteredParsed.length,
++      availableLineCount: filteredParsed.length
+     };
+   }, [
+-    baseLines,
++    logState.buffer,
++    logState.visibleFrom,
++    isSearching,
+     filters.methodFilterSet,
+     filters.pathFilterSet,
+     filters.statusFilterSet,
+     parsedSearchLines
+   ]);
+@@ -430,10 +438,11 @@ export function LogsPage() {
+     logState,
+     setLogState,
+     loading,
+     isSearching,
+     filteredLineCount: filteredLines.length,
++    availableLineCount,
+     hasStructuredFilters: filters.hasStructuredFilters,
+     showRawLogs
+   });
+ 
+   logScrollerRef.current = scroller;
+@@ -489,12 +498,36 @@ export function LogsPage() {
+   };
+ 
+   const closeRequestLogModal = () => {
+     if (requestLogDownloading) return;
+     setRequestLogId(null);
++    setErrorLogName(null);
++    setRequestLogContent(null);
++    setRequestLogError('');
+   };
+ 
++  useEffect(() => {
++    const target = errorLogName ?? requestLogId;
++    if (!target) return;
++    let active = true;
++    setRequestLogLoading(true);
++    setRequestLogContent(null);
++    setRequestLogError('');
++    setRequestLogView('request');
++    const download = errorLogName
++      ? logsApi.downloadErrorLog(target)
++      : logsApi.downloadRequestLogById(target);
++    void download
++      .then(response => response.data.text())
++      .then(text => { if (active) setRequestLogContent(text); })
++      .catch((err: unknown) => {
++        if (active) setRequestLogError(getErrorMessage(err) || t('logs.error_logs_load_error'));
++      })
++      .finally(() => { if (active) setRequestLogLoading(false); });
++    return () => { active = false; };
++  }, [requestLogId, errorLogName, t]);
++
+   const downloadRequestLog = async (id: string) => {
+     setRequestLogDownloading(true);
+     try {
+       const response = await logsApi.downloadRequestLogById(id);
+       downloadBlob({
+@@ -783,11 +816,11 @@ export function LogsPage() {
+                         <span className={styles.loadMoreCount}>
+                           {t('logs.filtered_lines', { count: removedCount })}
+                         </span>
+                       )}
+                       <span className={styles.loadMoreCount}>
+-                        {t('logs.hidden_lines', { count: logState.visibleFrom })}
++                        {t('logs.hidden_lines', { count: availableLineCount - filteredLines.length })}
+                       </span>
+                     </div>
+                   </div>
+                 )}
+                 {showRawLogs ? (
+@@ -918,17 +951,13 @@ export function LogsPage() {
+                 {t('common.refresh')}
+               </Button>
+             }
+           >
+             <div className="stack">
+-              <div className="hint">{t('logs.error_logs_description')}</div>
+-
+-              {requestLogEnabled && (
+-                <div>
+-                  <div className="status-badge warning">{t('logs.error_logs_request_log_enabled')}</div>
+-                </div>
+-              )}
++              <div className="hint">{t('logs.error_logs_full_description', {
++                defaultValue: 'Failed request logs. Open a log to inspect the full request and response.',
++              })}</div>
+ 
+               {errorLogsError && <div className="error-box">{errorLogsError}</div>}
+ 
+               <div className={styles.errorPanel}>
+                 {loadingErrors ? (
+@@ -945,10 +974,18 @@ export function LogsPage() {
+                             {item.size ? `${(item.size / 1024).toFixed(1)} KB` : ''}{' '}
+                             {item.modified ? formatUnixTimestamp(item.modified) : ''}
+                           </div>
+                         </div>
+                         <div className="item-actions">
++                          <Button
++                            variant="secondary"
++                            size="sm"
++                            onClick={() => setErrorLogName(item.name)}
++                            disabled={disableControls}
++                          >
++                            {t('common.view', { defaultValue: 'View' })}
++                          </Button>
+                           <Button
+                             variant="secondary"
+                             size="sm"
+                             onClick={() => downloadErrorLog(item.name)}
+                             disabled={disableControls}
+@@ -965,32 +1002,74 @@ export function LogsPage() {
+           </Card>
+         )}
+       </div>
+ 
+       <Modal
+-        open={Boolean(requestLogId)}
++        open={Boolean(requestLogId || errorLogName)}
+         onClose={closeRequestLogModal}
+-        title={t('logs.request_log_download_title')}
++        title={t('logs.request_log_details_title', { defaultValue: 'Request / response log' })}
++        width="min(1100px, calc(100vw - 32px))"
+         footer={
+           <>
+             <Button variant="secondary" onClick={closeRequestLogModal} disabled={requestLogDownloading}>
+               {t('common.cancel')}
+             </Button>
++            {visibleLogText !== null && (
++              <Button
++                variant="secondary"
++                onClick={async () => {
++                  const copied = await copyToClipboard(visibleLogText);
++                  showNotification(
++                    copied ? t('logs.copy_success') : t('logs.copy_failed', { defaultValue: 'Copy failed' }),
++                    copied ? 'success' : 'error'
++                  );
++                }}
++              >
++                {t('common.copy', { defaultValue: 'Copy' })}
++              </Button>
++            )}
+             <Button
+               onClick={() => {
+                 if (requestLogId) {
+                   void downloadRequestLog(requestLogId);
++                } else if (errorLogName) {
++                  void downloadErrorLog(errorLogName);
+                 }
+               }}
+               loading={requestLogDownloading}
+-              disabled={!requestLogId}
++              disabled={(!requestLogId && !errorLogName) || requestLogLoading}
+             >
+-              {t('common.confirm')}
++              <IconDownload size={16} />
++              {t('logs.download', { defaultValue: 'Download' })}
+             </Button>
+           </>
+         }
+       >
+-        {requestLogId ? t('logs.request_log_download_confirm', { id: requestLogId }) : null}
++        {requestLogLoading ? (
++          <div>{t('common.loading', { defaultValue: 'Loading...' })}</div>
++        ) : requestLogError ? (
++          <div role="alert" className="error-box">{requestLogError}</div>
++        ) : requestLogContent !== null ? (
++          <>
++            <div className={styles.payloadTabs} role="tablist" aria-label="Log content">
++              <Button role="tab" variant={visibleLogView === 'request' ? 'primary' : 'secondary'} aria-selected={visibleLogView === 'request'}
++                disabled={payloads.request === null} onClick={() => setRequestLogView('request')}>
++                {t('logs.request_payload', { defaultValue: 'Request payload' })}
++              </Button>
++              <Button role="tab" variant={visibleLogView === 'response' ? 'primary' : 'secondary'} aria-selected={visibleLogView === 'response'}
++                disabled={payloads.response === null} onClick={() => setRequestLogView('response')}>
++                {t('logs.response_payload', { defaultValue: 'Response payload' })}
++              </Button>
++              <Button role="tab" variant={visibleLogView === 'raw' ? 'primary' : 'secondary'} aria-selected={visibleLogView === 'raw'}
++                onClick={() => setRequestLogView('raw')}>
++                {t('logs.original_log', { defaultValue: 'Original log' })}
++              </Button>
++            </div>
++            <pre className={styles.requestLogViewer} role="tabpanel">{visibleLogText}</pre>
++          </>
++        ) : (
++          requestLogId ? t('logs.request_log_download_confirm', { id: requestLogId }) : null
++        )}
+       </Modal>
+     </div>
+   );
+ }
+diff --git a/apps/web/src/features/logs/hooks/useLogScroller.ts b/apps/web/src/features/logs/hooks/useLogScroller.ts
+index a19b88e2ed7559e6f933a0b4ac2b0feaf865d333..67d7f60b8e74e64baf7b45dda51fbc076bf17c71 100644
+--- a/apps/web/src/features/logs/hooks/useLogScroller.ts
++++ b/apps/web/src/features/logs/hooks/useLogScroller.ts
+@@ -15,10 +15,11 @@ interface UseLogScrollerOptions {
+   logState: LogState;
+   setLogState: Dispatch<SetStateAction<LogState>>;
+   loading: boolean;
+   isSearching: boolean;
+   filteredLineCount: number;
++  availableLineCount: number;
+   hasStructuredFilters: boolean;
+   showRawLogs: boolean;
+ }
+ 
+ interface UseLogScrollerReturn {
+@@ -34,19 +35,20 @@ export function useLogScroller(options: UseLogScrollerOptions): UseLogScrollerRe
+     logState,
+     setLogState,
+     loading,
+     isSearching,
+     filteredLineCount,
++    availableLineCount,
+     hasStructuredFilters,
+     showRawLogs,
+   } = options;
+ 
+   const logViewerRef = useRef<HTMLDivElement | null>(null);
+   const pendingScrollToBottomRef = useRef(false);
+   const pendingPrependScrollRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+ 
+-  const canLoadMore = !isSearching && logState.visibleFrom > 0;
++  const canLoadMore = !isSearching && filteredLineCount < availableLineCount;
+ 
+   const scrollToBottom = useCallback(() => {
+     const node = logViewerRef.current;
+     if (!node) return;
+     node.scrollTop = node.scrollHeight;
+diff --git a/apps/web/src/features/logs/logPayloads.ts b/apps/web/src/features/logs/logPayloads.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/web/src/features/logs/logPayloads.ts
+@@ -0,0 +1,25 @@
++export interface LogPayloads {
++  request: string | null;
++  response: string | null;
++}
++
++// Preserve captured text, including large integers and SSE frames. The original
++// log remains available when a legacy or incomplete file has no body framing.
++export function splitLogPayloads(log: string): LogPayloads {
++  const sections = [...log.matchAll(/^=== ([A-Z][A-Z ]*) ===\r?$/gm)];
++  let request: string | null = null;
++  let response: string | null = null;
++  sections.forEach((section, index) => {
++    let start = section.index + section[0].length;
++    if (log[start] === '\n') start += 1;
++    const content = log.slice(start, sections[index + 1]?.index ?? log.length);
++    if (section[1] === 'REQUEST BODY' && request === null) {
++      request = content;
++    }
++    if (section[1] === 'RESPONSE') {
++      const separator = /\r?\n\r?\n/.exec(content);
++      if (separator) response = content.slice(separator.index + separator[0].length);
++    }
++  });
++  return { request, response };
++}
+diff --git a/apps/web/src/features/logs/logPayloads.test.ts b/apps/web/src/features/logs/logPayloads.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/web/src/features/logs/logPayloads.test.ts
+@@ -0,0 +1,23 @@
++import { describe, expect, it } from 'vitest';
++import { splitLogPayloads } from './logPayloads';
++
++describe('request log payload boundaries', () => {
++  it('preserves exact payload text without JSON parsing or headers', () => {
++    const request = '{"integer":9007199254740993,"prompt":"=== RESPONSE ===\\nquoted"}\n\n\n';
++    const response = 'event: error\ndata: {"error":{"message":"failed"}}\n\n';
++    const log = '=== REQUEST INFO ===\nMethod: POST\n\n=== HEADERS ===\nAuthorization: ***\n\n' +
++      '=== REQUEST BODY ===\n' + request +
++      '=== API ERROR RESPONSE ===\nHTTP Status: 429\nupstream retry\n\n' +
++      '=== RESPONSE ===\nStatus: 422\nContent-Type: text/event-stream\n\n' + response;
++    expect(splitLogPayloads(log)).toEqual({ request, response });
++  });
++
++  it('does not invent payloads for unstructured logs', () => {
++    expect(splitLogPayloads('plain error log')).toEqual({ request: null, response: null });
++  });
++
++  it('supports CRLF framing and an empty captured body', () => {
++    const log = '=== REQUEST BODY ===\r\n\r\n=== RESPONSE ===\r\nStatus: 204\r\n\r\n';
++    expect(splitLogPayloads(log)).toEqual({ request: '\r\n', response: '' });
++  });
++});
+diff --git c/apps/web/src/features/oauth/OAuthPage.geminiWeb.test.tsx i/apps/web/src/features/oauth/OAuthPage.geminiWeb.test.tsx
 new file mode 100644
 index 0000000..4632415
 --- /dev/null
-+++ b/apps/web/src/features/oauth/OAuthPage.geminiWeb.test.tsx
++++ i/apps/web/src/features/oauth/OAuthPage.geminiWeb.test.tsx
 @@ -0,0 +1,182 @@
 +import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 +import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -753,10 +1201,10 @@ index 0000000..4632415
 +    expect(mocks.navigate).not.toHaveBeenCalled();
 +  });
 +});
-diff --git a/apps/web/src/features/oauth/OAuthPage.tsx b/apps/web/src/features/oauth/OAuthPage.tsx
+diff --git c/apps/web/src/features/oauth/OAuthPage.tsx i/apps/web/src/features/oauth/OAuthPage.tsx
 index 9f68686..af3e5e9 100644
---- a/apps/web/src/features/oauth/OAuthPage.tsx
-+++ b/apps/web/src/features/oauth/OAuthPage.tsx
+--- c/apps/web/src/features/oauth/OAuthPage.tsx
++++ i/apps/web/src/features/oauth/OAuthPage.tsx
 @@ -34,10 +34,12 @@ import {
    createAccountCredentialMutationBaseline,
    recordAccountCredentialMutationMarker,
@@ -920,10 +1368,10 @@ index 9f68686..af3e5e9 100644
                        <div className={styles.authUrlLabel}>{provider.urlLabel}</div>
                        <div className={styles.authUrlValue}>{state.url}</div>
                        <div className={styles.authUrlActions}>
-diff --git a/apps/web/src/features/plugins/PluginResourcePage.tsx b/apps/web/src/features/plugins/PluginResourcePage.tsx
+diff --git c/apps/web/src/features/plugins/PluginResourcePage.tsx i/apps/web/src/features/plugins/PluginResourcePage.tsx
 index 60b34c9..8c7cd3b 100644
---- a/apps/web/src/features/plugins/PluginResourcePage.tsx
-+++ b/apps/web/src/features/plugins/PluginResourcePage.tsx
+--- c/apps/web/src/features/plugins/PluginResourcePage.tsx
++++ i/apps/web/src/features/plugins/PluginResourcePage.tsx
 @@ -5,23 +5,20 @@ import { EmptyState } from '@/components/ui/EmptyState';
  import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
  import { pluginsApi } from '@/services/api';
@@ -1022,11 +1470,11 @@ index 60b34c9..8c7cd3b 100644
      if (!iframeSrc) {
        hostStyleBridgeRef.current?.disconnect();
        hostStyleBridgeRef.current = null;
-diff --git a/apps/web/src/features/plugins/chatgptHostPolicy.ts b/apps/web/src/features/plugins/chatgptHostPolicy.ts
+diff --git c/apps/web/src/features/plugins/chatgptHostPolicy.ts i/apps/web/src/features/plugins/chatgptHostPolicy.ts
 new file mode 100644
 index 0000000..2df6ba2
 --- /dev/null
-+++ b/apps/web/src/features/plugins/chatgptHostPolicy.ts
++++ i/apps/web/src/features/plugins/chatgptHostPolicy.ts
 @@ -0,0 +1,38 @@
 +import { isRecord } from '@/utils/helpers';
 +
@@ -1066,11 +1514,11 @@ index 0000000..2df6ba2
 +    return false;
 +  }
 +}
-diff --git a/apps/web/src/features/plugins/chatgptHostRequest.test.ts b/apps/web/src/features/plugins/chatgptHostRequest.test.ts
+diff --git c/apps/web/src/features/plugins/chatgptHostRequest.test.ts i/apps/web/src/features/plugins/chatgptHostRequest.test.ts
 new file mode 100644
 index 0000000..706754e
 --- /dev/null
-+++ b/apps/web/src/features/plugins/chatgptHostRequest.test.ts
++++ i/apps/web/src/features/plugins/chatgptHostRequest.test.ts
 @@ -0,0 +1,56 @@
 +import { describe, expect, it } from 'vitest';
 +import { allowPluginRequest, safePluginError } from './pluginHostRequest';
@@ -1128,11 +1576,11 @@ index 0000000..706754e
 +    expect(safePluginError('{"error":"synthetic-private"}', 'chatgpt2api')).toBeUndefined();
 +  });
 +});
-diff --git a/apps/web/src/features/plugins/pluginHostRequest.test.ts b/apps/web/src/features/plugins/pluginHostRequest.test.ts
+diff --git c/apps/web/src/features/plugins/pluginHostRequest.test.ts i/apps/web/src/features/plugins/pluginHostRequest.test.ts
 new file mode 100644
 index 0000000..8bbc864
 --- /dev/null
-+++ b/apps/web/src/features/plugins/pluginHostRequest.test.ts
++++ i/apps/web/src/features/plugins/pluginHostRequest.test.ts
 @@ -0,0 +1,140 @@
 +import { describe, expect, it } from 'vitest';
 +import {
@@ -1274,11 +1722,11 @@ index 0000000..8bbc864
 +    expect(trustedPluginResource('gemini-web', url, origin)).toBe(false);
 +  });
 +});
-diff --git a/apps/web/src/features/plugins/pluginHostRequest.ts b/apps/web/src/features/plugins/pluginHostRequest.ts
+diff --git c/apps/web/src/features/plugins/pluginHostRequest.ts i/apps/web/src/features/plugins/pluginHostRequest.ts
 new file mode 100644
 index 0000000..5d8b593
 --- /dev/null
-+++ b/apps/web/src/features/plugins/pluginHostRequest.ts
++++ i/apps/web/src/features/plugins/pluginHostRequest.ts
 @@ -0,0 +1,276 @@
 +import { apiClient, createScopedApiRequestConfig } from '@/services/api/client';
 +import { useAuthStore } from '@/stores/useAuthStore';
@@ -1556,11 +2004,11 @@ index 0000000..5d8b593
 +  child.dispatchEvent(new Event('cpamp-plugin-request-ready'));
 +  return revoke;
 +}
-diff --git a/apps/web/src/services/api/geminiWeb.test.ts b/apps/web/src/services/api/geminiWeb.test.ts
+diff --git c/apps/web/src/services/api/geminiWeb.test.ts i/apps/web/src/services/api/geminiWeb.test.ts
 new file mode 100644
 index 0000000..dfbc571
 --- /dev/null
-+++ b/apps/web/src/services/api/geminiWeb.test.ts
++++ i/apps/web/src/services/api/geminiWeb.test.ts
 @@ -0,0 +1,155 @@
 +import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 +import { geminiWebApi, requireGeminiWebPortal } from './geminiWeb';
@@ -1717,11 +2165,11 @@ index 0000000..dfbc571
 +    await expect(requireGeminiWebPortal(scope())).rejects.toThrow();
 +  });
 +});
-diff --git a/apps/web/src/services/api/geminiWeb.ts b/apps/web/src/services/api/geminiWeb.ts
+diff --git c/apps/web/src/services/api/geminiWeb.ts i/apps/web/src/services/api/geminiWeb.ts
 new file mode 100644
 index 0000000..6475bc9
 --- /dev/null
-+++ b/apps/web/src/services/api/geminiWeb.ts
++++ i/apps/web/src/services/api/geminiWeb.ts
 @@ -0,0 +1,101 @@
 +import type { AuthFileItem } from '@/types';
 +import { isRecord } from '@/utils/helpers';
@@ -1824,11 +2272,11 @@ index 0000000..6475bc9
 +    return account;
 +  },
 +};
-diff --git a/apps/web/src/services/api/geminiWebDto.ts b/apps/web/src/services/api/geminiWebDto.ts
+diff --git c/apps/web/src/services/api/geminiWebDto.ts i/apps/web/src/services/api/geminiWebDto.ts
 new file mode 100644
 index 0000000..c6b2cbc
 --- /dev/null
-+++ b/apps/web/src/services/api/geminiWebDto.ts
++++ i/apps/web/src/services/api/geminiWebDto.ts
 @@ -0,0 +1,133 @@
 +import { isRecord } from '@/utils/helpers';
 +

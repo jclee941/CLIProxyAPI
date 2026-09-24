@@ -23,6 +23,9 @@ The separately installed `cpa-public-gateway.service` uses the existing Traefik
 binary to split that loopback traffic:
 
 - Public Host `cliproxy.jclee.me` and Manager paths go to `127.0.0.1:18317`.
+- `/openapi.json` serves the consumer API specification from the Gemini plugin
+  resource through the core. The management page links to this canonical URL;
+  both URLs return the same embedded document.
 - Model API paths, WebSocket requests and non-public local management requests
   go to the core's loopback binding, `127.0.0.1:18318`.
 - The core container still listens on `8317`; its LAN binding

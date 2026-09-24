@@ -3,7 +3,7 @@ name: cpa-manager-plus
 services:
   cpa-manager-plus:
     profiles: [approval-required]
-    image: seakee/cpa-manager-plus:v1.12.11@sha256:a2e8c99c80f9193e42da02f468bbfd3eba1d865ff88954e1582d29bc98850a24
+    image: cpa-manager-plus:v1.12.11-logs.20260922.4
     pull_policy: never
     restart: unless-stopped
     entrypoint:

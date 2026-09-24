@@ -10,6 +10,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PublicRoutingTests(unittest.TestCase):
+    def test_openapi_routes_to_the_shared_plugin_document(self) -> None:
+        config = json.loads((ROOT / "gateway-routes.yaml").read_text())["http"]
+        route = config["routers"]["openapi"]
+        self.assertEqual(route["rule"], "Host(`cliproxy.jclee.me`) && Path(`/openapi.json`)")
+        self.assertGreater(route["priority"], config["routers"]["manager"]["priority"])
+        self.assertEqual(route["service"], "core")
+        self.assertEqual(route["middlewares"], ["openapi"])
+        self.assertEqual(
+            config["middlewares"]["openapi"]["replacePath"]["path"],
+            "/v0/resource/plugins/gemini-web/openapi.json",
+        )
+
     def test_loopback_gateway_has_no_active_response_deadlines(self) -> None:
         static = json.loads((ROOT / "gateway.yaml").read_text())
         dynamic = json.loads((ROOT / "gateway-routes.yaml").read_text())
@@ -50,6 +62,8 @@ class PublicRoutingTests(unittest.TestCase):
         for path in (
             "/v1/models", "/v1/chat/completions", "/v1/responses",
             "/v1/images/generations", "/v1/messages",
+            "/v1beta/interactions", "/v1beta/files", "/v1beta/files/example:download",
+            "/upload/v1beta/files", "/upload/v1beta/files/resumable",
             "/v1beta/models/gemini-web-omni:generateContent", "/v1internal:generateContent",
             "/api/provider/claude/v1/messages", "/ws", "/codex/callback",
             "/management.html-malformed", "/v0/management-invalid",
