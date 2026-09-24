@@ -29,35 +29,59 @@ type interactionRequest struct {
 		Resolution  string `json:"resolution,omitempty"`
 		Delivery    string `json:"delivery,omitempty"`
 	} `json:"response_format,omitempty"`
+	GenerationConfig struct {
+		VideoConfig struct {
+			Task string `json:"task,omitempty"`
+		} `json:"video_config,omitempty"`
+	} `json:"generation_config,omitempty"`
 }
+
+// interactionExtendTask is the documented task that continues a video instead of
+// starting one. It is the only task this surface can honour: the product has no
+// slot for the others, and an uploaded video declared as an edit source was
+// measured to spend the whole budget and answer no video.
+const interactionExtendTask = "extend"
 
 func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 	var request interactionRequest
 	if len(raw) > interactionInputLimit || strictJSON(raw, &request) != nil || request.Model != interactionOmniModel {
 		return request, nil, failure(400, "unsupported_interaction_request")
 	}
-	if request.Background {
-		return request, nil, failure(400, "interaction_background_unsupported")
+	if request.Background && request.Store != nil && !*request.Store {
+		return request, nil, failure(400, "interaction_background_requires_store")
 	}
 	format := request.ResponseFormat
-	if format.Type != "" && format.Type != "video" || format.Delivery != "" && format.Delivery != "inline" {
+	if format.Type != "" && format.Type != "video" || format.Delivery != "" && format.Delivery != "inline" && format.Delivery != "uri" {
 		return request, nil, failure(400, "interaction_inline_video_only")
 	}
-	if format.Resolution != "" {
+	if format.Resolution != "" && format.Resolution != "720p" {
 		return request, nil, failure(400, "interaction_resolution_unsupported")
+	}
+	if task := request.GenerationConfig.VideoConfig.Task; task != "" && task != interactionExtendTask {
+		return request, nil, failure(400, "interaction_task_unsupported")
 	}
 	var prompt string
 	var references []webMedia
+	hasVideoSource := false
 	if json.Unmarshal(request.Input, &prompt) != nil {
 		var parts []struct {
-			Type     string `json:"type"`
-			Text     string `json:"text"`
-			Data     string `json:"data"`
-			MIMEType string `json:"mime_type"`
-			URI      string `json:"uri"`
+			Type     string          `json:"type"`
+			Text     string          `json:"text"`
+			Data     string          `json:"data"`
+			MIMEType string          `json:"mime_type"`
+			URI      string          `json:"uri"`
+			Content  json.RawMessage `json:"content,omitempty"`
 		}
 		if strictJSON(request.Input, &parts) != nil || len(parts) == 0 {
 			return request, nil, failure(400, "interaction_text_input_only")
+		}
+		// The official SDK wraps supplied media parts in one user_input step.
+		// This is still one new turn, not caller-supplied conversation history.
+		if len(parts) == 1 && parts[0].Type == "user_input" {
+			content := parts[0].Content
+			if strictJSON(content, &parts) != nil || len(parts) == 0 {
+				return request, nil, failure(400, "interaction_text_input_only")
+			}
 		}
 		texts := make([]string, 0, len(parts))
 		for _, part := range parts {
@@ -65,10 +89,13 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 			case "text":
 				texts = append(texts, part.Text)
 			case "image", "video":
+				hasVideoSource = hasVideoSource || part.Type == "video"
 				// A uri names either a Drive file, which is fetched, or a Files
 				// entry, which has no API on this path to resolve it against.
 				if part.URI != "" {
-					if _, ok := driveFileID(part.URI); !ok {
+					_, drive := driveFileID(part.URI)
+					_, stored := filesReferenceID(part.URI)
+					if !drive && !stored {
 						return request, nil, failure(400, "interaction_uploaded_reference_unsupported")
 					}
 					references = append(references, webMedia{Reference: part.URI})
@@ -83,6 +110,18 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 			}
 		}
 		prompt = strings.Join(texts, "\n")
+	}
+	if format.Resolution != "" && (hasVideoSource || request.Previous != "") {
+		return request, nil, failure(400, "interaction_resolution_inherited")
+	}
+	// Extension needs a video to continue. This surface can name two: the
+	// interaction a previous turn stored, and a clip the caller uploaded with
+	// this one. Neither present means there is nothing to extend.
+	if request.GenerationConfig.VideoConfig.Task == interactionExtendTask && request.Previous == "" && !hasVideoSource {
+		return request, nil, failure(400, "interaction_extend_requires_source")
+	}
+	if request.GenerationConfig.VideoConfig.Task == interactionExtendTask && request.Previous == "" && !webRoleDeclared(prompt) {
+		prompt = "[# Sources <VIDEO_0>@Video1] " + prompt
 	}
 	parts := make([]any, 0, len(references)+1)
 	parts = append(parts, map[string]string{"text": prompt})
@@ -126,23 +165,20 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 	if err != nil {
 		return nil, err
 	}
+	if body.ResponseFormat.Delivery == "uri" {
+		if err := service.filesRequireWrite(ctx); err != nil {
+			return nil, err
+		}
+	}
 	native := request
+	native.interactionDelivery = body.ResponseFormat.Delivery
 	native.Model, native.Format, native.SourceFormat = omniModel, "gemini", "gemini"
 	native.Stream = false
 	native.freshContinuation = true
-	// A previous interaction is a video reference, not an account pin. Resolve
-	// the stored result and carry it into this turn so any account can serve it.
 	previous := body.Previous
-	if previous != "" {
-		location, carried, locateErr := service.locateChained(request, previous)
-		if locateErr != nil {
-			return nil, locateErr
-		}
-		if carried {
-			if payload, err = withChainedReference(payload, location); err != nil {
-				return nil, err
-			}
-			previous = ""
+	if previous != "" && body.GenerationConfig.VideoConfig.Task == interactionExtendTask {
+		if payload, err = withPreviousVideoDeclaration(payload); err != nil {
+			return nil, err
 		}
 	}
 	native.Payload, err = json.Marshal(map[string]any{continuationField: continuationControl{Action: "prepare", Token: previous}})
@@ -173,8 +209,19 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 	if err != nil {
 		return nil, err
 	}
+	if body.Background {
+		if err := service.markBackgroundInteraction(ctx, native, token); err != nil {
+			return nil, err
+		}
+	}
 	if request.Stream {
-		return service.startInteractionStream(ctx, request, native, token, body.Store)
+		return service.startInteractionStream(ctx, request, native, token, body.Store, body.Background)
+	}
+	if body.Background {
+		if _, err := service.ownInteraction(ctx, native, token, body.Store, true); err != nil {
+			return nil, err
+		}
+		return renderInteraction(request.AuthID, continuationResult{}, continuationView{Token: token, State: "pending"})
 	}
 	return service.finishInteraction(ctx, native, token, body.Store)
 }
@@ -229,7 +276,11 @@ func (service *service) finishInteraction(ctx context.Context, native executorRe
 			return nil, err
 		}
 	}
-	return renderInteraction(record.ID, result, receipt.View)
+	rendered, err := renderInteraction(record.ID, result, receipt.View)
+	if err != nil {
+		return nil, err
+	}
+	return service.deliverInteraction(ctx, native, token, rendered.(continuationResult))
 }
 
 func (service *service) waitInteraction(ctx context.Context) error {
@@ -281,7 +332,11 @@ func renderInteraction(account string, result continuationResult, view continuat
 	// whether the product declined the prompt, ran out of daily video, or
 	// returned something unreadable.
 	if view.Error != "" {
-		body["error"] = map[string]string{"code": view.Error, "message": view.Error}
+		message := view.ErrorMessage
+		if message == "" {
+			message = view.Error
+		}
+		body["error"] = map[string]string{"code": view.Error, "message": message}
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {

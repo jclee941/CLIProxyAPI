@@ -18,7 +18,7 @@ type interactionOperation struct {
 
 // Generation belongs to the plugin lifecycle, not to any SSE subscriber. GET
 // can join this operation; after restart it can only run continuation recover.
-func (service *service) ownInteraction(ctx context.Context, native executorRequest, token string, store *bool) (*interactionOperation, error) {
+func (service *service) ownInteraction(ctx context.Context, native executorRequest, token string, store *bool, background bool) (*interactionOperation, error) {
 	service.interactionsMu.Lock()
 	defer service.interactionsMu.Unlock()
 	if operation := service.interactions[token]; operation != nil {
@@ -45,6 +45,12 @@ func (service *service) ownInteraction(ctx context.Context, native executorReque
 		defer service.lifecycle.leave()
 		defer cancel()
 		result, err := service.finishInteraction(owned, native, token, store)
+		if background {
+			result, err = service.persistBackgroundOutcome(native, token, result, err)
+			if err != nil {
+				log.Printf("gemini-web: background interaction ended: %s", safeCredentialCode(err))
+			}
+		}
 		if err == nil {
 			operation.result = result.(continuationResult)
 		}
@@ -57,11 +63,11 @@ func (service *service) ownInteraction(ctx context.Context, native executorReque
 	return operation, nil
 }
 
-func (service *service) startInteractionStream(ctx context.Context, request, native executorRequest, token string, store *bool) (interface{}, error) {
+func (service *service) startInteractionStream(ctx context.Context, request, native executorRequest, token string, store *bool, background bool) (interface{}, error) {
 	if request.StreamID == "" {
 		return nil, failure(400, "interaction_stream_bridge_required")
 	}
-	operation, err := service.ownInteraction(ctx, native, token, store)
+	operation, err := service.ownInteraction(ctx, native, token, store, background)
 	if err != nil {
 		return nil, err
 	}

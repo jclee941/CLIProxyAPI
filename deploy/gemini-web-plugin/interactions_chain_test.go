@@ -1,14 +1,13 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
+	"time"
 )
 
-func TestReferenceChainRoutesAndUploadsOnAnotherAccount(t *testing.T) {
+func TestContinuationNeverUploadsOrGeneratesOnAnotherAccount(t *testing.T) {
 	service, source := continuationFixture(t)
 	target := localRecordFixture(t)
 	target.Target = recordFixture(t, "b")
@@ -32,33 +31,43 @@ func TestReferenceChainRoutesAndUploadsOnAnotherAccount(t *testing.T) {
 	}).call
 	first := interactionID(t, interactionCall(t, service, source,
 		`{"model":"gemini-omni-1.1-flash","input":"first"}`))
-	body := `{"model":"gemini-omni-1.1-flash","input":"use the previous video","previous_interaction_id":"` + first + `"}`
-	headers := http.Header{continuationHeader: {first}, interactionRetrieveHeader: {"true"}}
-	response := service.interceptContinuation(jsonFixture(t, map[string]any{
-		"SourceFormat": "interactions", "Model": interactionOmniModel,
-		"Body": []byte(body), "Headers": headers,
-		"Metadata": map[string]string{"caller_scope": testCallerScope},
-	}))
-	if response.Terminate {
-		t.Fatalf("interceptor rejected reference create: %+v", response)
-	}
-	for _, name := range response.ClearHeaders {
-		headers.Del(name)
-	}
-	for name, values := range response.Headers {
-		headers[name] = values
-	}
+	headers := http.Header{continuationHeader: {first}}
 	pick, err := service.pickContinuation(jsonFixture(t, map[string]any{
 		"Providers": []string{provider}, "Model": interactionOmniModel,
 		"Options":    map[string]any{"Headers": headers, "Metadata": map[string]string{"caller_scope": testCallerScope}},
 		"Candidates": []any{map[string]string{"ID": target.Target.ID, "Provider": provider}},
 	}))
-	// The owner is not among the candidates offered, so the choice is handed
-	// back to the host rather than refused, and the turn runs wherever it lands.
-	if err != nil || pick.Handled {
-		t.Fatalf("a busy owner did not delegate: pick=%+v err=%v", pick, err)
+	if safeCredentialCode(err) != "continuation_account_unavailable" || pick.Handled {
+		t.Errorf("unavailable owner did not fail closed: pick=%+v err=%v", pick, err)
 	}
-	next := interactionID(t, interactionCall(t, service, target, body))
+	full := 1.0
+	reset := float64(service.now().Add(time.Hour).Unix())
+	service.observeQuota(source.Target.ID, &usageView{Metrics: []usageMetric{{WindowKind: "5h", UsageFraction: &full, ResetUnixSeconds: &reset}}})
+	candidates := slotCandidates(source.Target.ID, target.Target.ID)
+	pick, err = service.pickContinuation(jsonFixture(t, map[string]any{
+		"Provider": provider, "Model": interactionOmniModel,
+		"Options":    map[string]any{"Headers": headers, "Metadata": map[string]string{"caller_scope": testCallerScope}},
+		"Candidates": candidates,
+	}))
+	if safeCredentialCode(err) != "continuation_account_unavailable" || pick.Handled {
+		t.Errorf("exhausted owner was selected or replaced: pick=%+v err=%v", pick, err)
+	}
+	headers.Set(interactionRetrieveHeader, "true")
+	pick, err = service.pickContinuation(jsonFixture(t, map[string]any{
+		"Provider": provider, "Model": interactionOmniModel,
+		"Options":    map[string]any{"Headers": headers, "Metadata": map[string]string{"caller_scope": testCallerScope}},
+		"Candidates": candidates,
+	}))
+	if err != nil || !pick.Handled || pick.AuthID != source.Target.ID {
+		t.Errorf("quota exhaustion blocked owner-bound retrieval: pick=%+v err=%v", pick, err)
+	}
+	for _, extra := range []string{"", `,"stream":true`, `,"generation_config":{"video_config":{"task":"extend"}}`} {
+		body := `{"model":"gemini-omni-1.1-flash","input":"continue","previous_interaction_id":"` + first + `"` + extra + `}`
+		result := interactionCall(t, service, target, body)
+		if result.OK {
+			t.Errorf("wrong-account continuation was accepted: options=%s", extra)
+		}
+	}
 	stored, err := service.sessions.read(target.Target.TokenRef)
 	if err != nil {
 		t.Fatal(err)
@@ -67,131 +76,22 @@ func TestReferenceChainRoutesAndUploadsOnAnotherAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn := turns[continuationKey(next)]
-	if next == first || turn.Parent != "" || turn.State != "complete" || !turn.ResultStored || turn.CallerScope != testCallerScope {
-		t.Fatalf("reference did not create an independent stored turn: %+v", turn)
-	}
-	foreign := interactionExecutorRequest(t, target, body)
-	foreign.Metadata.CallerScope = strings.Repeat("d", 64)
-	if _, err := service.executeInteraction(t.Context(), foreign); safeCredentialCode(err) != "continuation_identity_mismatch" {
-		t.Fatalf("cross-caller reference was not rejected: %v", err)
+	if len(turns) != 0 {
+		t.Errorf("wrong-account continuation created %d turns", len(turns))
 	}
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
-	if len(fixture.fields) != 2 || len(fixture.uploads) != 1 {
-		t.Fatalf("submissions=%d uploads=%d", len(fixture.fields), len(fixture.uploads))
-	}
-	if !bytes.Equal(fixture.uploads[0], []byte("0000ftypvideo")) || fixture.uploadCookies[0] != "target-cookie" {
-		t.Fatal("the source video was not uploaded with the target account")
-	}
-	if jsonField(fixture.fields[1], 2, 0) != "" || jsonField(fixture.fields[1], 0, 3, 0, 0, 0) != "/uploaded/video" {
-		t.Fatal("follow-up used conversation state instead of an uploaded video")
+	if len(fixture.fields) != 1 || len(fixture.uploads) != 0 {
+		t.Fatalf("cross-account upstream activity: submissions=%d uploads=%d", len(fixture.fields), len(fixture.uploads))
 	}
 }
 
-// The reference the plugin writes for itself has to survive the request it is
-// written into, and nothing a caller can write may be read as one.
-func TestAChainedReferenceIsOnlyEverOneThePluginWrote(t *testing.T) {
-	location := chainedLocation{Account: "ref-1", Key: continuationKey(strings.Repeat("a", 64)), Caller: strings.Repeat("d", 64)}
-
-	parsed, chained := parseChainedReference(location.String())
-
-	if !chained || parsed != location {
-		t.Fatalf("parsed = %+v chained=%t, want the location it was written from", parsed, chained)
+func TestRemovedInternalChainReferenceIsRejected(t *testing.T) {
+	payload := []byte(`{"contents":[{"role":"user","parts":[{"text":"continue"},{"fileData":{"fileUri":"interaction:account|key|caller"}}]}]}`)
+	if err := validateOmni(payload); err == nil {
+		t.Fatal("removed chain reference accepted by Omni validator")
 	}
-	for _, supplied := range []string{
-		"https://drive.google.com/file/d/1abc/view",
-		"interaction:",
-		"interaction:only-one-field",
-		"interaction:account|key",
-		"interaction:account||caller",
-		"",
-	} {
-		if _, chained := parseChainedReference(supplied); chained {
-			t.Fatalf("%q was read as a chained reference", supplied)
-		}
-	}
-}
-
-// A carried chain names the video instead of carrying its bytes, so the request
-// stays the size it was; and the omni validator has to accept that name, or the
-// turn is rejected before it is ever submitted.
-func TestACarriedChainNamesTheVideoAndSurvivesValidation(t *testing.T) {
-	location := chainedLocation{Account: "ref-1", Key: continuationKey(strings.Repeat("a", 64)), Caller: strings.Repeat("d", 64)}
-	payload := []byte(`{"contents":[{"role":"user","parts":[{"text":"now further away"}]}]}`)
-
-	carried, err := withChainedReference(payload, location)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := validateOmni(carried); err != nil {
-		t.Fatalf("the omni route rejected its own reference: %v", err)
-	}
-	if _, media, err := webContentsToPrompt(carried); err != nil {
-		t.Fatalf("the prompt builder rejected its own reference: %v", err)
-	} else if len(media) != 1 || media[0].Reference != location.String() {
-		t.Fatalf("media = %+v, want the chained video named once", media)
-	}
-	var body struct {
-		Contents []struct {
-			Parts []map[string]json.RawMessage `json:"parts"`
-		} `json:"contents"`
-	}
-	if err := json.Unmarshal(carried, &body); err != nil {
-		t.Fatal(err)
-	}
-	if len(body.Contents) != 1 || len(body.Contents[0].Parts) != 2 {
-		t.Fatalf("parts = %+v, want the prompt and the reference", body.Contents)
-	}
-	if len(carried) > len(payload)+256 {
-		t.Fatalf("carried body grew by %d bytes, want a name rather than the video", len(carried)-len(payload))
-	}
-}
-
-func TestLocateChainedFindsACompletedInteractionOnAnotherAccount(t *testing.T) {
-	service, local := continuationFixture(t)
-	other := localRecordFixture(t)
-	other.Target = recordFixture(t, "b")
-	otherAuth, err := authFromRecord(other.Target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	other.Projection = string(otherAuth.StorageJSON)
-	other.Continuations = string(jsonFixture(t, map[string]continuationTurn{
-		continuationKey("previous"): {
-			CallerScope:  "caller-b",
-			State:        "complete",
-			ResultStored: true,
-		},
-	}))
-	if err := service.sessions.write(other); err != nil {
-		t.Fatal(err)
-	}
-	host := &loginHostFixture{
-		records: map[string]json.RawMessage{
-			local.Target.ID: jsonFixture(t, local.Target),
-			other.Target.ID: jsonFixture(t, other.Target),
-		},
-		service: service,
-	}
-	service.host = host.call
-	currentAuth, err := authFromRecord(local.Target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := executorRequest{
-		StorageJSON:    currentAuth.StorageJSON,
-		HostCallbackID: "fixture-chain",
-	}
-	request.Metadata.CallerScope = "caller-b"
-
-	location, found, err := service.locateChained(request, "previous")
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !found || location.Account != other.Target.TokenRef || location.Key != continuationKey("previous") || location.Caller != "caller-b" {
-		t.Fatalf("location=%+v found=%t, want the other account's completed turn", location, found)
+	if _, _, err := webContentsToPrompt(payload); err == nil {
+		t.Fatal("removed chain reference accepted by prompt builder")
 	}
 }

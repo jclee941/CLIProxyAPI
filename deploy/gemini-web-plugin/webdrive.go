@@ -50,10 +50,16 @@ func driveFileID(reference string) (string, bool) {
 // mediaSources describes every attachment to the upload path without moving any
 // bytes yet. A Drive reference contributes its type and length from metadata, so
 // the file itself only ever travels once, straight into the upload.
-func (service *service) mediaSources(ctx context.Context, media []webMedia) ([]webSource, error) {
+func (service *service) mediaSources(ctx context.Context, media []webMedia, caller string) ([]webSource, error) {
 	sources := make([]webSource, 0, len(media))
 	for _, item := range media {
-		source, err := service.mediaSource(ctx, item)
+		var source webSource
+		var err error
+		if _, stored := filesReferenceID(item.Reference); stored {
+			source, err = service.resolveFileSource(caller, item.Reference)
+		} else {
+			source, err = service.mediaSource(ctx, item)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -65,9 +71,6 @@ func (service *service) mediaSources(ctx context.Context, media []webMedia) ([]w
 func (service *service) mediaSource(ctx context.Context, item webMedia) (webSource, error) {
 	if item.Reference == "" {
 		return inlineSource(item)
-	}
-	if location, chained := parseChainedReference(item.Reference); chained {
-		return service.chainedSource(location)
 	}
 	return service.driveSource(ctx, item.Reference)
 }
@@ -151,6 +154,7 @@ const driveTokenEndpoint = "https://oauth2.googleapis.com/token"
 type driveToken struct {
 	mu      sync.Mutex
 	value   string
+	scopes  string
 	expires time.Time
 }
 
@@ -210,6 +214,7 @@ func (service *service) driveAuthorization(ctx context.Context) (string, error) 
 	var token struct {
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int    `json:"expires_in"`
+		Scope       string `json:"scope"`
 	}
 	if json.Unmarshal(body, &token) != nil || token.AccessToken == "" {
 		return "", failure(502, "drive_authorization_failed")
@@ -221,6 +226,7 @@ func (service *service) driveAuthorization(ctx context.Context) (string, error) 
 		lifetime -= time.Minute
 	}
 	service.driveAccess.value, service.driveAccess.expires = token.AccessToken, service.now().Add(lifetime)
+	service.driveAccess.scopes = token.Scope
 	return token.AccessToken, nil
 }
 

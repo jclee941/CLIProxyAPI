@@ -24,126 +24,61 @@
   <div id="app" class="view view-accounts"><p class="view-placeholder">Gemini Web 계정 관리 화면을 준비하고 있습니다.</p></div>
   <noscript>계정을 관리하려면 이 리소스 페이지의 JavaScript 실행을 허용하세요.</noscript>
   <section class="view view-api usage-guide api-reference">
-    <h2>요청 방법</h2>
-    <p class="hint">이 플러그인이 발행하는 모델은 <code>gemini-omni-1.1-flash</code> 하나이고, 호출 경로는 공식 Interactions 표면 <code>POST /v1beta/interactions</code>입니다. 아래 예시의 <code>$CLIPROXY</code>는 이 프록시의 베이스 URL, <code>$CLIPROXY_KEY</code>는 발급받은 API 키입니다.</p>
+    <div class="page-heading">
+      <div class="heading-copy">
+        <h2>OpenAPI 연동 가이드</h2>
+        <p class="hint">이 문서는 Gemini Omni Video API 연동을 위한 소비자용 요약 가이드입니다. <br>전체 명세는 <a href="https://cliproxy.jclee.me/openapi.json" target="_blank" rel="noopener noreferrer">https://cliproxy.jclee.me/openapi.json</a> 에서 확인할 수 있습니다.</p>
+      </div>
+    </div>
 
     <details class="api-endpoint" open>
-      <summary><span class="api-method">POST</span><code>/v1beta/interactions</code><span class="api-tag api-tag-cost">호출당 영상 1건 소비</span></summary>
+      <summary><span class="api-method">POST</span><code>/v1beta/interactions</code><span class="api-tag">영상 생성 및 연장</span></summary>
       <div class="api-body">
-        <h3>요청</h3>
-        <pre class="api-sample"><code>curl -X POST "$CLIPROXY/v1beta/interactions" \
-  -H "Authorization: Bearer $CLIPROXY_KEY" \
+        <h3>새 영상 생성 (Create)</h3>
+        <p class="hint">새로운 영상을 생성합니다. 기본 비율은 세로(9:16)이며, <code>response_format.aspect_ratio: "16:9"</code>를 지정해 가로로 생성할 수 있습니다.</p>
+        <p class="hint">신규 대화는 사용 가능한 계정에 라운드로빈으로 배정합니다. 5시간 또는 7일 사용률이 100%로 확인된 계정은 초기화되거나 사용 가능 상태가 다시 확인될 때까지 제외합니다.</p>
+        <pre class="api-sample"><code>curl -X POST "https://cliproxy.jclee.me/v1beta/interactions" \
+  -H "Authorization: Bearer $YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemini-omni-1.1-flash",
     "input": "노을 지는 해변을 걷는 사람",
-    "response_format": { "type": "video", "aspect_ratio": "16:9" },
     "store": true
   }'</code></pre>
 
-        <h3>필드</h3>
-        <div class="api-scroll"><table class="api-table">
-          <thead><tr><th>필드</th><th>타입</th><th>허용값</th><th>설명</th></tr></thead>
-          <tbody>
-            <tr><td><code>input</code></td><td>string 또는 배열</td><td>텍스트 한 건, 또는 <code>text</code>·<code>image</code>·<code>video</code> 파트 배열</td><td>첨부는 <code>data</code>+<code>mime_type</code>으로 인라인이거나, <code>uri</code>로 Drive 파일을 가리킵니다. 영상 첨부는 참조 선언이 자동으로 붙습니다.</td></tr>
-            <tr><td><code>response_format.type</code></td><td>string</td><td><code>video</code></td><td>생략하면 영상입니다. 그 밖의 값은 거부합니다.</td></tr>
-            <tr><td><code>response_format.aspect_ratio</code></td><td>string</td><td><code>16:9</code> · <code>9:16</code></td><td>웹 UI와 같은 프레이밍 칩과 방향이 함께 전송됩니다. 생략하면 <code>16:9</code>. <strong>실측(2026-09-15): <code>16:9</code>는 1280x720이 나오지만 <code>9:16</code>은 업스트림이 영상을 만들지 않아 실패합니다.</strong></td></tr>
-            <tr><td><code>previous_interaction_id</code></td><td>string</td><td>완료·저장된 interaction id</td><td>그 영상을 이번 턴의 참조 첨부로 싣습니다. <strong>계정에 묶이지 않습니다</strong> — 다른 계정이 이어받아 생성할 수 있습니다(실측 2026-09-17).</td></tr>
-            <tr><td><code>store</code></td><td>boolean</td><td>기본 <code>true</code></td><td><code>false</code>면 완료 후 영수증을 폐기하므로 이후 조회·체이닝이 불가합니다.</td></tr>
-          </tbody>
-        </table></div>
-        <p class="hint"><code>stream</code>·<code>background</code>·<code>response_format.resolution</code>·<code>response_format.delivery: "uri"</code>는 전송 슬롯도 대응물도 없어 생성 전에 거부합니다.</p>
+        <h3>기존 영상 연장 (Extend)</h3>
+        <p class="hint">완료된 영상의 ID와 <code>generation_config.video_config.task = "extend"</code>를 사용해 영상을 연장할 수 있습니다. 약 10초 영상의 3회 연장(최대 약 40초)이 관측되었으나, 이는 보장된 길이 한계나 연장 단위가 아닙니다.</p>
+        <p class="hint">연속 요청은 같은 계정·같은 대화를 유지합니다. 원래 계정이 사용 불가하면 오류를 반환하며 다른 계정으로 자동 전환하지 않습니다.</p>
+        <pre class="api-sample"><code>curl -X POST "https://cliproxy.jclee.me/v1beta/interactions" \
+  -H "Authorization: Bearer $YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-omni-1.1-flash",
+    "input": "이전 장면에서 자연스럽게 이어지도록",
+    "previous_interaction_id": "COMPLETED_INTERACTION_ID",
+    "generation_config": {
+      "video_config": {
+        "task": "extend"
+      }
+    },
+    "store": true
+  }'</code></pre>
 
-        <h3>응답</h3>
-        <pre class="api-sample"><code>{
-  "id": "efa78dd45816fdd2…",
-  "object": "interaction",
-  "model": "gemini-omni-1.1-flash",
-  "account": "gemini-web-….json",
-  "status": "completed",
-  "error": null,
-  "steps": [{
-    "type": "model_output",
-    "content": [{ "type": "video", "mime_type": "video/mp4", "data": "AAAAIGZ0eXB…" }]
-  }]
-}</code></pre>
-        <p class="hint">업스트림 다운로드 URL이 세션 쿠키로만 열리기 때문에 링크 대신 base64 본문으로 돌려줍니다. 실측 소요는 60~100초, 결과물은 1.8~6.5MB입니다.</p>
-
-        <h3>제약</h3>
-        <ul class="api-limits">
-          <li>새 프롬프트는 한 턴. 대화 이력을 직접 싣거나 업스트림 식별자를 건네줄 수 없습니다.</li>
-          <li>프롬프트는 8000자 이하.</li>
-          <li>영상이 준비될 때까지 최대 10분 폴링합니다. 제출 자체가 오래 걸리면 그만큼 더 기다릴 수 있습니다.</li>
-          <li>생성 사이에 쿨다운이 있습니다. 직전 영상 직후 다시 호출하면 <code>no_video_generated</code>로 거절되니 간격을 두세요.</li>
-          <li>POST 재시도는 복구가 아니라 <strong>새 생성</strong>입니다. 응답을 놓쳤으면 아래 GET으로 조회하세요.</li>
-        </ul>
+        <h3>응답 처리</h3>
+        <p class="hint">생성은 수 분이 걸릴 수 있습니다. HTTP 200 응답만으로 성공을 단정할 수 없으며, <code>status: "completed"</code> 상태와 <code>steps[].content[].data</code>에 비디오 데이터가 있어야 사용 가능합니다.</p>
+        <p class="hint">네트워크 오류 등 불확실한 POST 결과에 대해 자동으로 재시도하지 마세요. 반환받은 ID를 사용해 <code>GET</code>으로 상태를 조회해야 합니다.</p>
       </div>
     </details>
 
     <details class="api-endpoint">
-      <summary><span class="api-method">GET</span><code>/v1beta/interactions/{id}</code><span class="api-tag">조회 · 쿼타 소모 없음</span></summary>
+      <summary><span class="api-method">GET</span><code>/v1beta/interactions/{interaction_id}</code><span class="api-tag">상태 및 결과 조회 (Retrieve)</span></summary>
       <div class="api-body">
         <h3>요청</h3>
-        <pre class="api-sample"><code>curl "$CLIPROXY/v1beta/interactions/$INTERACTION_ID" \
-  -H "Authorization: Bearer $CLIPROXY_KEY"</code></pre>
-        <p class="hint">완료된 영수증은 저장된 결과를 그대로 재생하므로 재생성하지 않습니다. 진행 중이면 <code>status: "in_progress"</code>로 답하고, 같은 id로 다시 물어보면 됩니다. 영수증은 계정과 호출자에 묶여 있어 다른 API 키로는 조회되지 않습니다.</p>
+        <p class="hint">불확실한 생성 상태를 확인하거나 완료된 결과를 가져옵니다. 추가 생성을 유발하지 않습니다.</p>
+        <pre class="api-sample"><code>curl "https://cliproxy.jclee.me/v1beta/interactions/$INTERACTION_ID" \
+  -H "Authorization: Bearer $YOUR_API_KEY"</code></pre>
       </div>
     </details>
-
-    <details class="api-endpoint">
-      <summary><span class="api-method api-method-error">400</span><code>오류 코드 · 생성 전 거부</code><span class="api-tag">쿼타 소모 없음</span></summary>
-      <div class="api-body">
-        <div class="api-scroll"><table class="api-table">
-          <thead><tr><th>코드</th><th>의미</th></tr></thead>
-          <tbody>
-            <tr><td><code>interaction_text_input_only</code></td><td><code>input</code>이 텍스트나 지원 파트 배열이 아닙니다.</td></tr>
-            <tr><td><code>interaction_inline_video_only</code></td><td><code>response_format.delivery</code>가 <code>inline</code>이 아닙니다.</td></tr>
-            <tr><td><code>interaction_resolution_unsupported</code></td><td><code>response_format.resolution</code>은 지원하지 않습니다.</td></tr>
-            <tr><td><code>interaction_background_unsupported</code></td><td><code>background: true</code>는 지원하지 않습니다.</td></tr>
-            <tr><td><code>interaction_reference_invalid</code></td><td>첨부에 <code>data</code>나 <code>mime_type</code>이 빠졌습니다.</td></tr>
-            <tr><td><code>interaction_uploaded_reference_unsupported</code></td><td><code>files/…</code> 참조는 해석할 Files API가 없습니다. 인라인이나 Drive 링크를 쓰세요.</td></tr>
-            <tr><td><code>unsupported_interaction_request</code></td><td>본문 형식이나 <code>model</code>이 이 표면의 조건을 벗어났습니다.</td></tr>
-            <tr><td><code>omni_invalid_aspect_ratio</code></td><td><code>aspect_ratio</code>가 <code>16:9</code>·<code>9:16</code>이 아닙니다.</td></tr>
-            <tr><td><code>omni_prompt_length_invalid</code></td><td>프롬프트가 비었거나 8000자를 넘었습니다.</td></tr>
-            <tr><td><code>official_interactions_only</code></td><td>이 모델은 <code>generateContent</code>·<code>chat/completions</code>로 부를 수 없습니다. Interactions 표면을 쓰세요.</td></tr>
-            <tr><td><code>interaction_requires_authenticated_caller_scope</code></td><td>호출자 식별이 없습니다. 인증된 API 키로 호출하세요.</td></tr>
-            <tr><td><code>continuation_identity_mismatch</code></td><td><code>previous_interaction_id</code>가 없거나 다른 호출자의 것입니다.</td></tr>
-          </tbody>
-        </table></div>
-      </div>
-    </details>
-
-    <details class="api-endpoint">
-      <summary><span class="api-method api-method-error">4xx/5xx</span><code>오류 코드 · 생성 이후</code><span class="api-tag api-tag-cost">쿼타가 이미 소모됨</span></summary>
-      <div class="api-body">
-        <div class="api-scroll"><table class="api-table">
-          <thead><tr><th>코드</th><th>의미</th></tr></thead>
-          <tbody>
-            <tr><td><code>gemini_web_omni:no_video_generated</code></td><td>업스트림이 답은 했지만 영상을 만들지 않았습니다. 쿨다운이 흔한 원인이니 간격을 두고 다시 호출하세요.</td></tr>
-            <tr><td><code>missing_upstream_operation</code></td><td>제출 스트림이 작업 이름을 남기지 못했습니다. 계정은 자동으로 회수되며, 재시도는 새 생성입니다.</td></tr>
-            <tr><td><code>web_response_failed</code></td><td>제출 응답이 도중에 끊겼습니다. 이름이 남았다면 같은 id로 GET 조회하세요.</td></tr>
-            <tr><td><code>invalid_video_download</code></td><td>영상은 준비됐는데 내려받기가 실패했습니다. 같은 id로 다시 조회하세요.</td></tr>
-            <tr><td><code>gemini_web_omni:auth_error</code></td><td>계정 로그인이 만료됐습니다. 계정 화면에서 다시 연결하세요. 이 경우 제출 전에 멈추므로 쿼타는 쓰지 않습니다.</td></tr>
-          </tbody>
-        </table></div>
-        <p class="hint">실패해도 HTTP 상태는 <code>200</code>으로 도착할 수 있습니다. 성공·실패는 상태코드가 아니라 본문의 <code>status</code>와 <code>error</code>로 판단하세요.</p>
-      </div>
-    </details>
-
-    <details class="api-endpoint">
-      <summary><span class="api-method api-method-error">409</span><code>오류 코드 · 계정 상태</code><span class="api-tag">잠시 뒤 재시도</span></summary>
-      <div class="api-body">
-        <div class="api-scroll"><table class="api-table">
-          <thead><tr><th>코드</th><th>의미</th></tr></thead>
-          <tbody>
-            <tr><td><code>session_busy</code></td><td>그 계정이 다른 생성을 진행 중입니다. 잠시 뒤 다시 호출하세요.</td></tr>
-            <tr><td><code>session_requires_reconciliation</code></td><td>계정이 정리를 기다리는 상태입니다. 계정 화면에서 상태를 확인하세요.</td></tr>
-            <tr><td><code>continuation_account_unavailable</code></td><td>조회하려는 영수증을 가진 계정이 후보에 없습니다. 그 계정이 사용 가능해야 합니다.</td></tr>
-          </tbody>
-        </table></div>
-      </div>
-    </details>
-
   </section>
     </main>
   </div>

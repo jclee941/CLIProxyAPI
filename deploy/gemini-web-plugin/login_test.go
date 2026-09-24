@@ -278,7 +278,7 @@ func TestLoginRoutesAreManagementOnly_whenRegistered(t *testing.T) {
 		}
 	}
 	for _, resource := range registration.Resources {
-		if resource.Path != "/index" && resource.Path != "/extension" {
+		if resource.Path != "/index" && resource.Path != "/extension" && resource.Path != "/openapi.json" {
 			t.Fatalf("login introduced an unexpected resource %q", resource.Path)
 		}
 	}

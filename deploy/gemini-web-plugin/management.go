@@ -33,6 +33,9 @@ func (service *service) management(ctx context.Context, raw []byte) (httpRespons
 		}
 		return httpResponse{StatusCode: 200, Headers: http.Header{"Content-Type": {"text/html; charset=utf-8"}, "Cache-Control": {"no-store"}, "X-Content-Type-Options": {"nosniff"}, "Referrer-Policy": {"no-referrer"}}, Body: body}, nil
 	}
+	if request.Method == "GET" && request.Path == openapiPath {
+		return openapiResource(), nil
+	}
 	if request.Method == "GET" && request.Path == extensionPath {
 		// The companion is what a browser needs before it can hand a session over,
 		// so it is served from the same place the operator already authenticates.

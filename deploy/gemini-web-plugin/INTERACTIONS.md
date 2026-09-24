@@ -1,5 +1,10 @@
 # Official Omni Interactions: isolated POST implementation
 
+Historical implementation snapshot (2026-09-15). For the current consumer
+contract, use [openapi.json](openapi.json), published at
+https://cliproxy.jclee.me/openapi.json. The limitations below describe the
+earlier implementation, not the current API.
+
 Status: locally verified POST subset, **not a complete resumable public API**.
 No deployment or host/core change is included. Existing stateless Gemini and
 OpenAI-translated requests retain their existing behavior.
@@ -93,15 +98,16 @@ No `extra_body`, custom SDK, management generation route, Veo operation, or
 | --- | --- |
 | POST `/v1beta/interactions` | Supported subset below |
 | `input` string or list of `{type:"text", text:...}` | Supported; one new prompt, up to the existing 8000-character limit |
-| `previous_interaction_id` | Completed stored interaction only; its video is attached to a new turn and new ID on any eligible account |
+| `previous_interaction_id` | Completed stored interaction only; the original account and conversation are required. If unavailable, the request fails without switching accounts or uploading the prior clip elsewhere |
+| `generation_config.video_config.task` | `extend` only; continues the named interaction's video. Measured on one account and one conversation: 10.005s -> 20.010s -> 30.016s -> 40.000s, ten seconds per turn |
 | `store:true` or omitted | Keep the bounded local interaction receipt history |
 | `store:false` | Remove the completed receipt; later stateful editing with its ID fails before submission |
 | `response_format.type` | `video` or omitted |
-| `response_format.aspect_ratio` | `16:9`, `9:16`, or omitted; maps to existing web framing, not a live portrait-success claim |
+| `response_format.aspect_ratio` | `16:9` or `9:16`; omitted is framed `9:16`. Both measured 2026-09-21: portrait 720x1280 in 72.4s, landscape 1280x720 |
 | `response_format.delivery` | `inline` or omitted |
 | `stream:false`, `background:false` | Supported; true is rejected before generation |
-| Resolution, duration, video task controls, media input, unknown fields | Explicit 400; not silently dropped or mapped to unsupported web options |
-| GET `/v1beta/interactions/{id}` | Host route absent: 404; public recovery unavailable |
+| Resolution, duration, other video tasks, unknown fields | Explicit 400; not silently dropped or mapped to unsupported web options |
+| GET `/v1beta/interactions/{id}` | Caller-bound retrieval; measured HTTP 200 with completed status for the 40-second interaction |
 | Files inspect/download/upload | Host routes absent; URI delivery is rejected |
 | OpenAI Chat/Responses for this official model | Rejected; no compatibility claim |
 | Existing Flash/Omni stateless routes | Unchanged |
@@ -114,11 +120,13 @@ ID, credential reference, identity digest, auth-user index, and revision through
 authenticated storage. Conversation, reply, candidate, context metadata, and
 submission state are stored there, not accepted as client identifiers.
 
-Before selection, an official create does not derive an account-pinning header
-from `previous_interaction_id`: the scheduler may choose any eligible CPA auth.
-The plugin locates the caller-bound stored result after selection and uploads its
-video as a reference. Retrieval requests still derive the internal scheduling
-header so GET/recovery stays on the receipt's owning account.
+Only a create without `previous_interaction_id` selects among eligible accounts
+using round-robin. Accounts with a known exhausted five-hour or weekly quota are
+excluded until their reset or a fresh usage observation restores availability.
+Continuations and retrieval stay on the original account and conversation.
+An unavailable continuation owner returns an error; there is no cross-account
+attachment fallback. Retrieval of an existing result remains allowed when that
+account's generation quota is exhausted.
 The executor independently rejects wrong selected accounts, unknown/tampered
 IDs, stale projections, disabled accounts, and identity changes.
 

@@ -13,6 +13,7 @@ const (
 	sidecarBase   = "http://gemini-web2api:8081"
 	resourcePath  = "/v0/resource/plugins/gemini-web/index"
 	extensionPath = "/v0/resource/plugins/gemini-web/extension"
+	openapiPath   = "/v0/resource/plugins/gemini-web/openapi.json"
 	accountsPath  = "/v0/management/plugins/gemini-web/accounts"
 	refreshPath   = "/v0/management/plugins/gemini-web/refresh"
 	resolvePath   = "/v0/management/plugins/gemini-web/resolve"
@@ -85,19 +86,20 @@ type modelInfo struct {
 }
 
 type executorRequest struct {
-	freshContinuation bool
-	AuthID            string
-	AuthProvider      string
-	Model             string
-	Format            string
-	SourceFormat      string
-	Stream            bool
-	Alt               string
-	Payload           []byte
-	OriginalRequest   []byte
-	StorageJSON       []byte
-	AuthMetadata      authMetadata
-	Metadata          struct {
+	interactionDelivery string
+	freshContinuation   bool
+	AuthID              string
+	AuthProvider        string
+	Model               string
+	Format              string
+	SourceFormat        string
+	Stream              bool
+	Alt                 string
+	Payload             []byte
+	OriginalRequest     []byte
+	StorageJSON         []byte
+	AuthMetadata        authMetadata
+	Metadata            struct {
 		PinnedAuthID string `json:"pinned_auth_id"`
 		CallerScope  string `json:"caller_scope"`
 	}

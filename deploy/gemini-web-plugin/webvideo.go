@@ -44,6 +44,15 @@ func webVideoFields(prompt string, mode int, conversationID string, framing omni
 	fields := webGenerationFields(prompt, mode, 0, conversationID, attachments)
 	fields[0] = []any{prompt, 0, nil, webAttachmentSlot(attachments), nil, nil, 0, nil, nil,
 		[]any{nil, nil, nil, nil, nil, nil, []any{[]any{nil, nil, nil, framing.orientation}}}}
+	// The web serializer does not translate selected video chips into generation
+	// options when an uploaded video supplies the source framing. The original
+	// selected-chip list still travels separately in slot 55.
+	for _, attachment := range attachments {
+		if strings.HasPrefix(attachment.MIMEType, "video/") {
+			fields[0] = []any{prompt, 0, nil, webAttachmentSlot(attachments), nil, nil, 0}
+			break
+		}
+	}
 	fields[41] = []any{1}
 	fields[45] = nil
 	fields[49] = 11
@@ -56,6 +65,19 @@ func webVideoFields(prompt string, mode int, conversationID string, framing omni
 	fields[96] = 0
 	fields[98] = 1
 	return fields
+}
+
+// webRoleDeclared reports whether a prompt already names a media role. The tag
+// vocabulary is the product's own prompt syntax, so every spelling of it is left
+// alone - including the frame tags, which the reference declaration used to
+// overwrite because it only looked for the two tags it injects itself.
+func webRoleDeclared(prompt string) bool {
+	for _, written := range []string{"<VIDEO_", "<IMAGE_", "<PREVIOUS_VIDEO>", "<FIRST_FRAME>", "<LAST_FRAME>", "[# Sources", "[# References"} {
+		if strings.Contains(prompt, written) {
+			return true
+		}
+	}
+	return false
 }
 
 // webReferenceDeclaration names an attached video, which the video tool requires
@@ -73,14 +95,9 @@ func webVideoFields(prompt string, mode int, conversationID string, framing omni
 // Reference-declared turns produced a video every time. This follows what the
 // product does rather than what the document says it should.
 func webReferenceDeclaration(prompt string, attachments []webAttachment) string {
-	// A caller who wrote their own role means it. The tag vocabulary is the
-	// product's own prompt syntax, so every spelling of it is left alone -
-	// including the frame tags, which this used to overwrite because it only
-	// looked for the two tags it injects itself.
-	for _, written := range []string{"<VIDEO_", "<IMAGE_", "<FIRST_FRAME>", "<LAST_FRAME>", "[# Sources", "[# References"} {
-		if strings.Contains(prompt, written) {
-			return prompt
-		}
+	// A caller who wrote their own role means it.
+	if webRoleDeclared(prompt) {
+		return prompt
 	}
 	// An image needs no declaration: the tool takes one as a starting frame
 	// without being asked, measured as a reference image driving the first frame

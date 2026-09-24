@@ -77,10 +77,17 @@ func (service *service) retrieveInteraction(ctx context.Context, request executo
 	service.interactionsMu.Lock()
 	operation := service.interactions[body.ID]
 	service.interactionsMu.Unlock()
-	if turn.State == "no_operation" || turn.State == "complete" && turn.ResultStored {
+	failed := turn.State == "failed" || turn.Background && turn.State == "no_video"
+	if failed || turn.State == "no_operation" || turn.State == "complete" && turn.ResultStored {
 		// An ended receipt is authoritative even if its old chat handles remain.
 		// Like a stored completion, it must never enter upstream recovery again.
 		view := continuationView{Token: body.ID, State: "outcome_unknown", Error: "missing_upstream_operation"}
+		if turn.State == "no_video" {
+			view.Error = "no_video_generated"
+		}
+		if turn.State == "failed" {
+			view.Error, view.ErrorMessage = turn.Error, turn.ErrorMessage
+		}
 		var payload []byte
 		if turn.State == "complete" {
 			view.State, view.Error = "complete", ""
@@ -107,16 +114,22 @@ func (service *service) retrieveInteraction(ctx context.Context, request executo
 		if err != nil {
 			return nil, err
 		}
-		if cursor > 1 && !turn.ResultStored && !(turn.State == "no_operation" && cursor == 2) {
+		if cursor > 1 && !turn.ResultStored && !((turn.State == "no_operation" || failed) && cursor == 2) {
 			return nil, failure(400, "invalid_interaction_event_id")
 		}
 		if operation == nil {
-			operation, err = service.ownInteraction(ctx, native, body.ID, nil)
+			operation, err = service.ownInteraction(ctx, native, body.ID, nil, turn.Background)
 			if err != nil {
 				return nil, err
 			}
 		}
 		return service.subscribeInteraction(request.StreamID, body.ID, cursor, operation)
+	}
+	if operation == nil && turn.Background {
+		operation, err = service.ownInteraction(ctx, native, body.ID, nil, true)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if operation != nil {
 		return renderInteraction(record.ID, continuationResult{}, continuationView{Token: body.ID, State: "pending"})

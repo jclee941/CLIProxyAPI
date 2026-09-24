@@ -15,17 +15,20 @@ type omniFraming struct {
 	orientation int
 }
 
-// webFramingLandscape is what the web app sends when the control is left alone,
-// and what the video payload has always carried.
+// webFramingLandscape is what the web app sends when its own control is left
+// alone, and what this payload carried before the surface chose a default.
 var webFramingLandscape = omniFraming{chip: 16, orientation: 1}
 
-// omniFramings maps the accepted ratios onto that pair. The wire holds an
+// webFramingPortrait is the pair the app sends for the portrait chip.
+var webFramingPortrait = omniFraming{chip: 17, orientation: 2}
+
+// omniFramings maps the accepted ratios onto those pairs. The wire holds an
 // orientation rather than a free ratio, so a ratio that is neither landscape nor
 // portrait is rejected rather than silently widened, and a caller never believes
 // a framing was applied when it was not.
 var omniFramings = map[string]omniFraming{
 	"16:9": webFramingLandscape,
-	"9:16": {chip: 17, orientation: 2},
+	"9:16": webFramingPortrait,
 }
 
 type omniOptions struct {
@@ -33,11 +36,13 @@ type omniOptions struct {
 	NegativePrompt string
 }
 
+// framing answers what the turn is shot as. A caller who named a ratio gets it;
+// anything else is framed vertically, which is the default this surface serves.
 func (options omniOptions) framing() omniFraming {
 	if framing, ok := omniFramings[options.AspectRatio]; ok {
 		return framing
 	}
-	return webFramingLandscape
+	return webFramingPortrait
 }
 
 func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {

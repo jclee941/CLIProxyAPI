@@ -34,7 +34,7 @@ func continuationReceipt(t *testing.T, result envelope) continuationView {
 	}
 	return body.View
 }
-func TestInteractionCreatePrefersTheOwnerWithoutRequiringIt(t *testing.T) {
+func TestInteractionContinuationRequiresTheOwner(t *testing.T) {
 	// Given a receipt prepared on one account.
 	service, local := continuationFixture(t)
 	token := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`)).Token
@@ -67,18 +67,10 @@ func TestInteractionCreatePrefersTheOwnerWithoutRequiringIt(t *testing.T) {
 	if !choice.Handled || choice.AuthID != local.Target.ID {
 		t.Fatalf("choice: %+v", choice)
 	}
-	// And when it cannot, the choice is handed back rather than refused: the
-	// video can travel to another account, so a busy owner must not read as no
-	// account being available at all.
+	// An unavailable owner must fail, even when another account is eligible.
 	delegated := invoke(t, service, "scheduler.pick", map[string]any{"Provider": provider, "Model": flashModel, "Options": map[string]any{"Headers": response.Headers, "Metadata": map[string]string{"caller_scope": testCallerScope}}, "Candidates": []any{map[string]string{"ID": "other", "Provider": provider}}})
-	if !delegated.OK {
-		t.Fatalf("a busy owner refused the create instead of delegating: %+v", delegated.Error)
-	}
-	if err := json.Unmarshal(delegated.Result, &choice); err != nil {
-		t.Fatal(err)
-	}
-	if choice.Handled {
-		t.Fatalf("the pick claimed an account it was not offered: %+v", choice)
+	if delegated.OK || delegated.Error == nil || delegated.Error.HTTPStatus != 409 || !strings.Contains(delegated.Error.Code, "continuation_account_unavailable") {
+		t.Fatalf("an unavailable owner did not fail closed: %+v", delegated)
 	}
 }
 func TestContinuationRejectsUntrustedIdentifiersBeforeNetwork(t *testing.T) {

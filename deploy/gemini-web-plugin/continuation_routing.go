@@ -57,10 +57,7 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 		return interactionRejection(err)
 	}
 	response := requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader}}
-	// A create names the account that holds the previous interaction so the
-	// scheduler can prefer it, which keeps the chain inside one conversation.
-	// It is a preference rather than a pin: the pick below delegates when that
-	// account cannot serve, and the executor then carries the video instead.
+	// Continuations must stay on the account that owns the conversation.
 	if body.Previous != "" {
 		response.Headers = http.Header{continuationHeader: {body.Previous}}
 	}
@@ -73,7 +70,7 @@ func interactionRejection(err error) requestInterceptResponse {
 	if errors.As(err, &public) {
 		status = public.HTTPStatus
 	}
-	body, marshalErr := json.Marshal(map[string]any{"error": map[string]any{"code": status, "message": safeCredentialCode(err)}})
+	body, marshalErr := json.Marshal(map[string]any{"error": map[string]string{"code": safeCredentialCode(err), "message": safeCredentialMessage(err)}})
 	if marshalErr != nil {
 		return omniRejection(marshalErr)
 	}
@@ -105,10 +102,14 @@ func (service *service) pickContinuation(raw []byte) (continuationPick, error) {
 	}
 	token := request.Options.Headers.Get(continuationHeader)
 	if token == "" {
-		return service.pickServableAccount(request.Model, request.Candidates), nil
+		pick := service.pickServableAccount(request.Model, request.Candidates)
+		if !pick.Handled && (request.Model == interactionOmniModel || request.Model == omniModel) {
+			return continuationPick{}, failure(409, "account_unavailable")
+		}
+		return pick, nil
 	}
 	if !service.settings().NativeContinuation {
-		return continuationPick{}, nil
+		return continuationPick{}, failure(400, "native_continuation_disabled")
 	}
 	if !accountDigestPattern.MatchString(request.Options.Metadata.CallerScope) {
 		return continuationPick{}, failure(400, "interaction_requires_authenticated_caller_scope")
@@ -135,21 +136,13 @@ func (service *service) pickContinuation(raw []byte) (continuationPick, error) {
 		}
 		for _, candidate := range request.Candidates {
 			if candidate.ID == local.Target.ID && candidate.Provider == provider {
+				if request.Options.Headers.Get(interactionRetrieveHeader) != "true" && !service.quotaAvailable(candidate.ID) {
+					return continuationPick{}, failure(409, "continuation_account_unavailable")
+				}
 				return continuationPick{AuthID: candidate.ID, Handled: true}, nil
 			}
 		}
-		// Never return an invalid pick: the host treats an AuthID outside the
-		// candidates as a request to fall back to its built-in scheduler.
-		//
-		// A retrieval has to land on the owner, because the result lives in that
-		// account's store and nowhere else, so it fails closed. A create only
-		// prefers the owner: the previous video can travel to another account as
-		// an attachment, so an owner that is busy delegates the choice rather
-		// than answering that no account is available while five are idle.
-		if request.Options.Headers.Get(interactionRetrieveHeader) == "true" {
-			return continuationPick{}, failure(409, "continuation_account_unavailable")
-		}
-		return continuationPick{}, nil
+		return continuationPick{}, failure(409, "continuation_account_unavailable")
 	}
 	if request.Options.Headers.Get(interactionRetrieveHeader) == "true" {
 		return continuationPick{}, failure(404, "interaction_not_found")

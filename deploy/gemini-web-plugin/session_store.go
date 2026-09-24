@@ -146,7 +146,7 @@ func openSessionStore(path, encodedKey string) (_ *sessionStore, err error) {
 		if file.Name() == "owner.lock" {
 			continue
 		}
-		if interactionResultFile.MatchString(file.Name()) {
+		if interactionResultFile.MatchString(file.Name()) || filesStoreFile.MatchString(file.Name()) {
 			result, err := store.open(file.Name(), syscall.O_RDONLY)
 			if err != nil {
 				return nil, err
@@ -382,7 +382,7 @@ func (store *sessionStore) records() ([]localSession, error) {
 	}
 	result := make([]localSession, 0)
 	for _, file := range files {
-		if file.Name() == "owner.lock" || interactionResultFile.MatchString(file.Name()) {
+		if file.Name() == "owner.lock" || interactionResultFile.MatchString(file.Name()) || filesStoreFile.MatchString(file.Name()) {
 			continue
 		}
 		record, err := store.readLocked("session://gemini-web/" + strings.TrimSuffix(file.Name(), ".json"))

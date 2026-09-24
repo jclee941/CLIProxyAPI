@@ -1,5 +1,10 @@
 # Gap analysis against the official Omni documentation
 
+Historical gap analysis (2026-09-16). The current supported API and its
+prerequisites are defined in [openapi.json](openapi.json), published at
+https://cliproxy.jclee.me/openapi.json. Keep this document as the earlier
+investigation record.
+
 Source: the published Gemini Omni guide (local copy taken 2026-09-16, 69KB).
 Compared against this plugin as deployed, and against OMNI-SDK-COVERAGE.md,
 which already records what the web session can and cannot express.
@@ -32,16 +37,16 @@ one.
 | Documented feature | On this surface | Evidence |
 | --- | --- | --- |
 | Text to video | live | measured repeatedly, 60-99s, 1.8-6.5MB |
-| Aspect ratio | live for `16:9` | `9:16` measured 2026-09-15 to produce no video upstream |
+| Aspect ratio | live for both | `9:16` returned 720x1280 in 72.4s on 2026-09-21, where 2026-09-15 saw no video; an unnamed ratio is now framed `9:16` |
 | Output resolution `360p/720p/1080p` | refused | no slot in the web request; the product returned 1280x720 unasked |
 | Image to video | live | an image attachment is treated as the starting frame without being asked |
 | First and last frame interpolation | reachable, undocumented | `<FIRST_FRAME>`/`<LAST_FRAME>` in the prompt; nothing in the plugin blocks it. NOT yet measured here |
 | Subject reference | reachable, undocumented | `<IMAGE_REF_N>` in the prompt; images are uploaded in the order sent, which the tags index from 0. NOT yet measured here |
-| Tasks parameter (`generation_config.video_config.task`) | refused | the interactions surface takes no `generation_config`; whether the web wire has a task slot is untested |
-| Stateful editing across turns | live | `previous_interaction_id`, and the turn runs on whatever account is free |
+| Tasks parameter (`generation_config.video_config.task`) | live for `extend` | the wire has no task slot, so `extend` is carried as the product's own `[# Sources <PREVIOUS_VIDEO>@Video1]` declaration; other tasks stay refused |
+| Stateful editing across turns | live | `previous_interaction_id` stays on the original account and conversation; an unavailable owner fails closed |
 | Editing an uploaded video | tried, failed | `[# Sources <VIDEO_0>@Video1]` measured to spend the full budget and answer no video |
-| Video extension | live | base 10.01s then 20.01s on a different account, measured 2026-09-17 |
-| Extending with reference media | partially | the prior video is carried as `<VIDEO_REF_0>`, which extended correctly in the measurement above |
+| Video extension | live | declared in its own conversation: 10.005s -> 20.010s -> 30.016s -> 40.000s, four for four, measured 2026-09-21 |
+| Cross-account attachment continuation | removed | prior clips are no longer uploaded to another account as a fallback |
 | URI delivery (`delivery:"uri"`) | refused | the download URL opens only with the session cookie, and there is no route here to serve it from |
 | Retrieval by id | live | 200 completed with the stored mp4, replayed after a restart |
 | Background execution | refused | the web product has no detached job handle |
@@ -52,14 +57,16 @@ one.
 - **Extension duration.** The guide caps an *uploaded* input video at 10 seconds
   and explicitly exempts multi-turn: "unless using multi-turn
   (`previous_interaction_id`)". It names no ceiling for the multi-turn case, so
-  the real limit is empirical. Measured here: 10.01s then 20.01s.
+  the real limit is empirical. Measured here with the declaration written into
+  the prompt: 10.005s -> 20.010s -> 30.016s -> 40.000s, ten seconds a turn, four
+  turns out of four. Testing ended at 40s; no longer extension was attempted,
+  so this does not establish a web-session ceiling or guaranteed success.
 - **Payload size.** The guide recommends `delivery="uri"` above 4MB to avoid
   payload limits. This surface returns inline base64 only and has produced an
   8.5MB video, well past that line. The recommendation cannot be followed here.
-- **Video references.** The guide limits references to 3 clips of up to 3s each.
-  Chaining here attaches one full prior clip, which is longer than that and
-  worked; the documented limit describes reference behaviour rather than
-  extension.
+- **Video references.** Historical cross-account attachment experiments did
+  not establish reliable continuation. That fallback has been removed; normal
+  continuation uses the original account and conversation.
 
 ## What is worth doing, in order
 

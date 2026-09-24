@@ -272,8 +272,8 @@ func omniRequest(raw []byte) (string, omniOptions, error) {
 			texts = append(texts, *part.Text)
 		case file != nil:
 			_, drive := driveFileID(file.uri())
-			_, chained := parseChainedReference(file.uri())
-			if !drive && !chained {
+			_, stored := filesReferenceID(file.uri())
+			if !drive && !stored {
 				return "", omniOptions{}, failure(400, "attachment_reference_unsupported")
 			}
 		case inline != nil:

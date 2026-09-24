@@ -3,20 +3,11 @@ package main
 import (
 	"context"
 	"sync"
-	"time"
-)
-
-const (
-	quotaFreshness  = 10 * time.Minute
-	quotaExhausted  = 0.98
-	quotaDivergence = 0.20
 )
 
 type quotaSnapshot struct {
-	headroom   float64
-	exhausted  bool
-	resetAt    int64
-	observedAt int64
+	exhausted bool
+	resetAt   int64
 }
 
 type quotaCache struct {
@@ -31,21 +22,25 @@ func (service *service) observeQuota(id string, usage *usageView) {
 	if usage == nil {
 		return
 	}
-	snapshot := quotaSnapshot{headroom: 1, observedAt: service.now().Unix()}
+	snapshot := quotaSnapshot{}
+	unknownReset := false
 	for _, metric := range usage.Metrics {
-		if metric.WindowKind != "5h" || metric.UsageFraction == nil {
+		if metric.WindowKind != "5h" && metric.WindowKind != "weekly" {
 			continue
 		}
-		headroom := 1 - *metric.UsageFraction
-		if headroom < snapshot.headroom {
-			snapshot.headroom = headroom
-		}
-		if *metric.UsageFraction >= quotaExhausted {
+		if metric.UsageFraction != nil && *metric.UsageFraction >= 1 ||
+			metric.UsagePercent != nil && *metric.UsagePercent >= 100 ||
+			metric.RemainingUnits != nil && *metric.RemainingUnits <= 0 {
 			snapshot.exhausted = true
-			if metric.ResetUnixSeconds != nil {
+			if metric.ResetUnixSeconds == nil || *metric.ResetUnixSeconds <= 0 {
+				unknownReset = true
+			} else if int64(*metric.ResetUnixSeconds) > snapshot.resetAt {
 				snapshot.resetAt = int64(*metric.ResetUnixSeconds)
 			}
 		}
+	}
+	if unknownReset {
+		snapshot.resetAt = 0
 	}
 	service.quota.mu.Lock()
 	defer service.quota.mu.Unlock()
@@ -55,20 +50,13 @@ func (service *service) observeQuota(id string, usage *usageView) {
 	service.quota.entries[id] = snapshot
 }
 
-// quotaHeadroom reports the share of the five hour window an account still has.
-// An unmeasured account reads as full so a missing observation never demotes it
-// below one that is genuinely exhausted.
-func (service *service) quotaHeadroom(id string) (float64, bool) {
+// Exhaustion remains authoritative until reset or a new observation. A cache
+// age limit must not put a still-exhausted account back into rotation.
+func (service *service) quotaAvailable(id string) bool {
 	service.quota.mu.RLock()
 	snapshot, found := service.quota.entries[id]
 	service.quota.mu.RUnlock()
-	if !found || service.now().Unix()-snapshot.observedAt > int64(quotaFreshness/time.Second) {
-		return 1, true
-	}
-	if snapshot.exhausted && (snapshot.resetAt == 0 || service.now().Unix() < snapshot.resetAt) {
-		return 0, false
-	}
-	return snapshot.headroom, true
+	return !found || !snapshot.exhausted || snapshot.resetAt > 0 && service.now().Unix() >= snapshot.resetAt
 }
 
 func (service *service) refreshQuota(ctx context.Context, record storageRecord, token sessionToken) {

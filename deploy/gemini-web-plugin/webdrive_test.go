@@ -214,7 +214,7 @@ func TestMediaSourcesLeaveInlineAttachmentsAlone(t *testing.T) {
 	sources, err := service.mediaSources(context.Background(), []webMedia{
 		{MIMEType: "image/jpeg", Data: "AAAA"},
 		{Reference: "drive:1A2B3C4D5E6F7G8H"},
-	})
+	}, "")
 
 	if err != nil {
 		t.Fatal(err)

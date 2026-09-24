@@ -16,11 +16,11 @@ production core's supported schema 6; do not weaken version checks to load a mod
 Configure `session_dir` (a dedicated absolute directory with mode `0700`),
 `manager_origin` (the exact HTTPS origin, without a path), and
 `browser_extension_id` (the registered 32-character extension ID). Inject
-`GEMINI_WEB_SESSION_KEY` into the host process at bootstrap through the existing
-1Password-managed launch path. Its value must be canonical base64 encoding of
+`GEMINI_WEB_SESSION_KEY` into the host process at bootstrap from the protected
+local `/etc/cliproxy/gemini-web-local/session.key` file. Its value must be canonical base64 encoding of
 32 random bytes. The plugin never generates this key, accepts it in configuration,
-or returns it. Keep the key and its recovery procedure in 1Password; this feature
-eliminates per-operation Vault access for local sessions, not bootstrap key management.
+or returns it. Preserve the existing key and its protected backup: changing it
+would make existing encrypted sessions unreadable. No external secret CLI is required.
 HTTP origins are accepted only for IP-loopback fixtures.
 
 ## Identity And Persistence
@@ -50,8 +50,8 @@ unobserved global host registry or PostgreSQL store has durably converged. The
 portal separately checks the authenticated per-account host model registry.
 
 Local sessions use direct HTTP execution and scheduled HTTP maintenance without
-CDP recovery or Vault reads/writes. Legacy `op://` accounts retain their existing
-behavior and configured bindings; no bulk migration or automatic enablement occurs.
+CDP recovery or Vault reads/writes. Legacy external-secret references are rejected;
+use the authenticated login handoff rather than fabricating replacement records.
 Drain active calls before changing the store/key/origin/extension configuration
 and restarting. Browser installation, human Google login/2FA, bootstrap injection,
 and target-host persistence/model-registration smoke tests remain deployment gates.

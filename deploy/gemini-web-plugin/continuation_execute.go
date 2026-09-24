@@ -56,6 +56,15 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 	// operator, and empty on every path that does not submit.
 	var shapes []string
 	var lines int
+	if turn.State == "failed" || turn.Background && turn.State == "no_video" {
+		// Recheck under the account lease: GET may have read an older snapshot
+		// just before the background owner persisted its terminal failure.
+		view.State, view.Error, view.ErrorMessage = "outcome_unknown", turn.Error, turn.ErrorMessage
+		if turn.State == "no_video" {
+			view.Error = "no_video_generated"
+		}
+		return continuationResponse(turn.Model, view, nil)
+	}
 	if execution.control.Action == "recover" && turn.State == "prepared" {
 		return continuationResponse(turn.Model, view, nil)
 	}
@@ -149,7 +158,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		if err != nil {
 			return nil, err
 		}
-		sources, err := service.mediaSources(ctx, media)
+		sources, err := service.mediaSources(ctx, media, execution.request.Metadata.CallerScope)
 		if err != nil {
 			return nil, err
 		}

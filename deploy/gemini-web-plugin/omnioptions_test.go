@@ -38,13 +38,13 @@ func TestOmniCarriesTheFramingThroughTheRebuiltRequest(t *testing.T) {
 	}
 }
 
-func TestOmniKeepsTheAppDefaultFramingWhenNoneIsAsked(t *testing.T) {
+func TestOmniFramesVerticallyWhenNoneIsAsked(t *testing.T) {
 	_, options, err := omniRequest([]byte(`{"contents":[{"role":"user","parts":[{"text":"a balloon"}]}]}`))
 	if err != nil {
 		t.Fatalf("plain request rejected: %v", err)
 	}
-	if options.framing() != webFramingLandscape {
-		t.Fatalf("framing = %+v, want the app default %+v", options.framing(), webFramingLandscape)
+	if options.framing() != webFramingPortrait {
+		t.Fatalf("framing = %+v, want the vertical default %+v", options.framing(), webFramingPortrait)
 	}
 }
 

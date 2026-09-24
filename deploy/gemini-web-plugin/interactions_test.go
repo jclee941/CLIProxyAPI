@@ -106,11 +106,13 @@ func TestInteractionCarriesAVideoReference(t *testing.T) {
 	}
 }
 
-// A uri reference names a Files entry, and there is no Files API on the web
-// path to resolve it, so it has to be refused rather than silently dropped.
-func TestInteractionRefusesAnUploadedReference(t *testing.T) {
-	if _, _, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"a cat"},{"type":"image","uri":"files/abc"}]}`)); err == nil {
-		t.Fatal("a Files reference was accepted without a Files API")
+func TestInteractionPreservesFilesReferenceForCallerScopedResolution(t *testing.T) {
+	_, payload, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"a cat"},{"type":"image","uri":"files/abc"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"fileUri":"files/abc"`) {
+		t.Fatal("Files reference was dropped before caller-scoped resolution")
 	}
 }
 
@@ -195,9 +197,9 @@ func TestInteractionsStoreFalsePreventsFollowup(t *testing.T) {
 func TestInteractionsRejectUnsupportedOptionsBeforeNetwork(t *testing.T) {
 	service, local := continuationFixture(t)
 	for _, body := range []string{
-		`{"model":"gemini-omni-1.1-flash","input":"x","background":true}`,
+		`{"model":"gemini-omni-1.1-flash","input":"x","background":true,"store":false}`,
 		`{"model":"gemini-omni-1.1-flash","input":"x","stream":"true"}`,
-		`{"model":"gemini-omni-1.1-flash","input":"x","response_format":{"delivery":"uri"}}`,
+		`{"model":"gemini-omni-1.1-flash","input":"x","response_format":{"delivery":"unsupported"}}`,
 		`{"model":"gemini-omni-1.1-flash","input":"x","response_format":{"resolution":"4k"}}`,
 		`{"model":"gemini-omni-1.1-flash","input":[{"type":"video","uri":"https://example.invalid/video"}]}`,
 	} {

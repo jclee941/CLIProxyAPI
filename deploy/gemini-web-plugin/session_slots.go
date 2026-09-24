@@ -1,6 +1,9 @@
 package main
 
-import "sync/atomic"
+import (
+	"slices"
+	"sync/atomic"
+)
 
 var slotCursor atomic.Uint64
 
@@ -28,49 +31,32 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 		}
 		servable[local.Target.ID] = local.Target.TokenRef
 	}
-	start := int(slotCursor.Add(1) % uint64(len(candidates)))
-	busy, chosen, best := "", "", -1.0
-	for offset := range candidates {
-		candidate := candidates[(start+offset)%len(candidates)]
+	var idle, busy []string
+	for _, candidate := range candidates {
 		reference, ok := servable[candidate.ID]
 		if !ok || candidate.Provider != provider {
 			continue
 		}
-		// An account whose five hour window is spent answers every turn with a
-		// quota error, so it is skipped until the window resets rather than kept
-		// in the rotation for a request that cannot succeed.
-		headroom, usable := service.quotaHeadroom(candidate.ID)
-		if !usable {
+		if !service.quotaAvailable(candidate.ID) {
 			continue
 		}
 		if !service.slotIsIdle(reference) {
-			if busy == "" {
-				busy = candidate.ID
-			}
+			busy = append(busy, candidate.ID)
 			continue
 		}
-		if chosen == "" {
-			chosen, best = candidate.ID, headroom
-			continue
-		}
-		// Rotation decides between accounts that are comparably fresh; headroom
-		// only overrides it when one is materially more used than another, so a
-		// newly linked account does not absorb the whole fleet's traffic.
-		if headroom-best > quotaDivergence {
-			chosen, best = candidate.ID, headroom
-		}
+		idle = append(idle, candidate.ID)
 	}
-	if chosen != "" {
-		return continuationPick{AuthID: chosen, Handled: true}
+	if len(idle) == 0 {
+		idle = busy
 	}
-	// Every account being mid-generation is a queue, not an outage. Returning
-	// nothing here made the host answer "no credential", which reads as an
-	// account problem and sends the operator to re-link six healthy accounts;
-	// handing the busy one back lets the turn wait for the slot it needs.
-	if busy == "" {
+	if len(idle) == 0 {
 		return continuationPick{}
 	}
-	return continuationPick{AuthID: busy, Handled: true}
+	// Advance over eligible accounts only; rejected candidates must not skew
+	// rotation, and host candidate ordering must not change the cycle.
+	slices.Sort(idle)
+	index := (slotCursor.Add(1) - 1) % uint64(len(idle))
+	return continuationPick{AuthID: idle[index], Handled: true}
 }
 
 // slotIsIdle probes the exclusive guard a generation takes. It is a scheduling

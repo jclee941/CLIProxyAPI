@@ -1,271 +1,87 @@
 # Gemini Web Native CPA Plugin
 
-Independent C ABI 1 plugin for CPA v7.2.157 (`09a29bd`), using RPC schema 6.
-See [Local Application Sessions](LOCAL-SESSIONS.md) for the vendor-companion login,
-encrypted session storage, and explicit deployment gates.
-The credential-cache changes below are locally verified source changes, not a
-claim that the running deployment has been restarted with this build.
-No Go plugin interfaces or core executor changes are required to load the binary.
-The backend has no frontend build step; `web/` and `DESIGN.md` are separately owned.
-The plugin is deployed alongside `structured-output` on the Plus core. The
-Manager resource is at `http://192.168.50.114:18317/management.html#/plugin-pages/gemini-web/0`.
-Runtime model requests remain direct HTTP, never browser-driven generation.
-The separately gated maintenance credential-recovery path can read an existing
-Gemini page through the fixed `.220` CDP endpoint; it cannot log in or manipulate
-browser accounts. The maintenance runner/timer described below is a local
-implementation, not evidence that the new maintenance version is deployed.
+Independent C ABI plugin using encrypted local application sessions. Build and
+load it without an external secret CLI, Vault service, or browser-driven model
+execution.
 
-## Build And Local Verification
+## Build
 
 ```sh
 make check
 ```
 
-Requires Go 1.26, a C compiler, and Linux with libc. The delivered local artifact
-is linux/amd64 with glibc, built with Go 1.26.5; rebuild for a musl/Alpine target.
-This runs race-enabled tests,
-`go vet`, builds `gemini-web.so` plus its generated header, and loads the actual
-shared library with the C harness in `smoke/load.c`. The harness exercises
-register/call/error/free/shutdown without any network or credential callbacks.
-`build-manifest.json` describes this build; it is not a CPA plugin-store manifest.
+Requires Go 1.26+, a C compiler, and a compatible libc. The gate runs race-enabled
+tests, `go vet`, builds `gemini-web.so`, and exercises the shared-library ABI.
+Build `web/index.html` separately using the commands in [web/README.md](web/README.md).
 
-The module uses the standard library plus `gopkg.in/yaml.v3` for CPA's YAML
-configuration payload. No CPA Go module dependency is linked into the artifact.
-
-## Configuration And Runtime Prerequisites
-
-Plugin ID: `gemini-web`. Plugin configuration keys:
+## Configuration
 
 ```yaml
-vault: homelab
 dashboard_path: /CLIProxyAPI/plugins/gemini-web/index.html
-maintenance_sources:
-  gemini-web-synthetic-2.json:
-    token_ref: op://homelab/aaaaaaaaaaaaaaaaaaaaaaaaaa/web-session
-    profile_guid: 00000000-0000-4000-8000-000000000002
-    expected_gaia_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-    auth_user: 0
+session_dir: /var/lib/gemini-web/sessions
+manager_origin: https://cliproxy.jclee.me
+browser_extension_id: REPLACE_WITH_REGISTERED_EXTENSION_ID
+native_generation: true
+native_continuation: true
 ```
 
-The maintenance example is deliberately synthetic, not an account inventory.
-`maintenance_sources` maps the existing CPA AuthID/filename to exactly
-`token_ref`, `profile_guid`, `expected_gaia_sha256`, and optional non-negative
-integer `auth_user`. Each source must have a distinct item reference, GUID, and
-Gaia SHA-256 digest. Bind it to the existing auth record's reference; never
-replace account IDs or commit the actual five bindings, emails, cookies, or
-account hashes. The integrating operator installs validated host configuration;
-the discovery-only `/tmp/opencode/gemini-session-source-inventory-8c630506.json`
-is not runner input or an automatically trusted configuration source.
+The running process needs `GEMINI_WEB_SESSION_KEY`. On the deployed host,
+`deploy/gemini-web-local/start-production.sh` reads the mounted
+`/run/gemini-web-local/session.key`; its protected host source is
+`/etc/cliproxy/gemini-web-local/session.key`. Preserve this existing key and the
+encrypted session directory together. Never generate a replacement key during an
+upgrade. Directory mode is `0700`; key and session file modes are `0600`.
 
-The vault is intentionally restricted to `homelab`; imported references must
-use a 26-character item ID and the unsectioned `web-session` field. Item names,
-other vaults, other fields, and query/section suffixes are rejected.
+`compose.yml` is a no-op overlay retained for existing Compose command lists.
+It adds no secret-provider environment or executable mount. The current native
+production path does not require a sidecar. Legacy sidecar code and deployment
+files remain in the repository; their presence is not a reason to start them.
 
-The CPA container needs `op` on PATH and a runtime-injected
-`OP_SERVICE_ACCOUNT_TOKEN` with access to the relevant vault. This plugin uses
-`op read` itself; it does not assume CPA resolves general `op://` references.
-No plaintext credential goes in argv, logs, plugin configuration, or auth JSON.
+## Login and account management
 
-`compose.yml` reuses the existing host service-account environment and mounts the
-existing static `op` binary read-only. The existing Compose wrapper includes this
-override; preserve its other configuration and ChatGPT2API injection steps.
-`op item create/edit` receives the concealed field through JSON stdin. All stdout
-stays in memory; stderr is discarded, and only fixed safe error codes are exposed.
-Updates preserve other fields and require a Secure Note item, avoiding passkey
-template replacement. A failed CPA save leaves the 1Password item intact for
-recovery; no automatic secret/account deletion is performed.
+Use the authenticated Manager portal and companion extension. Login starts at
+`POST /v0/management/plugins/gemini-web/login/start` and completes through the
+matching login flow. Do not create accounts through the removed token-registration
+route or write session records manually.
 
-The model/sidecar upstream is `http://gemini-web2api:8081`. The plugin's HTTP
-transport for model execution ignores environment and host proxies, follows no
-redirects, sets no network timeouts, and performs no submission retry. The
-separate credential-acquisition workflow is bounded as described below.
-Only an internally constructed
-`x-goog-api-key` header carries the selected session token. Host HTTP callbacks
-are deliberately not used: their stable transport can log requests and apply a
-host proxy. Host auth callbacks forward the incoming `host_callback_id`.
+Host auth records contain opaque `session://gemini-web/<32hex>` references and
+non-secret metadata. Credentials stay in the encrypted local store. Existing
+account IDs and disabled flags must be preserved during upgrades.
 
-## Auth And Models
+See [LOCAL-SESSIONS.md](LOCAL-SESSIONS.md) for the persistence contract and
+[ops/README.md](ops/README.md) for optional maintenance. The maintenance launcher
+uses the existing protected local `core.env` management credential. Installing
+files does not enable the timer.
 
-Registration and token replacement write a reference-only provider record with
-`host.auth.save`. Reference-only means no secret values, not a four-field limit:
+## Video API
 
-- `type`: `gemini-web`.
-- `id`: `gemini-web-<generated-id>.json`.
-- `label`: the account label.
-- `token_ref`: `op://homelab/<item-id>/web-session`.
-- `disabled`: the preserved host-owned flag, omitted when false.
-- `request_scoped_errors`: exactly 300 non-secret rules, ordered by `status`
-  from 300 through 599 inclusive. Every rule has `match: ["gemini_web_omni:"]`
-  and `action: "stop"`.
+The consumer contract is published at
+[`https://cliproxy.jclee.me/openapi.json`](https://cliproxy.jclee.me/openapi.json).
+The same document is embedded at
+`/v0/resource/plugins/gemini-web/openapi.json`; the management page links to the
+canonical URL.
 
-The parser rejects token/cookie fields, validates the reference, and registers
-the provider with the native host auth pool. Account IDs are also the CPA auth
-filenames; selected/pinned IDs must match the record. Host-persisted
-`request_scoped_errors` fields are accepted, but these mandatory provider-owned
-rules are regenerated rather than trusting external rule contents. Auth parsing
-and `auth.refresh` return the same canonical policy in both `StorageJSON` and
-runtime metadata. The plugin preserves disabled state and existing account IDs;
-token replacement updates the existing secret reference. Updates on a disabled
-account return 409 rather than silently enabling it.
+- Create: `POST /v1beta/interactions`.
+- Extend: use a completed `previous_interaction_id` and
+  `generation_config.video_config.task="extend"`.
+- Retrieve: `GET /v1beta/interactions/{id}` with the same API key.
+- Default framing is portrait, `9:16`; explicit `16:9` remains supported.
 
-`model.for_auth` queries `/v1/account-models`; `available:true` is required.
-Static model registration is empty, avoiding uncredentialed fallback accounts.
-The plugin publishes only `gemini-omni-1.1-flash` for the video surface. The legacy
-text capability is not part of the published model list. Token counting is
-explicitly unsupported.
+Check `status="completed"` and video content before consuming or extending a
+result. A lost POST response is not authorization to submit the same job again.
 
-`gemini-omni-1.1-flash` describes the official Interactions video surface, not a
-claimed entitlement.
-It permits only synchronous Gemini-native, single-user-turn text up to 8000
-Unicode characters. Unsupported options, streaming, countTokens, images, and
-original chat/Responses payloads are rejected before secret resolution/upstream.
-MP4 inlineData is returned unchanged, never converted into an image response.
+## Deployment
 
-The registered `request.intercept_before` and `request.intercept_after` hooks
-guard only canonical `gemini-omni-1.1-flash` in either `RequestedModel` or `Model`,
-including the host's parenthesized thinking suffix. They use the original
-`SourceFormat` and existing Omni body validation, returning successful RPC
-results with `Terminate: true`, HTTP 400, and a fixed safe JSON error. RPC errors
-would be ignored by the host. Non-Omni and valid native requests return `{}`,
-preserving other interceptors' body, header, and structured-output changes.
+The host is `192.168.50.114`; the plugin directory is
+`/opt/dashboard/plugins`, mounted at `/CLIProxyAPI/plugins`. The static page is
+`/opt/dashboard/plugins/gemini-web/index.html`.
 
-## Management Contract
+Run the build and ABI gates before replacing the artifact. Inspect actual active
+requests before a restart. Local session storage has a process-lifetime owner
+lock: loading another plugin instance can fail with
+`session_store_already_owned`. Do not delete lock/session files. A coordinated
+container restart releases the old owner.
 
-All paths below are relative to `/v0/management` and rely on CPA management
-authentication. They are not exposed as auth-free resource routes.
-
-- `GET /plugins/gemini-web/accounts`: `{accounts:[{id,label,enabled,status,models:[{id,name}],usage,error?,observed_at}],provider:"gemini-web"}`.
-- `POST /plugins/gemini-web/accounts`: `{label,token,existing_id?}` or `{label,token_ref,existing_id?}`; verifies current account availability before writing. Returns `{id,status}`.
-- `POST /plugins/gemini-web/refresh`: `{id}`; checks that account only and returns its account-view object. It does not renew Google cookies or launch a browser.
-- `POST /plugins/gemini-web/maintain`: `{}` for a due-account cycle, or `{id}` for an explicit diagnostic selection. Returns `{results:[{id,state,error?,next_due_at?}]}` with no tokens. States are `ready`, `busy_skip`, `disabled_skip`, `cooldown`, `source_rejected`, `credential_error`, `fenced`, `host_sync_pending`, and `needs_operator`. Selection does not bypass disabled state, cooldown, or credential fences. This is the authenticated job endpoint, not a new dashboard action.
-
-Lists use `host.auth.list`, provider-filtered `get_runtime`, and `get` for the
-reference-only record. Health and usage are queried afresh; expired accounts
-do not inherit another account's models or measurements. Usage keeps provider
-compute units, nullable values, GoogleWeb source, non-estimated measurements,
-and observation times. The currently inspected sidecar's `reset_at` is projected
-as `reset_unix_seconds`; the latter is also accepted directly. Provider-returned
-`ai_credit`/`unknown` windows are preserved, not mislabeled as weekly/5h.
-
-The sole resource is `GET /v0/resource/plugins/gemini-web/index`, menu
-`Gemini Web`. It reads the configured HTML file verbatim, with no account data,
-headers, tokens, secret references, or server-side rendering. A missing file
-returns 503. Query/body/header input cannot invoke management operations here.
-
-## Stable Host Boundaries To Verify Before Deployment
-
-1. ABI errors support `code`, `message`, `http_status`, and `retryable`, but the
-   host decoder does not preserve a request-scoped flag or use `retryable` to
-   stop account rotation. Canonical auth storage supplies the existing host
-   `request_scoped_errors` metadata rules (`action: stop`) for the
-   `gemini_web_omni:` error prefix. Omni refuses submission if those rules are
-   absent from the selected runtime auth. `host.auth.save` can replace runtime
-   metadata directly from saved JSON without invoking the plugin parser, so the
-   saved record already contains every rule. Parser/watcher and refresh storage
-   round trips retain them without relying on a later host metadata merge. Do
-   not add raw tokens or bypass the missing-policy guard to work around activation.
-2. The before-auth interceptor sees the original HTTP `SourceFormat` before
-   `prepareExecutorCall` rewrites `Format` and `SourceFormat` to the negotiated
-   native format. Non-Gemini routes are rejected even with Gemini-shaped bodies;
-   executor `OriginalRequest` validation remains in place. Neither interceptor
-   nor executor RPC exposes the original downstream `Options.ResponseFormat`.
-   Gemini input with an explicit SDK-only alternate response-format override
-   therefore remains unobservable through this ABI. Enforcing that combination
-   requires host integration outside this plugin; no invented ABI field or core
-   patch is included here.
-3. C ABI calls have no request cancellation callback. Direct HTTP work can
-   outlive a disconnected downstream until the sidecar completes. There are no
-   added network timeouts or automatic resubmissions. Validate this lifecycle
-   boundary with the target CPA/Plus adapter before enabling video publicly.
-4. Stable `host.auth.save/get` are physical auth-file APIs; save also upserts
-   the configured auth manager/store. PostgreSQL deployments need that physical
-   auth cache and the correct manager-store hookup. Native CPA/Plus loader,
-   watcher, and PostgreSQL round trips are the integrating owner's smoke gate.
-
-Tests use injected secret stores, CLI runners, host callbacks, and loopback HTTP
-servers. No Google calls, browser sessions, real 1Password access, production
-changes, commits, or deployment are performed by the build/tests.
-
-## Account Operations
-
-In Manager, open **Gemini Web** to register or replace a web-session token and
-inspect available models and Google-measured quota. The normal Manager admin
-login is required; the page does not ask for a separate management credential.
-An opaque `gemini-web:v1:` token contains a complete Cookie header and its Google
-account index, encoded as base64url JSON. Encoding is not encryption. Keep it in
-1Password and enter it only in the masked form, never chat, logs, or a URL.
-
-The five `.220` profiles have separate reference-only CPA records and separate
-1Password items. Profile 1's observed Google status was `1016`; its record is
-disabled pending a fresh login/session. It is not counted as usable and is not
-included in the request pool. Other profiles must still pass live verification
-after a token update; registration is not a guarantee of perpetual validity.
-
-Manual refresh checks status and usage; it does not renew cookies or open a
-browser. Before submitting an Omni job, the plugin asks the private sidecar to
-renew the selected valid session through Google's HTTP RotateCookies endpoint,
-verifies the result, and stores a changed token in the same 1Password item before
-submission. Renewal or persistence failure stops the request without generating.
-There is no plugin background scheduler or automatic login. The external `.114`
-oneshot timer is the only scheduled maintenance owner; it does not depend on
-CPA host 401 handling or skipped/disabled auth refresh. The dashboard's manual
-Refresh remains read-only. See [maintenance operations](ops/README.md) for local
-validation, installation, two fresh-process smoke invocations, and drain rules.
-
-Maintenance tries valid-session HTTP RotateCookies first. Only an explicit HTTP
-authentication failure permits read-only recovery from an already signed-in
-Gemini page at `http://192.168.50.220:9222`. Permission-denied 403, 429, network,
-and parser failures do not trigger capture. The configured expected Gaia digest,
-the account identity read from the browser page, and the recovered token's HTTP
-account identity must all match. Missing target identity or multiple browser
-contexts fail closed. Tab/context IDs are rediscovered, never pinned; a native
-physical profile GUID is inventory metadata, not current identity attestation.
-No page opening, login, 2FA, cookie clearing, or account switching is allowed.
-
-Credential workers are bounded to 60 seconds and killed/waited on expiry. The
-Go owner fences the reference for 70 seconds on lost response. Authentication
-failure imposes a per-reference 30-minute cooldown, not a relogin loop. Unknown
-write or submission outcomes require `needs_operator`, with no automatic retry.
-`host_sync_pending` retains the new 1Password token and resynchronizes host auth
-on the next cycle; it never rolls credentials back. Routine account-cookie
-updates require no Docker restart. Profile 1 remains disabled and is never
-automatically enabled; deliberate host enablement is a separate operator action.
-
-## Credential Reuse And Vault Availability
-
-The plugin keeps successfully loaded or committed session tokens only in process
-memory, keyed by the complete validated `web-session` reference. A token can be
-reused for at most one hour after its backing read or confirmed write. Cache hits,
-successful model calls, and unchanged-token renewals do not extend that deadline.
-Models and usage are still checked against the sidecar on every request.
-
-Concurrent misses share one backing read, including its failure; credential writes
-are serialized with those reads. Only a successful write publishes a replacement.
-HTTP 401 and unavailable-account responses invalidate the matching token, without
-evicting a newer replacement or enabling a browser-recovery path. A fence or
-`needs_operator` blocks cached reads too. Binding changes and shutdown invalidate
-the affected caches and prevent late loads from republishing credentials.
-Manual registration/reference replacement and pending host reconciliation use
-fresh backing reads. Expected-token comparisons still inspect the live Vault item.
-
-After successful maintenance, a normal `{}` cycle waits 30 minutes before doing
-credential work for that account again. `ready` with `next_due_at` means the prior
-maintenance succeeded and the next run is not due. An explicit `{id}` selection
-bypasses only this normal interval, never cooldowns, disabled state, or fences.
-Omni still performs its required renewal and durable write before submission.
-
-There is no disk cache or stale-on-error fallback. A cold process, expired or
-invalidated token, or changed-token renewal still needs a working Vault. Do not
-restart a running service to populate this cache while Vault access is blocked.
-The external timer still injects its management key with `op run` each cycle.
-This lowers request-path and scheduled credential traffic, but does not guarantee
-staying below a shared account quota: individual CLI commands can consume multiple
-API requests, and writes, manual operations, and other services share that budget.
-
-One active plugin process must own writes to these references. Per-reference
-expected-token comparison is **not CAS**: a real 1Password stale-version test
-showed an old version can overwrite a newer item. Before external 1Password UI
-edits, CPA-core/ref edits, or manual credential replacement, stop the timer and
-drain maintenance, Flash, Omni, and manual credential writes. Stopping only the
-timer does not drain existing work. Keep other plugin writers disabled during
-that interval, and never use a restart to clear uncertainty after a write.
+For management checks, load `/etc/cliproxy/gemini-web-local/core.env` only on the
+host and use `MANAGEMENT_PASSWORD` in memory. Do not print the environment or put
+credentials in command arguments, documents, or logs.

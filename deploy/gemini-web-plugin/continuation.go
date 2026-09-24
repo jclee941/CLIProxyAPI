@@ -31,6 +31,9 @@ type continuationTurn struct {
 	Summary      string   `json:"summary,omitempty"`
 	NextToken    string   `json:"next_token,omitempty"`
 	ResultStored bool     `json:"result_stored,omitempty"`
+	Background   bool     `json:"background,omitempty"`
+	Error        string   `json:"error,omitempty"`
+	ErrorMessage string   `json:"error_message,omitempty"`
 }
 type continuationResult struct {
 	Payload []byte
@@ -38,9 +41,10 @@ type continuationResult struct {
 }
 
 type continuationView struct {
-	Token string `json:"token"`
-	State string `json:"state"`
-	Error string `json:"error,omitempty"`
+	Token        string `json:"token"`
+	State        string `json:"state"`
+	Error        string `json:"error,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 // continuationRequestLimit bounds the submitted body. It used to be sized for a

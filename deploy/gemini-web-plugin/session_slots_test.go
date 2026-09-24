@@ -265,7 +265,7 @@ func TestSchedulerSkipsAnExhaustedAccount_untilItsWindowResets(t *testing.T) {
 	service, local := continuationFixture(t)
 	other := recordFixture(t, "b")
 	seedSession(t, service, other, sessionToken{encodedToken("second")})
-	service.observeQuota(local.Target.ID, quotaUsage(0.99, float64(service.now().Add(time.Hour).Unix())))
+	service.observeQuota(local.Target.ID, quotaUsage(1, float64(service.now().Add(time.Hour).Unix())))
 	service.observeQuota(other.ID, quotaUsage(0.10, 0))
 
 	pick := service.pickServableAccount(flashModel, slotCandidates(local.Target.ID, other.ID))
@@ -293,36 +293,40 @@ func TestSchedulerSpreadsBetweenComparablyFreshAccounts(t *testing.T) {
 	}
 }
 
-func TestSchedulerPrefersTheAccountWithMoreHeadroom(t *testing.T) {
+func TestSchedulerRoundRobinsDespiteDifferentHeadroom(t *testing.T) {
 	service, local := continuationFixture(t)
 	other := recordFixture(t, "b")
 	seedSession(t, service, other, sessionToken{encodedToken("second")})
 	service.observeQuota(local.Target.ID, quotaUsage(0.80, 0))
 	service.observeQuota(other.ID, quotaUsage(0.05, 0))
 
-	for round := 0; round < 3; round++ {
-		if pick := service.pickServableAccount(flashModel, slotCandidates(local.Target.ID, other.ID)); pick.AuthID != other.ID {
-			t.Fatalf("round %d ignored headroom: %+v", round, pick)
-		}
+	chosen := map[string]int{}
+	for range 4 {
+		chosen[service.pickServableAccount(flashModel, slotCandidates(local.Target.ID, other.ID)).AuthID]++
+	}
+	if chosen[local.Target.ID] != 2 || chosen[other.ID] != 2 {
+		t.Fatalf("quota differences skewed round-robin: %+v", chosen)
 	}
 }
 
-func TestSchedulerTreatsAnUnmeasuredAccountAsFull(t *testing.T) {
+func TestSchedulerIncludesUnmeasuredAccountsWithoutFavoringThem(t *testing.T) {
 	service, local := continuationFixture(t)
 	other := recordFixture(t, "b")
 	seedSession(t, service, other, sessionToken{encodedToken("second")})
 	service.observeQuota(other.ID, quotaUsage(0.90, 0))
 
-	pick := service.pickServableAccount(flashModel, slotCandidates(local.Target.ID, other.ID))
-
-	if !pick.Handled || pick.AuthID != local.Target.ID {
-		t.Fatalf("an unmeasured account was demoted below a spent one: %+v", pick)
+	chosen := map[string]int{}
+	for range 4 {
+		chosen[service.pickServableAccount(flashModel, slotCandidates(local.Target.ID, other.ID)).AuthID]++
+	}
+	if chosen[local.Target.ID] != 2 || chosen[other.ID] != 2 {
+		t.Fatalf("unmeasured quota skewed round-robin: %+v", chosen)
 	}
 }
 
 func TestSchedulerReleasesAnExhaustedAccountAfterTheReset(t *testing.T) {
 	service, local := continuationFixture(t)
-	service.observeQuota(local.Target.ID, quotaUsage(0.99, float64(service.now().Add(-time.Minute).Unix())))
+	service.observeQuota(local.Target.ID, quotaUsage(1, float64(service.now().Add(-time.Minute).Unix())))
 
 	pick := service.pickServableAccount(flashModel, slotCandidates(local.Target.ID))
 
