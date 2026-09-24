@@ -33,6 +33,21 @@ func TestRouteClaimsTheImageModels(t *testing.T) {
 	}
 }
 
+func TestRouteClaimsGpt6Pro(t *testing.T) {
+	raw, err := json.Marshal(modelRouteRequest{SourceFormat: "openai", RequestedModel: webProModel})
+	if err != nil {
+		t.Fatalf("marshal route request: %v", err)
+	}
+	result, routeErr := routeImages(raw)
+	if routeErr != nil {
+		t.Fatalf("route gpt-6-pro: %v", routeErr)
+	}
+	response := decodeRouteResponse(t, result)
+	if !response.Handled || response.TargetKind != "self" || response.Reason != "chatgpt_web_chat" {
+		t.Fatalf("gpt-6-pro: %+v", response)
+	}
+}
+
 func TestRouteDeclinesOtherModels(t *testing.T) {
 	for _, model := range []string{"chatgpt-web-image", "gpt-image-2", "gpt-image-2.5-sunburst", "GPT-Image-1.5", "gemini-web-omni", "grok-imagine-image-2.0", "gpt-5.5", ""} {
 		raw, err := json.Marshal(modelRouteRequest{SourceFormat: "openai-image", RequestedModel: model})

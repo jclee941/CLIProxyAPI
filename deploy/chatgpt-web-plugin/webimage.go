@@ -295,18 +295,17 @@ func (client *webClient) chatRequirements(ctx context.Context) (webRequirements,
 	return webRequirements{Token: finalized.Token, ProofToken: proofToken}, nil
 }
 
-func (client *webClient) prepareConversation(ctx context.Context, prompt string, requirements webRequirements) (string, error) {
+func (client *webClient) prepareConversation(ctx context.Context, prompt string, requirements webRequirements, model string, hints []string) (string, error) {
 	path := "/backend-api/f/conversation/prepare"
-	payload, err := json.Marshal(map[string]interface{}{
+	body := map[string]interface{}{
 		"action":                "next",
 		"fork_from_shared_post": false,
 		"parent_message_id":     newDeviceID(),
-		"model":                 webUpstreamModel,
+		"model":                 model,
 		"client_prepare_state":  "success",
 		"timezone_offset_min":   -480,
 		"timezone":              "Asia/Shanghai",
 		"conversation_mode":     map[string]interface{}{"kind": "primary_assistant"},
-		"system_hints":          []string{"picture_v2"},
 		"partial_query": map[string]interface{}{
 			"id":      newDeviceID(),
 			"author":  map[string]interface{}{"role": "user"},
@@ -315,7 +314,11 @@ func (client *webClient) prepareConversation(ctx context.Context, prompt string,
 		"supports_buffering":     true,
 		"supported_encodings":    []string{"v1"},
 		"client_contextual_info": map[string]interface{}{"app_name": "chatgpt.com"},
-	})
+	}
+	if len(hints) > 0 {
+		body["system_hints"] = hints
+	}
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return "", failure(500, "web_request_encoding_failed")
 	}
@@ -333,31 +336,33 @@ func (client *webClient) prepareConversation(ctx context.Context, prompt string,
 	return prepared.ConduitToken, nil
 }
 
-func (client *webClient) startGeneration(ctx context.Context, prompt string, requirements webRequirements, conduitToken string) (*http.Response, error) {
+func (client *webClient) startGeneration(ctx context.Context, prompt string, requirements webRequirements, conduitToken, model string, hints []string) (*http.Response, error) {
 	path := "/backend-api/f/conversation"
-	payload, err := json.Marshal(map[string]interface{}{
+	metadata := map[string]interface{}{
+		"developer_mode_connector_ids": []string{},
+		"selected_github_repos":        []string{},
+		"selected_all_github_repos":    false,
+		"serialization_metadata":       map[string]interface{}{"custom_symbol_offsets": []interface{}{}},
+	}
+	if len(hints) > 0 {
+		metadata["system_hints"] = hints
+	}
+	body := map[string]interface{}{
 		"action": "next",
 		"messages": []interface{}{map[string]interface{}{
 			"id":          newDeviceID(),
 			"author":      map[string]interface{}{"role": "user"},
 			"create_time": float64(time.Now().UnixMilli()) / 1000,
 			"content":     map[string]interface{}{"content_type": "text", "parts": []string{prompt}},
-			"metadata": map[string]interface{}{
-				"developer_mode_connector_ids": []string{},
-				"selected_github_repos":        []string{},
-				"selected_all_github_repos":    false,
-				"system_hints":                 []string{"picture_v2"},
-				"serialization_metadata":       map[string]interface{}{"custom_symbol_offsets": []interface{}{}},
-			},
+			"metadata":    metadata,
 		}},
 		"parent_message_id":        newDeviceID(),
-		"model":                    webUpstreamModel,
+		"model":                    model,
 		"client_prepare_state":     "sent",
 		"timezone_offset_min":      -480,
 		"timezone":                 "Asia/Shanghai",
 		"conversation_mode":        map[string]interface{}{"kind": "primary_assistant"},
 		"enable_message_followups": true,
-		"system_hints":             []string{"picture_v2"},
 		"supports_buffering":       true,
 		"supported_encodings":      []string{"v1"},
 		"client_contextual_info": map[string]interface{}{
@@ -372,7 +377,11 @@ func (client *webClient) startGeneration(ctx context.Context, prompt string, req
 		},
 		"paragen_cot_summary_display_override": "allow",
 		"force_parallel_switch":                "auto",
-	})
+	}
+	if len(hints) > 0 {
+		body["system_hints"] = hints
+	}
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, failure(500, "web_request_encoding_failed")
 	}
@@ -572,11 +581,11 @@ func (client *webClient) generate(ctx context.Context, prompt string) (string, e
 	if err != nil {
 		return "", err
 	}
-	conduitToken, err := client.prepareConversation(ctx, prompt, requirements)
+	conduitToken, err := client.prepareConversation(ctx, prompt, requirements, webUpstreamModel, []string{"picture_v2"})
 	if err != nil {
 		return "", err
 	}
-	response, err := client.startGeneration(ctx, prompt, requirements, conduitToken)
+	response, err := client.startGeneration(ctx, prompt, requirements, conduitToken, webUpstreamModel, []string{"picture_v2"})
 	if err != nil {
 		return "", err
 	}

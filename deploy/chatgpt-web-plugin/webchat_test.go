@@ -183,3 +183,40 @@ func TestWebChatModelIsRoutedAndRendered(t *testing.T) {
 		t.Fatal("the image model was claimed by the chat path")
 	}
 }
+
+func TestWebChatExposesGpt6ProOnTheWebSession(t *testing.T) {
+	ids := map[string]bool{}
+	for _, model := range webChatModels() {
+		ids[model.ID] = true
+	}
+	if !ids[webProModel] {
+		t.Fatal("gpt-6-pro is missing from the web chat catalog")
+	}
+	if !claimsWebChatModel("GPT-6-Pro") {
+		t.Fatal("gpt-6-pro must be claimed by the web chat path")
+	}
+	if webChatUpstreamModel(webProModel) != webProModel {
+		t.Fatalf("pro upstream = %q", webChatUpstreamModel(webProModel))
+	}
+	if webChatUpstreamModel(webChatModel) != webUpstreamModel {
+		t.Fatalf("default chat must stay auto, got %q", webChatUpstreamModel(webChatModel))
+	}
+}
+
+func TestChatGPTProCredentialsAreTriedFirst(t *testing.T) {
+	entries := []hostEntry{
+		{ID: "codex-aaa-user@example.com-prolite", Name: "user@example.com-prolite"},
+		{ID: "codex-bbb-jclee@jclee.me-pro", Name: "jclee@jclee.me-pro"},
+		{ID: "codex-ccc-other@example.com", Name: "other@example.com"},
+	}
+	ordered := preferProCredentials(entries)
+	if ordered[0].ID != "codex-bbb-jclee@jclee.me-pro" {
+		t.Fatalf("first = %q", ordered[0].ID)
+	}
+	if isChatGPTProCredential(entries[0]) {
+		t.Fatal("prolite was treated as Pro")
+	}
+	if !isChatGPTProCredential(entries[1]) {
+		t.Fatal("the Pro credential was missed")
+	}
+}

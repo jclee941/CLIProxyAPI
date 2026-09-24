@@ -181,6 +181,28 @@ func TestQuotaKeepsCodexOnly_whenWebPayloadIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestWebQuotaMapsGpt6ProModelLimits_whenInitReportsThem(t *testing.T) {
+	view, err := quotaFromParts([]byte(usageFixture), []byte(`{
+		"limits_progress":[{"feature_name":"image_gen","remaining":991,"reset_after":"2026-09-17T02:03:50Z"}],
+		"model_limits":[{"model_slug":"gpt-6-pro","using_default_model_slug":"gpt-6-pro","resets_after":"2026-09-17T23:31:59Z"}],
+		"blocked_features":[{"name":"reason","limit":200,"resets_after":"2026-09-17T23:31:59Z","resets_after_text":"in 23 hours","description":"Capabilities reduced until tomorrow"}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	web := bucketsByDescription(view.Groups[0])
+	pro, ok := web["gpt-6-pro · limit 200 · reduced in 23 hours"]
+	if !ok {
+		t.Fatalf("gpt-6-pro bucket missing: %+v", view.Groups[0].Buckets)
+	}
+	if pro.RemainingFraction != 0 || pro.Window != "web" {
+		t.Fatalf("pro bucket=%+v", pro)
+	}
+	if pro.ResetTime != "2026-09-17T23:31:59Z" {
+		t.Fatalf("pro reset=%q", pro.ResetTime)
+	}
+}
+
 func TestWebQuotaReportsExhaustion_whenNothingRemains(t *testing.T) {
 	view, err := quotaFromParts([]byte(usageFixture), []byte(`{"limits_progress":[{"feature_name":"image_gen","remaining":0,"reset_after":"2026-09-14T11:35:35Z"}]}`))
 

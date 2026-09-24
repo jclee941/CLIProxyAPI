@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -13,17 +14,32 @@ type webLimit struct {
 	ResetAfter  string   `json:"reset_after"`
 }
 
+type webModelLimit struct {
+	ModelSlug   string `json:"model_slug"`
+	ResetsAfter string `json:"resets_after"`
+}
+
+type webBlockedFeature struct {
+	Name            string   `json:"name"`
+	Limit           *float64 `json:"limit"`
+	ResetsAfter     string   `json:"resets_after"`
+	ResetsAfterText string   `json:"resets_after_text"`
+	Description     string   `json:"description"`
+}
+
 func webGroup(raw []byte) (quotaGroup, bool) {
 	if len(raw) == 0 {
 		return quotaGroup{}, false
 	}
 	var payload struct {
-		LimitsProgress []webLimit `json:"limits_progress"`
+		LimitsProgress  []webLimit          `json:"limits_progress"`
+		ModelLimits     []webModelLimit     `json:"model_limits"`
+		BlockedFeatures []webBlockedFeature `json:"blocked_features"`
 	}
 	if json.Unmarshal(raw, &payload) != nil {
 		return quotaGroup{}, false
 	}
-	buckets := make([]quotaBucket, 0, len(payload.LimitsProgress))
+	buckets := make([]quotaBucket, 0, len(payload.LimitsProgress)+len(payload.ModelLimits))
 	for _, limit := range payload.LimitsProgress {
 		if limit.FeatureName == "" || limit.Remaining == nil {
 			continue
@@ -39,6 +55,37 @@ func webGroup(raw []byte) (quotaGroup, bool) {
 			Description:       limit.FeatureName + " · " + strconv.FormatFloat(remaining, 'f', -1, 64) + " remaining",
 		}
 		if parsed, err := time.Parse(time.RFC3339, limit.ResetAfter); err == nil {
+			bucket.ResetTime = parsed.UTC().Format(time.RFC3339)
+		}
+		buckets = append(buckets, bucket)
+	}
+	blocked := map[string]webBlockedFeature{}
+	for _, feature := range payload.BlockedFeatures {
+		if feature.Name != "" {
+			blocked[feature.Name] = feature
+		}
+	}
+	for _, limit := range payload.ModelLimits {
+		if limit.ModelSlug == "" {
+			continue
+		}
+		bucket := quotaBucket{Window: "web", RemainingFraction: 1, Description: limit.ModelSlug}
+		if reason, ok := blocked["reason"]; ok && (limit.ModelSlug == webProModel || strings.HasSuffix(limit.ModelSlug, "-pro")) {
+			fraction := 0.0
+			bucket.RemainingFraction = fraction
+			description := limit.ModelSlug
+			if reason.Limit != nil {
+				description += " · limit " + strconv.FormatFloat(*reason.Limit, 'f', -1, 64)
+			}
+			if reason.ResetsAfterText != "" {
+				description += " · reduced " + reason.ResetsAfterText
+			}
+			bucket.Description = description
+			if reason.ResetsAfter != "" {
+				limit.ResetsAfter = reason.ResetsAfter
+			}
+		}
+		if parsed, err := time.Parse(time.RFC3339, limit.ResetsAfter); err == nil {
 			bucket.ResetTime = parsed.UTC().Format(time.RFC3339)
 		}
 		buckets = append(buckets, bucket)

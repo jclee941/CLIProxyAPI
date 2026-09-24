@@ -19,6 +19,7 @@ import (
 // re-read only when the stream yielded nothing.
 
 const webChatModel = "gpt-web-chat"
+const webProModel = "gpt-6-pro"
 
 // webChatPollBudget bounds the re-read that runs when the stream produced no
 // text. A chat reply is quick, unlike an image, so waiting the image budget here
@@ -40,11 +41,58 @@ func webChatModels() []modelInfo {
 		Description:               "Text generation through the ChatGPT web conversation session; spends the web allowance instead of the Codex API allowance",
 		SupportedInputModalities:  []string{"text"},
 		SupportedOutputModalities: []string{"text"},
+	}, {
+		ID:                        webProModel,
+		Object:                    "model",
+		OwnedBy:                   provider,
+		Type:                      "openai",
+		DisplayName:               "GPT-6 Pro",
+		Name:                      webProModel,
+		Description:               "ChatGPT web GPT-6 Pro; spends the web allowance instead of the Codex API allowance",
+		SupportedInputModalities:  []string{"text"},
+		SupportedOutputModalities: []string{"text"},
 	}}
 }
 
 func claimsWebChatModel(model string) bool {
-	return imagesModelBase(model) == webChatModel
+	switch imagesModelBase(model) {
+	case webChatModel, webProModel:
+		return true
+	default:
+		return false
+	}
+}
+
+func claimsWebProModel(model string) bool {
+	return imagesModelBase(model) == webProModel
+}
+
+func webChatUpstreamModel(model string) string {
+	if claimsWebProModel(model) {
+		return webProModel
+	}
+	return webUpstreamModel
+}
+
+func isChatGPTProCredential(entry hostEntry) bool {
+	label := strings.ToLower(entry.ID + " " + entry.Name)
+	if strings.Contains(label, "prolite") {
+		return false
+	}
+	return strings.Contains(label, "-pro")
+}
+
+func preferProCredentials(entries []hostEntry) []hostEntry {
+	pro := make([]hostEntry, 0, len(entries))
+	rest := make([]hostEntry, 0, len(entries))
+	for _, entry := range entries {
+		if isChatGPTProCredential(entry) {
+			pro = append(pro, entry)
+			continue
+		}
+		rest = append(rest, entry)
+	}
+	return append(pro, rest...)
 }
 
 type webChatRequest struct {
@@ -445,7 +493,7 @@ func webLatestAssistantText(raw []byte) string {
 	return text
 }
 
-func (client *webClient) generateReply(ctx context.Context, prompt string) (string, error) {
+func (client *webClient) generateReply(ctx context.Context, prompt, model string) (string, error) {
 	if err := client.bootstrap(ctx); err != nil {
 		return "", err
 	}
@@ -453,11 +501,11 @@ func (client *webClient) generateReply(ctx context.Context, prompt string) (stri
 	if err != nil {
 		return "", err
 	}
-	conduitToken, err := client.prepareConversation(ctx, prompt, requirements)
+	conduitToken, err := client.prepareConversation(ctx, prompt, requirements, model, nil)
 	if err != nil {
 		return "", err
 	}
-	response, err := client.startGeneration(ctx, prompt, requirements, conduitToken)
+	response, err := client.startGeneration(ctx, prompt, requirements, conduitToken, model, nil)
 	if err != nil {
 		return "", err
 	}
@@ -499,8 +547,13 @@ func (service *service) executeChat(ctx context.Context, raw []byte) (interface{
 		return nil, err
 	}
 	start := int(nextImageCredential.Add(1)-1) % len(candidates)
+	if claimsWebProModel(request.Model) {
+		candidates = preferProCredentials(candidates)
+		start = 0
+	}
 	var lastErr error = failure(503, "web_chat_unavailable")
 	attempts := min(len(candidates), webChatMaxCredentials)
+	upstream := webChatUpstreamModel(request.Model)
 	for offset := 0; offset < attempts; offset++ {
 		entry := candidates[(start+offset)%len(candidates)]
 		token, tokenErr := service.tokenFor(request.HostCallbackID, entry)
@@ -513,7 +566,7 @@ func (service *service) executeChat(ctx context.Context, raw []byte) (interface{
 			lastErr = clientErr
 			continue
 		}
-		text, generateErr := client.generateReply(ctx, prompt)
+		text, generateErr := client.generateReply(ctx, prompt, upstream)
 		if generateErr != nil {
 			lastErr = generateErr
 			continue
