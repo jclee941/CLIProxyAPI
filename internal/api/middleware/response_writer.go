@@ -492,7 +492,11 @@ func (w *ResponseWriterWrapper) extractRequestBody(c *gin.Context) []byte {
 			break
 		}
 	}
-	body = decodeCapturedRequestBodyForLogWithLimit(body, encoding, maxDeferredErrorRequestBodyBytes)
+	if w.requestInfo.deferredBodyCapture.limit == 0 {
+		body = decodeCapturedRequestBodyForLog(body, encoding)
+	} else {
+		body = decodeCapturedRequestBodyForLogWithLimit(body, encoding, maxDeferredErrorRequestBodyBytes)
+	}
 	if statusMarker == "" {
 		return body
 	}

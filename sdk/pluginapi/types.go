@@ -122,6 +122,8 @@ type Capabilities struct {
 	CommandLinePlugin CommandLinePlugin
 	// ManagementAPI declares plugin-owned diagnostic Management API and resource routes.
 	ManagementAPI ManagementAPI
+	// FrontendHTTP declares authenticated frontend HTTP routes.
+	FrontendHTTP FrontendHTTP
 }
 
 // ExecutorModelScope declares which model-registration paths a plugin executor supports.
@@ -440,11 +442,15 @@ type FrontendAuthRequest struct {
 	Method string
 	// Path is the request path.
 	Path string
+	// RawPath and RawQuery preserve URI spelling for body-free capability checks.
+	RawPath  string
+	RawQuery string
 	// Headers contains inbound request headers.
 	Headers http.Header
 	// Query contains inbound query parameters.
 	Query url.Values
-	// Body contains the raw request body.
+	// Body contains the raw request body. It is always nil for route-local
+	// FrontendHTTP scoped authentication, which runs before body reads.
 	Body []byte
 }
 
@@ -456,6 +462,14 @@ type FrontendAuthResponse struct {
 	Principal string
 	// Metadata carries plugin-defined identity attributes for downstream use.
 	Metadata map[string]string
+	// CallerScope is meaningful only for route-local FrontendHTTP authentication.
+	// Success requires Authenticated, an exact lowercase 64-hex core-derived scope,
+	// and no Rejection. Global authentication adapters ignore this field.
+	CallerScope string `json:"caller_scope,omitempty"`
+	// Rejection is meaningful only for route-local FrontendHTTP authentication.
+	// A failed decision may return a validated 400-599 response; otherwise the host
+	// returns 401. Global authentication adapters ignore this field.
+	Rejection *FrontendHTTPResponse `json:",omitempty"`
 }
 
 const (

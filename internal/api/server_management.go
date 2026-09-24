@@ -205,9 +205,14 @@ func (s *Server) refreshPluginManagementRoutes() {
 		return
 	}
 	s.pluginHost.RegisterManagementRoutes(context.Background(), s.registeredManagementRouteKeys())
+	reserved := make(map[string]struct{})
+	for _, route := range s.engine.Routes() {
+		reserved[route.Method+" "+route.Path] = struct{}{}
+	}
+	s.pluginHost.RegisterFrontendHTTPRoutes(context.Background(), reserved)
 }
 
-// RefreshPluginManagementRoutes rebuilds plugin-owned Management API routes.
+// RefreshPluginManagementRoutes rebuilds plugin management, resource, and frontend HTTP routes.
 func (s *Server) RefreshPluginManagementRoutes() {
 	s.refreshPluginManagementRoutes()
 }
@@ -238,7 +243,7 @@ func (s *Server) pluginManagementNoRoute(c *gin.Context) {
 		return
 	}
 	if path != "/v0/management" && !strings.HasPrefix(path, "/v0/management/") {
-		c.AbortWithStatus(http.StatusNotFound)
+		s.pluginFrontendHTTPNoRoute(c)
 		return
 	}
 	if s.pluginHost == nil || s.mgmt == nil {

@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 	"golang.org/x/sys/windows"
 )
 
@@ -290,6 +291,12 @@ func (c *dynamicLibraryClient) Call(ctx context.Context, method string, request 
 		uintptr(len(request)),
 		responseMem,
 	)
+	if isFrontendHTTPMethod(method) && response.len > pluginapi.FrontendHTTPMaxMessageBytes {
+		if response.ptr != 0 {
+			_, _, _ = syscall.SyscallN(c.api.freeBuffer, response.ptr, response.len)
+		}
+		return nil, errFrontendHTTPResponseTooLarge
+	}
 	var out []byte
 	if response.ptr != 0 && response.len > 0 {
 		out = unsafe.Slice((*byte)(unsafe.Pointer(response.ptr)), response.len)
