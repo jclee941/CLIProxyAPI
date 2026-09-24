@@ -1,5 +1,5 @@
 [Unit]
-Description=CPA Manager Plus with 1Password runtime keys
+Description=CPA Manager Plus with durable local keys
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

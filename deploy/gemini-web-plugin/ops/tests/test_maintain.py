@@ -102,12 +102,15 @@ class RunnerTests(unittest.TestCase):
         self.thread.start()
 
     def invoke(
-        self, args: tuple[str, ...] = (), key: str | None = SECRET
+        self, args: tuple[str, ...] = (), key: str | None = SECRET, key_file: Path | None = None
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         _ = environment.pop("GEMINI_MAINTENANCE_KEY", None)
         if key is not None:
             environment["GEMINI_MAINTENANCE_KEY"] = key
+        environment["GEMINI_MAINTENANCE_ENV_FILE"] = str(
+            key_file if key_file is not None else Path(self.directory.name, "absent.env")
+        )
         environment.update(
             {
                 "http_proxy": "http://127.0.0.1:1",
@@ -150,6 +153,19 @@ class RunnerTests(unittest.TestCase):
                 )
             ],
         )
+        self.assertNotIn(SECRET, result.stdout + result.stderr)
+
+    def test_local_file_key_authenticates_without_shell_execution(self) -> None:
+        key_file = Path(self.directory.name, "core.env")
+        marker = Path(self.directory.name, "must-not-exist")
+        key_file.write_text(
+            f"UNRELATED=$(touch {marker})\nMANAGEMENT_PASSWORD='{SECRET}'\n"
+        )
+        result = self.invoke(key=None, key_file=key_file)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.requests), 1)
+        self.assertEqual(self.requests[0][2], f"Bearer {SECRET}")
+        self.assertFalse(marker.exists())
         self.assertNotIn(SECRET, result.stdout + result.stderr)
 
     def test_scoped_request_when_explicit_id(self) -> None:

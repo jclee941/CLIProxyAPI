@@ -1,6 +1,6 @@
 # Gemini web bridge on 192.168.50.114
 
-This deployment runs [Sophomoresty/gemini-web2api](https://github.com/Sophomoresty/gemini-web2api) at revision `2bb988bfcbb82a7fab5d2c99aa5560ff40d64f7e` as a private sidecar. It does not replace CLIProxyAPI.
+This retired deployment used [Sophomoresty/gemini-web2api](https://github.com/Sophomoresty/gemini-web2api) at revision `2bb988bfcbb82a7fab5d2c99aa5560ff40d64f7e` as a private sidecar. It is not an active container on `.114`. The launcher, unit, and Compose snapshot are retained historical artifacts, not a supported procedure to revive the sidecar during CPA credential migration.
 
 The Runtime, Web session, and CLIProxy Gemini provider sections retain the
 historical shared-key deployment and its verification evidence. They are not
@@ -8,17 +8,39 @@ the renewal procedure for the native multi-account Gemini Web plugin. Its new
 maintenance implementation must be integrated and validated on the host before
 being described as deployed; see [maintenance operations](../gemini-web-plugin/ops/README.md).
 
-## Runtime
+## Local File Contract (Retained Launcher Only)
+
+`start.sh` requires existing, resolved `/etc/cliproxy/gemini-web2api/config.json`
+and `/etc/cliproxy/gemini-web2api/cookie.txt`. An operator migrates the existing
+values unchanged into root-owned `0700` source directories with root:root `0600`
+files. Startup does not source a service-account environment, invoke `op`, fall
+back to a vault, generate credentials, or rotate them. The blank `.tpl` files are
+examples only, not valid credentials; the cookie template is deliberately empty.
+
+Both inputs must be readable, nonempty regular files before any copy or Docker
+invocation. They are staged as `.next` files, root:65532 `0640`, then moved into
+the existing root:65532 `0750` `/run/gemini-web2api` directory. The existing mounts
+and Compose command are unchanged. **Do not run this launcher, enable the unit,
+or restart the retired bridge as part of the active CPA migration.**
+
+For isolated tests only, `CLIPROXY_CONFIG_DIR` overrides the `/etc/cliproxy` root
+and `GEMINI_WEB2API_RUN_DIR` overrides the runtime directory; Compose mount paths
+are unchanged. Shared startup tests are in `../chatgpt2api/tests/` and use fake
+Docker and an `op` trap without live credentials.
+
+## Historical Runtime
 
 - Host files: `/opt/gemini-web2api/`
 - Unit: `gemini-web2api.service`
 - Container: `cliproxy-gemini-web2api`
 - Local diagnostic endpoint: `http://127.0.0.1:8081`
 - CLIProxy upstream: `http://gemini-web2api:8081`, on `cliproxyapi_backend`
-- API key: the `password` field of the `CLIProxy Gemini bridge (.114)` 1Password item; only its reference is stored here.
+- API key: formerly the `password` field of the `CLIProxy Gemini bridge (.114)` 1Password item; retained startup now reads the same resolved value from the protected local config.
 - Materialized configuration and cookies: `/run/gemini-web2api/config.json` and `/run/gemini-web2api/cookie.txt`, readable only by root and the container's group.
 
-The host already provides Docker, Compose, `op`, and `/etc/cliproxy/op-service-account.env`. Install these files into `/opt/gemini-web2api/` and the unit into `/etc/systemd/system/`. Build the pinned image before enabling the unit:
+The former deployment used Docker and Compose under `/opt/gemini-web2api/` with
+the unit in `/etc/systemd/system/`. These commands are historical build/install
+evidence, not current rollout instructions; do not execute them for this migration:
 
 ```bash
 docker build --label org.opencontainers.image.revision=2bb988bfcbb82a7fab5d2c99aa5560ff40d64f7e \
@@ -29,27 +51,33 @@ docker build --tag gemini-web2api:web-http-20260911 /opt/gemini-web2api
 systemctl enable --now gemini-web2api.service
 ```
 
-`systemctl reload gemini-web2api.service` re-injects the legacy shared-key configuration and recreates only the bridge, since that configuration is loaded at process startup. The unit regenerates the `/run` configuration after reboot. Native plugin account-cookie updates use account tokens per request and do not require routine Docker or service restarts.
+The retained reload action would copy the local files and recreate only the bridge,
+since configuration is loaded at process startup; it is not part of the active
+rollout. The retired unit must remain inactive. Native plugin account-cookie
+updates are separate and do not require restarting this legacy bridge.
 
-## Web session
+## Historical Web Session
 
-The bridge uses the default signed-in Google web account, not Gemini API credentials or Antigravity OAuth. Its session is stored in the `CLIProxy Gemini web session (.114)` 1Password item (`viegkixstxaq2l6c4eadyrsaou`):
+The bridge used the default signed-in Google web account, not Gemini API credentials or Antigravity OAuth. Its session was stored in the `CLIProxy Gemini web session (.114)` 1Password item (`viegkixstxaq2l6c4eadyrsaou`):
 
 - `cookie` (concealed): the complete single-line cookie header from the same Gemini web session. Do not reduce it to a fixed subset: omitting other Google session cookies can produce guest responses even when text generation returns HTTP 200.
 - `xsrf_token` (concealed): the same session's `SNlM0e` value.
 - `gemini_bl`: the same page's frontend build identifier (`cfb2h`).
 
-Refresh these fields from the same signed-in [Gemini web account](https://gemini.google.com/app) when the session expires, then reload the service. Do not paste their values into chat or shell arguments. Install `cookie.txt.tpl` alongside `config.json.tpl` before reloading. The start script stages both files with restricted permissions before replacing the runtime files. The existing read-only `/run/gemini-web2api` mount makes the cookie available to the container without another mount.
+Historically these fields came from the same signed-in [Gemini web account](https://gemini.google.com/app). Do not paste their values into chat or shell arguments. The retained launcher now reads resolved local `config.json` and `cookie.txt`, not templates. It stages both files with restricted permissions before replacing the runtime files. The historical read-only `/run/gemini-web2api` mount made the cookie available without another mount. No session refresh or bridge reload is required for the current CPA migration.
 
 `auth_user: null` selects the default account path. A non-default `/u/<index>/` session requires the matching `auth_user` configuration and session values. Cookie refresh does not alter the existing CLIProxy model aliases.
 
-## CLIProxy Gemini provider
+## Historical CLIProxy Gemini Provider
 
-Merge this entry into the existing `gemini-api-key` list in `/opt/dashboard/config.local.yaml`, preserving all other entries:
+This was the legacy `gemini-api-key` entry. Do not re-add a route to the retired
+sidecar. Active CPA configuration is now the resolved local
+`/etc/cliproxy/core/config.yaml`, not an injected template. The blank key below
+is an example only; the former route used the same key as the bridge config:
 
 ```yaml
 gemini-api-key:
-  - api-key: op://homelab/2n2nev5cbn3bork76itu7k6pqq/password
+  - api-key: ""
     base-url: http://gemini-web2api:8081
     proxy-url: direct
     models:
@@ -57,9 +85,17 @@ gemini-api-key:
         alias: gemini-web-flash
 ```
 
-The Gemini executor appends `/v1beta`, so the base URL must not include it. The source template is injected into `/run/cliproxy/config.yaml`. The existing injector replaces that file's inode; apply through `/usr/local/sbin/cliproxy-compose up -d --no-deps --force-recreate cliproxyapi` so the container mounts the updated file. This briefly restarts CLIProxyAPI; do not restart unrelated services.
+The Gemini executor appends `/v1beta`, so the base URL must not include it. The CPA
+wrapper now copies the protected core config into `/run/cliproxy/config.yaml`.
+That copy replaces the file's inode, so an approved active CPA rollout must
+recreate only `cliproxyapi` through its installed wrapper and preserve all deployed
+Compose overlays. Do not substitute this retired sidecar's Compose snapshot or
+restart unrelated services.
 
-The entry appears under Gemini in `/management.html#/ai-providers`. Clients request `gemini-web-flash` through `/v1/chat/completions`; both regular and streaming text requests have been verified on this host.
+The entry appeared under Gemini in `/management.html#/ai-providers`. Clients
+requested `gemini-web-flash` through `/v1/chat/completions`; both regular and
+streaming text requests were verified on this host. This is historical evidence,
+not a claim that the retired sidecar still serves requests.
 
 ## Boundaries
 
@@ -113,7 +149,11 @@ The upstream web interface is unofficial and can change. Model names, a 200
 response, or a live browser connection are not proof of account entitlement.
 Account expiration is reported, not replaced with another account's status.
 
-## Native Session Maintenance
+## Historical Native Session Maintenance
+
+The following records the earlier maintenance design and is not the current
+CPA local-file runbook. It does not establish an active sidecar or authorize
+installation/restart of these retired launchers.
 
 One external `.114` systemd timer invokes the authenticated plugin
 `POST http://127.0.0.1:8317/v0/management/plugins/gemini-web/maintain` with `{}`

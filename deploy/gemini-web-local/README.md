@@ -31,6 +31,20 @@ No repeat video request, cookie-renewal retry, state-file edit, or stale-store
 restoration was performed. **Five accounts are registered locally; only four
 remain ready. This is not a claim of five working accounts or successful video.**
 
+### Core-only startup
+
+Install this directory's `cliproxy-compose` at `/usr/local/sbin/cliproxy-compose`.
+It uses only `/opt/dashboard/docker-compose.dashboard-only.yml`, matching the
+running CPA container. That Compose project contains CPA and Postgres, not
+ChatGPT2API or Gemini sidecars. Configuration, environment, and the session key
+are already supplied by its protected local mounts. The wrapper does not fetch
+secrets or prepare sidecar files.
+
+```sh
+python3 -B deploy/gemini-web-local/test_startup.py -v
+/usr/local/sbin/cliproxy-compose config --services
+```
+
 ### Applied Production Layout
 
 - Compose: `/opt/dashboard/docker-compose.dashboard-only.yml`, project

@@ -1,4 +1,5 @@
 import configparser
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -23,12 +24,9 @@ class UnitTests(unittest.TestCase):
         self.assertNotIn("RemainAfterExit", service["Service"])
         self.assertEqual(
             service["Service"]["ExecStart"],
-            "/usr/bin/op run -- /usr/bin/python3 /opt/gemini-web-plugin/ops/maintain.py",
+            "/bin/sh /opt/gemini-web-plugin/ops/run.sh",
         )
-        self.assertEqual(
-            service["Service"]["EnvironmentFile"],
-            "/etc/cliproxy/op-service-account.env",
-        )
+        self.assertNotIn("EnvironmentFile", service["Service"])
         self.assertEqual(timer["Timer"]["Unit"], SERVICE)
         self.assertEqual(timer["Timer"]["OnBootSec"], "30s")
         self.assertEqual(timer["Timer"]["OnUnitInactiveSec"], "5min")
@@ -54,10 +52,14 @@ class UnitTests(unittest.TestCase):
                 )
             binaries = root / "usr/bin"
             binaries.mkdir(parents=True)
-            for name in ("op", "python3"):
+            for name in ("python3",):
                 fixture = binaries / name
                 _ = fixture.write_text("#!/bin/sh\nexit 0\n")
                 fixture.chmod(0o755)
+            shell = root / "bin/sh"
+            shell.parent.mkdir(parents=True)
+            shell.write_text("#!/bin/sh\nexit 0\n")
+            shell.chmod(0o755)
             result = subprocess.run(
                 ["systemd-analyze", "--root", directory, "verify", SERVICE, TIMER],
                 capture_output=True,
@@ -77,6 +79,49 @@ class UnitTests(unittest.TestCase):
             timeout=10,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_launcher_uses_local_credentials_without_op(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            credentials = root / "core.env"
+            credentials.write_text("MANAGEMENT_PASSWORD='synthetic-local-key'\n")
+            credentials.chmod(0o600)
+            python = root / "python3"
+            python.write_text(
+                '#!/usr/bin/python3\n'
+                'import runpy, sys\n'
+                'runner = runpy.run_path(sys.argv[1])\n'
+                'assert runner["management_key"]() == "synthetic-local-key"\n'
+                'assert sys.argv[2:] == ["--id", "gemini-web-fixture.json"]\n'
+                'print("LOCAL_KEY_OK")\n'
+            )
+            python.chmod(0o755)
+            op = root / "op"
+            op.write_text('#!/bin/sh\nprintf "OP_MUST_NOT_RUN\\n" >&2\nexit 99\n')
+            op.chmod(0o755)
+            result = subprocess.run(
+                ["/bin/sh", str(OPS / "run.sh"), "--id", "gemini-web-fixture.json"],
+                env={**os.environ, "PATH": f"{root}:/usr/bin:/bin", "GEMINI_MAINTENANCE_ENV_FILE": str(credentials)},
+                capture_output=True, text=True, check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "LOCAL_KEY_OK\n")
+        self.assertNotIn("synthetic-local-key", result.stdout + result.stderr)
+
+    def test_launcher_missing_local_key_fails_before_http(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            credentials = root / "core.env"
+            credentials.write_text("MANAGEMENT_PASSWORD=''\n")
+            for path in (credentials, root / "missing.env"):
+                with self.subTest(path=path.name):
+                    result = subprocess.run(
+                        ["/bin/sh", str(OPS / "run.sh")],
+                        env={**os.environ, "PATH": f"{root}:/usr/bin:/bin", "GEMINI_MAINTENANCE_ENV_FILE": str(path)},
+                        capture_output=True, text=True, check=False,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("maintenance error=invalid_key", result.stderr)
 
 
 if __name__ == "__main__":

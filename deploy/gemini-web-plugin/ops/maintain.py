@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import re
+import shlex
 import sys
 from collections import Counter
 from dataclasses import dataclass
@@ -44,6 +46,22 @@ class InvalidResponse(ValueError):
     pass
 
 
+def management_key() -> str:
+    injected = os.getenv("GEMINI_MAINTENANCE_KEY")
+    if injected is not None:
+        return injected
+    path = Path(os.getenv("GEMINI_MAINTENANCE_ENV_FILE", "/etc/cliproxy/gemini-web-local/core.env"))
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            name, separator, value = line.removeprefix("export ").partition("=")
+            if separator and name.strip() == "MANAGEMENT_PASSWORD":
+                values = shlex.split(value, comments=True)
+                return values[0] if len(values) == 1 else ""
+    except (OSError, UnicodeError, ValueError):
+        return ""
+    return ""
+
+
 def valid_id(value: str) -> bool:
     return len(value) <= 128 and ID_PATTERN.fullmatch(value) is not None
 
@@ -81,7 +99,7 @@ def main() -> int:
             print("maintenance error=invalid_arguments", file=sys.stderr)
             return 2
         body = json.dumps({"id": arguments[1]}, separators=(",", ":")).encode("ascii")
-    key = os.getenv("GEMINI_MAINTENANCE_KEY", "")
+    key = management_key()
     if (
         not key
         or key.startswith("op://")

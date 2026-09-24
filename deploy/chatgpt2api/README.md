@@ -1,7 +1,27 @@
 # chatgpt2api Deployment
 
-The sidecar shares the CPA backend network. Secrets remain in 1Password and are
-injected at runtime; never put resolved credentials in these deployment files.
+The chatgpt2api sidecar is retired and is not an active container on `.114`.
+Its source patches and Compose snapshot are retained as historical evidence,
+not instructions to rebuild, install, or restart it. Flaresolverr's continued
+presence does not mean chatgpt2api is running.
+
+## Retired launcher
+
+This directory's `cliproxy-compose` refuses to start services. The active CPA
+wrapper is maintained at `deploy/gemini-web-local/cliproxy-compose` and installed
+at `/usr/local/sbin/cliproxy-compose`. It uses only the current
+`docker-compose.dashboard-only.yml` (CPA and Postgres), without sidecar overlays
+or sidecar credential preparation. Do not recreate these retired services.
+
+Run the historical launcher checks without Docker or real secrets:
+
+```bash
+python3 -B -m unittest discover -s deploy/chatgpt2api/tests -p 'test_startup.py' -v
+```
+
+The tests trap external-secret CLI calls and fake Docker.
+
+The following sections describe the retired image and preserve its patch evidence.
 
 ## English Locale
 

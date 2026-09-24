@@ -55,12 +55,10 @@ LAN origins and the exact `https://cliproxy.jclee.me` public origin.
 | Compose activation | Explicit `--profile approval-required`, `pull_policy: never` |
 
 Manager is a separate Compose project. Don't run `down` on the existing CPA
-project or replace `/usr/local/sbin/cliproxy-compose`. That wrapper loads
-`/etc/cliproxy/op-service-account.env`, injects `/opt/dashboard/config.local.yaml`
-into `/run/cliproxy/config.yaml`, and combines the dashboard-only, chatgpt2api,
-Gemini Web plugin, and Plus image Compose files. It also preserves chatgpt2api
-runtime injection. Preserve CPA, Postgres,
-Telegram containers, storage, settings, and behavior.
+project or replace `/usr/local/sbin/cliproxy-compose` as part of Manager
+operations. That wrapper selects the core-only Compose project (CPA and
+Postgres), without sidecar overlays or secret injection. Preserve CPA, Postgres, Telegram
+containers, storage, settings, and behavior.
 
 LAN access is enabled; this isn't a loopback-only deployment. Public publication
 uses the reviewed loopback gateway above, with TLS at the existing Cloudflare edge.
@@ -70,26 +68,43 @@ upstream image runs as root; Docker-root can still read mounted keys.
 
 ## Keys And Service Operations
 
-Keep these three credentials distinct. Only references belong in this package:
+Keep these three credentials distinct. Only paths and placeholders belong in
+this package, never secret values:
 
-| Purpose | Existing 1Password reference |
+| Purpose | Required source |
 | --- | --- |
-| Manager admin key | `op://homelab/kegtmfqwkjfunznum7bsi2o2di/password` |
-| SQLite encryption key | `op://homelab/ob4zd62uo5xwvccd4gvlxzwhre/password` |
-| CPA management key | `op://homelab/hazdy6l5k5rfahjdcdszzenizm/management_key` |
+| Manager admin key | `/etc/cliproxy-manager-plus/cpa_admin_key`, preserving the existing key bytes |
+| SQLite encryption key | `/etc/cliproxy-manager-plus/data.key`, preserving the key paired with the existing database |
+| CPA management key | The existing CPA management key; already stored encrypted in Manager SQLite after setup |
 
-The key templates use `{{ op://vault/item/field }}` expressions, not bare
-references. `start.sh` loads the existing service-account environment with
-`umask 077`, injects both keys into `.next` files under
-`/run/cliproxy-manager-plus`, applies mode `600`, checks both are nonempty, then
-renames them into place. It force-recreates only Manager with the explicit
-Compose profile so bind mounts pick up the new inodes.
+Before installing or reloading this startup version, provision
+`/etc/cliproxy-manager-plus` as `root:root` mode `700`, with both key files owned
+by `root:root` at mode `600`. For an existing deployment, copy the exact bytes
+from the corresponding nonempty `/run/cliproxy-manager-plus` files without
+printing them. Do not overwrite existing durable keys or generate replacement
+keys. If the runtime files are unavailable, recover the same keys from an
+approved protected backup before proceeding; this is a storage migration, not
+credential rotation. Remove obsolete installed `admin-key.tpl` and
+`data-key.tpl` files. Manager no longer reads the op service-account environment
+or invokes `op`, and has no vault fallback.
+
+The root-run `start.sh` uses `umask 077` and requires both durable files to be
+regular and nonempty before touching runtime files or invoking Docker. It copies
+bytes into `.next` files under `/run/cliproxy-manager-plus` (directory mode `700`,
+files mode `600`, owned by root), checks both copies are nonempty, then atomically
+renames each into place. It force-recreates only Manager with the unchanged
+explicit Compose profile so bind mounts pick up the new inodes.
+
+`CPA_MANAGER_KEY_DIR` and `CPA_MANAGER_RUNTIME_DIR` are path-only overrides for
+isolated startup tests. Production must use the default paths above to match
+Compose's fixed bind mounts; no key values belong in environment variables.
 
 The admin file is mounted read-only at `/run/secrets/cpa_admin_key`; the data key
 is mounted read-only at `/data/data.key`. The entrypoint refuses empty/missing
-keys. The enabled systemd unit provisions runtime keys on boot; Docker's restart
-policy alone can't restore `/run` files. A service reload and container recreation
-were verified, not a host reboot.
+keys. The enabled systemd unit restores runtime files from durable storage on
+boot; Docker's restart policy alone can't restore `/run` files. Historical
+receipts verified reload and container recreation with the previous injection
+workflow, not this migration or a host reboot.
 
 For routine operations on .114:
 
@@ -98,11 +113,11 @@ systemctl status cpa-manager-plus.service
 systemctl reload cpa-manager-plus.service
 ```
 
-Reload re-injects keys and recreates Manager. Don't recreate 1Password items for
-routine starts. Never print injected config, Docker `Config.Env`, credential
-payloads, or keys; don't use shell tracing, `--reveal`, or `--dry-run` around
-secrets. Resolve references through `op run` for API calls, constructing headers
-and JSON in memory rather than substituting secret text into JSON.
+Reload re-copies the same durable keys and recreates Manager; it neither
+produces nor rotates credentials. Never print config containing secrets, Docker
+`Config.Env`, credential payloads, or keys; don't use shell tracing around
+secrets. For API calls, read protected credentials and construct headers and
+JSON in memory, without putting secret values in command arguments or logs.
 
 Changing the admin file **doesn't rotate an existing SQLite admin hash**. Use
 the upstream offline `reset-admin-key --admin-key-file` workflow under separate
@@ -112,11 +127,17 @@ the accepted 32-byte format and must never rotate independently of SQLite.
 ## Setup And Collection
 
 Setup is already complete. Don't rerun fresh initialization as a health check.
-`setup.template.json` records the safe initial body with both
+`setup.template.json` records the initial body with both
 `requestMonitoringEnabled:false` and `ensureUsageStatisticsEnabled:false`.
-The CPA key reference must be resolved in memory before submission. Initial setup
-validated CPA and persisted its connection encrypted in SQLite with collection
-stopped; collection was enabled in a later step.
+Its `cpaManagementKey` is deliberately empty and the template is not ready for
+submission. For an approved initial setup, supply the **existing CPA management
+key** from protected input in memory before submitting; never generate a new
+key to fill this field. It is not the Manager admin key, a client API key, or the
+hashed management-key value from CPA's configuration. Do not save the populated
+body in this repository. Existing installations retain their encrypted connection
+in SQLite and do not need setup repeated for this storage migration. Initial
+setup validated CPA and persisted its connection with collection stopped;
+collection was enabled in a later step.
 
 All protected requests use `Authorization: Bearer <Manager admin key>`, not the
 CPA key. Writes use `Content-Type: application/json`.
@@ -135,7 +156,7 @@ body but setting `requestMonitoringEnabled:true` and keeping
 `ensureUsageStatisticsEnabled:false`. Parsed CPA configuration before and after
 was equal. For any future activation, first verify usage statistics are already
 enabled, queue retention is positive, and the 500 ms polling interval doesn't
-exceed retention. Required CPA changes belong in the existing approved injection
+exceed retention. Required CPA changes belong in the protected local configuration
 workflow, not Manager's proxy.
 
 Don't enable collection through `PUT /usage-service/config`: an enabled resulting
@@ -162,20 +183,21 @@ management UI repository through Manager without separate review.
 
 - Manager settings, admin hash, encrypted CPA key, inspection state, and usage
   history persist in SQLite, not in the existing Postgres container. Preserve the
-  entire Manager volume and the exact matching 1Password data-key item/version.
+  entire Manager volume and the exact matching durable `data.key` bytes.
 - The `/data/data.key` bind is **not contained in a bare named-volume backup**.
-  A restore bundle must include the database snapshot, key reference/version,
-  and recoverable encrypted backup of that key in 1Password. Never copy a live
-  SQLite main file without WAL handling; use upstream snapshot tooling or an
-  approved stopped/checkpointed backup. Don't upload raw SQLite or keys to logs.
+  A restore bundle must include the database snapshot and a recoverable encrypted
+  backup of its matching data key. Protect and back up the durable admin key too;
+  keep restored files at the ownership and modes above. Never copy a live SQLite
+  main file without WAL handling; use upstream snapshot tooling or an approved
+  stopped/checkpointed backup. Don't upload raw SQLite or keys to logs.
 - `CPAMP_UPDATE_CHECK_ENABLED=false` disables automatic release checks.
   `externalUsageService` remains false. Don't trigger price sync, update checks,
   OAuth probes, or plugin installation as routine health checks. This isn't a
   network-level egress deny policy on the shared backend network.
-- On rollback, stop/remove only Manager, preserving its named volume and
-  1Password items. Never use `down -v`, recreate Postgres, modify Telegram bot
-  state, or restore Manager SQLite over CPA storage. Core rollback needs its own
-  counter/connection continuity assessment.
+- On rollback, stop/remove only Manager, preserving its named volume, durable
+  key files, and protected backups. Never use `down -v`, recreate Postgres, modify
+  Telegram bot state, or restore Manager SQLite over CPA storage. Core rollback
+  needs its own counter/connection continuity assessment.
 
 ## Verified Scope And Remaining Gates
 

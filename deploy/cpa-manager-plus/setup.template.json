@@ -1,6 +1,6 @@
 {
   "cpaBaseUrl": "http://cliproxyapi:8317",
-  "cpaManagementKey": "op://homelab/hazdy6l5k5rfahjdcdszzenizm/management_key",
+  "cpaManagementKey": "",
   "collectorMode": "http",
   "queue": "usage",
   "popSide": "right",

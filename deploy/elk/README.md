@@ -22,16 +22,16 @@ Then start CLIProxyAPI with the Elastic Stack overlay:
 docker compose -f docker-compose.yml -f docker-compose.elk.yml up -d --build
 ```
 
-When `.env` contains 1Password `op://` references, resolve them before Compose
-starts the container:
+Supply actual Telegram values through a protected local environment file,
+kept outside the repository with mode `0600`:
 
 ```bash
-op run --env-file=.env -- \
-  docker compose -f docker-compose.yml -f docker-compose.elk.yml up -d --build
+docker compose --env-file /etc/cliproxy/telegram.env \
+  -f docker-compose.yml -f docker-compose.elk.yml up -d --build
 ```
 
-Unresolved `op://` values are deliberately ignored by CLIProxyAPI instead of
-being treated as real Telegram credentials.
+No external secret CLI is required. Never commit the environment file or print
+its values while checking the deployment.
 
 The default local endpoints are:
 
