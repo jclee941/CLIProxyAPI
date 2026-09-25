@@ -1,4 +1,9 @@
 {
+  "core": {
+    "paths": ["cmd", "internal", "sdk", "go.mod", "go.sum"],
+    "release": "https://github.com/jclee941/CLIProxyAPI/releases/download/cpa-core",
+    "asset": "CLIProxyAPI"
+  },
   "plugins": [
     {"id": "gemini-web", "artifact": "deploy/gemini-web-plugin/gemini-web.so", "reload": "restart"},
     {"id": "chatgpt-web", "artifact": "deploy/chatgpt-web-plugin/chatgpt-web.so", "reload": "hot"}

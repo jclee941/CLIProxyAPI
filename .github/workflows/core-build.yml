@@ -1,0 +1,111 @@
+name: core-build
+
+on:
+  push:
+    branches:
+      - main
+    # Mirrors core.paths in deploy/cpa-plugins.json.
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'sdk/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/core-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: core-build
+  cancel-in-progress: false
+
+env:
+  MANIFEST: deploy/cpa-plugins.json
+  KEEP_BUILDS: '10'
+
+jobs:
+  build:
+    # Forks only; upstream publishes its own releases.
+    if: github.event.repository.fork == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve the core commit
+        id: core
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t paths < <(jq -r '.core.paths[]' "$MANIFEST")
+          # The same query cpa-converge.py runs on the host's deploy clone.
+          commit="$(git log -1 --first-parent --format=%H -- "${paths[@]}")"
+          short="${commit:0:7}"
+          asset="$(jq -r '.core.asset' "$MANIFEST")-${short}"
+          tag="$(jq -r '.core.release' "$MANIFEST")"
+          tag="${tag##*/}"
+          {
+            echo "commit=${commit}"
+            echo "short=${short}"
+            echo "asset=${asset}"
+            echo "tag=${tag}"
+          } >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx "$asset"; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "${asset} is already published on ${tag}."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Test and build on Debian bookworm
+        if: steps.core.outputs.published == 'false'
+        env:
+          CORE_COMMIT: ${{ steps.core.outputs.commit }}
+          CORE_SHORT: ${{ steps.core.outputs.short }}
+          CORE_ASSET: ${{ steps.core.outputs.asset }}
+        run: |
+          set -euo pipefail
+          git checkout --quiet "$CORE_COMMIT"
+          mkdir -p dist
+          # The host container is Debian 12 (glibc 2.36) and the core loads
+          # cgo plugins, so the core is built with cgo on the same base.
+          docker run --rm \
+            -v "$PWD:/src" -w /src \
+            -e CGO_ENABLED=1 -e GOOS=linux -e GOFLAGS=-buildvcs=false \
+            -e CORE_SHORT -e CORE_ASSET -e BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            golang:1.26-bookworm \
+            sh -ec '
+              go test ./...
+              go build -ldflags="-s -w -X main.Commit=${CORE_SHORT} -X main.BuildDate=${BUILD_DATE}" -o "dist/${CORE_ASSET}" ./cmd/server/
+            '
+          (cd dist && sha256sum "$CORE_ASSET" > "$CORE_ASSET.sha256")
+
+      - name: Publish
+        if: steps.core.outputs.published == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.core.outputs.tag }}
+          CORE_ASSET: ${{ steps.core.outputs.asset }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --prerelease --target main \
+              --title 'CPA core builds' \
+              --notes 'Core builds for the fork host, one per main commit that touched the core paths in deploy/cpa-plugins.json. deploy/cpa-converge.py installs them.'
+          fi
+          gh release upload "$TAG" "dist/$CORE_ASSET" "dist/$CORE_ASSET.sha256" --clobber
+          # Keep the newest builds. Moving main back to an older core rebuilds it
+          # on the next run of this workflow.
+          prefix="${CORE_ASSET%-*}"
+          gh release view "$TAG" --json assets \
+            --jq "[.assets[] | select(.name | test(\"^${prefix}-[0-9a-f]{7}\$\"))] | sort_by(.createdAt) | reverse | .[${KEEP_BUILDS}:] | .[].name" |
+            while read -r old; do
+              gh release delete-asset "$TAG" "$old" --yes
+              gh release delete-asset "$TAG" "$old.sha256" --yes
+            done

@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
   issues: write
 
@@ -62,6 +63,8 @@ jobs:
             fi
             git push origin "HEAD:${TARGET_BRANCH}"
             echo "Pushed ${before_head} -> ${after_head} to origin/${TARGET_BRANCH}."
+            # A push made with GITHUB_TOKEN starts no workflow, so the core build is dispatched.
+            gh workflow run core-build.yml --ref "${TARGET_BRANCH}"
             exit 0
           fi
 

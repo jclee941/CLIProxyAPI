@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Converge the CPA native plugins on this host to what the deploy clone declares.
+"""Converge the CPA core and native plugins on this host to what the deploy clone declares.
 
 pull-deploy.sh runs this from the deploy clone after moving the clone to the
 fork's main branch. deploy/cpa-plugins.json names every artifact the host
@@ -9,7 +9,9 @@ serves, and anything whose bytes differ from the live copy is replaced:
 - a "hot" plugin is swapped and re-enabled through the management API;
 - a "restart" plugin holds the plugin session store, so it is swapped under a
   stopped container, and only while no Omni turn runs: a restart kills every
-  generation in flight.
+  generation in flight;
+- the core executable is the core-build workflow's published build of the last
+  main commit that touched the core paths, swapped with the restart plugins.
 
 Every tick compares again, so a tick that finds the host busy leaves the swap
 to the next one. A swap the host does not come back from is followed by one
@@ -47,6 +49,7 @@ class Settings:
     clone: pathlib.Path
     manifest: pathlib.Path
     plugin_dir: pathlib.Path
+    core_binary: pathlib.Path
     container: str
     container_plugin_dir: str
     api: str
@@ -64,6 +67,7 @@ class Settings:
             clone=clone,
             manifest=clone / manifest,
             plugin_dir=pathlib.Path(env.get("CPA_PLUGIN_DIR", "/opt/dashboard/plugins")),
+            core_binary=pathlib.Path(env.get("CPA_CORE_BINARY", "/opt/dashboard/gemini-web-local/CLIProxyAPI")),
             container=env.get("CPA_CONTAINER", "cliproxyapi"),
             container_plugin_dir=env.get("CPA_CONTAINER_PLUGIN_DIR", "/CLIProxyAPI/plugins"),
             api=env.get("CPA_API", "http://127.0.0.1:18318").rstrip("/"),
@@ -81,6 +85,13 @@ class PluginChange:
     reload: str
     artifact: pathlib.Path
     live: list[pathlib.Path]
+
+
+@dataclasses.dataclass
+class CoreChange:
+    commit: str
+    url: str
+    digest: str
 
 
 def log(message: str) -> None:
@@ -186,7 +197,55 @@ def ready(settings: Settings, key: str) -> int:
     return sum(1 for account in accounts(settings, key) if account.get("status") == "ready")
 
 
-def plan(settings: Settings, manifest: dict[str, Any]) -> tuple[list[tuple[pathlib.Path, pathlib.Path]], list[PluginChange]]:
+def core_plan(settings: Settings, core: dict[str, Any]) -> CoreChange | None:
+    """The published build of the last main commit that touched the core, unless it is live.
+
+    Builds are not byte-reproducible, so the build's published sha256 decides.
+    """
+    commit = run("git", "-C", str(settings.clone), "log", "-1", "--first-parent", "--format=%H", "--", *core["paths"]).strip()[:7]
+    if not commit:
+        raise ConvergeError(f"no commit touches the core paths {core['paths']}")
+    url = f"{core['release'].rstrip('/')}/{core['asset']}-{commit}"
+    try:
+        with urllib.request.urlopen(url + ".sha256", timeout=120) as response:
+            fields = response.read().decode().split()
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+        raise ConvergeError(f"core {commit} is not published yet; the core-build workflow publishes it") from error
+    if not fields:
+        raise ConvergeError(f"the published sha256 of core {commit} is empty")
+    if settings.core_binary.exists() and digest(settings.core_binary) == fields[0]:
+        return None
+    return CoreChange(commit, url, fields[0])
+
+
+def stage_core(change: CoreChange, staged: pathlib.Path) -> None:
+    with urllib.request.urlopen(change.url, timeout=120) as response, staged.open("wb") as handle:
+        shutil.copyfileobj(response, handle, 1 << 20)
+    if digest(staged) != change.digest:
+        raise ConvergeError(f"the core {change.commit} download does not match its published sha256")
+    staged.chmod(0o755)
+
+
+def install_core(settings: Settings, staged: pathlib.Path) -> None:
+    """Replaces the host file the stopped container bind-mounts, so the next start runs it.
+
+    The replaced executable stays as <name>.prev, which nothing runs.
+    """
+    target = settings.core_binary
+    if target.exists():
+        os.replace(target, target.with_name(target.name + ".prev"))
+    os.replace(staged, target)
+
+
+def core_commit(settings: Settings, key: str) -> str:
+    request = urllib.request.Request(settings.api + "/v0/management/plugins", headers={"Authorization": "Bearer " + key})
+    with urllib.request.urlopen(request, timeout=120) as response:
+        return response.headers.get("X-CPA-COMMIT", "")
+
+
+def plan(settings: Settings, manifest: dict[str, Any]) -> tuple[list[tuple[pathlib.Path, pathlib.Path]], list[PluginChange], CoreChange | None]:
     files = []
     for entry in manifest.get("files", []):
         artifact, target = settings.clone / entry["artifact"], settings.plugin_dir / entry["target"]
@@ -200,7 +259,8 @@ def plan(settings: Settings, manifest: dict[str, Any]) -> tuple[list[tuple[pathl
         live = loadable(settings.plugin_dir, entry["id"])
         if len(live) != 1 or digest(live[0]) != digest(artifact):
             plugins.append(PluginChange(entry["id"], entry["reload"], artifact, live))
-    return files, plugins
+    core = core_plan(settings, manifest["core"]) if "core" in manifest else None
+    return files, plugins, core
 
 
 def replace_file(artifact: pathlib.Path, target: pathlib.Path) -> None:
@@ -263,14 +323,16 @@ def restart_until(settings: Settings, key: str, check, reason: str) -> None:
 def converge(settings: Settings) -> int:
     manifest = json.loads(settings.manifest.read_text())
     commit = run("git", "-C", str(settings.clone), "rev-parse", "--short=7", "HEAD").strip()
-    files, plugins = plan(settings, manifest)
-    if not files and not plugins:
+    files, plugins, core = plan(settings, manifest)
+    if not files and not plugins and core is None:
         log(f"in sync at {commit}")
         return 0
     for artifact, target in files:
         log(f"{'would replace' if settings.dry_run else 'replacing'} {target}")
     for change in plugins:
         log(f"{change.id} ({change.reload}) differs from the deploy clone; live: {[path.name for path in change.live] or 'none'}")
+    if core is not None:
+        log(f"core differs from the published build of {core.commit}")
     if settings.dry_run:
         return 0
 
@@ -285,22 +347,35 @@ def converge(settings: Settings) -> int:
         log(f"{change.id} loaded {installed.name}")
 
     restarts = [change for change in plugins if change.reload == "restart"]
-    if restarts:
-        if not idle(settings, key):
-            log("an Omni turn is running; the restart waits for the next tick")
-            return 0
-        before = ready(settings, key)
-        run("docker", "stop", "-t", "240", settings.container)
-        swapped = {change.id: swap(settings, change, commit) for change in restarts}
-        run("docker", "start", settings.container)
-        restart_until(
-            settings,
-            key,
-            lambda: loaded(settings, key, swapped) and ready(settings, key) >= before,
-            f"the host did not come back with {sorted(path.name for path in swapped.values())} and {before} ready accounts",
-        )
+    if restarts or core is not None:
+        staged = settings.core_binary.with_name(settings.core_binary.name + ".converging")
+        expected_commit = core.commit if core is not None else ""
+        try:
+            if core is not None:
+                stage_core(core, staged)
+            if not idle(settings, key):
+                log("an Omni turn is running; the restart waits for the next tick")
+                return 0
+            before = ready(settings, key)
+            run("docker", "stop", "-t", "240", settings.container)
+            swapped = {change.id: swap(settings, change, commit) for change in restarts}
+            if core is not None:
+                install_core(settings, staged)
+            run("docker", "start", settings.container)
+            everything = {entry["id"]: loadable(settings.plugin_dir, entry["id"])[0] for entry in manifest.get("plugins", [])}
+            wanted = sorted(path.name for path in swapped.values()) + ([f"core {expected_commit}"] if expected_commit else [])
+            restart_until(
+                settings,
+                key,
+                lambda: loaded(settings, key, everything) and ready(settings, key) >= before and (not expected_commit or core_commit(settings, key) == expected_commit),
+                f"the host did not come back with {wanted}, every plugin loaded and {before} ready accounts",
+            )
+        finally:
+            staged.unlink(missing_ok=True)
         for plugin_id, path in swapped.items():
             log(f"{plugin_id} loaded {path.name}")
+        if expected_commit:
+            log(f"core runs {expected_commit}")
     log(f"converged at {commit}")
     return 0
 
