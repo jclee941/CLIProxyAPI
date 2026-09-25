@@ -66,9 +66,9 @@ func TestHostHTTPStreamLifetimeTransfersOnlyAfterSuccessfulOpen(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer host.httpStreams.close(opened.StreamID)
+			defer host.httpStreams.close("", nil, opened.StreamID)
 			// Successful callback return must not cancel a stream before its first read.
-			chunk, done, err := host.httpStreams.read(parent, opened.StreamID)
+			chunk, done, err := host.httpStreams.read(parent, "", nil, opened.StreamID)
 			if err != nil || done || string(chunk.Payload) != "first" {
 				t.Fatalf("first read: %q done=%v err=%v", chunk.Payload, done, err)
 			}
@@ -80,7 +80,7 @@ func TestHostHTTPStreamLifetimeTransfersOnlyAfterSuccessfulOpen(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := host.callHostHTTPStreamClose(raw); err != nil {
+				if _, err := host.callHostHTTPStreamClose(parent, raw); err != nil {
 					t.Fatal(err)
 				}
 			}
