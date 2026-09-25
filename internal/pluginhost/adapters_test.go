@@ -3274,10 +3274,10 @@ func TestExecutorAdapterPanicFusesAndReturnsError(t *testing.T) {
 	}
 }
 
-func TestMapExecutorStreamChunksExitsWhenContextCanceledWithoutDownstreamConsumer(t *testing.T) {
+func TestMapExecutorStreamChunksClosesAfterCancelWithAcceptedChunk(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	in := make(chan pluginapi.ExecutorStreamChunk)
-	out := mapExecutorStreamChunks(ctx, in)
+	out := mapExecutorStreamChunks(ctx, in, nil)
 	sent := make(chan struct{})
 
 	go func() {
@@ -3291,14 +3291,25 @@ func TestMapExecutorStreamChunksExitsWhenContextCanceledWithoutDownstreamConsume
 		t.Fatal("input chunk was not accepted by bridge")
 	}
 	cancel()
-	time.Sleep(10 * time.Millisecond)
 
 	select {
 	case chunk, ok := <-out:
 		if ok {
-			t.Fatalf("output channel produced chunk after cancel: %#v", chunk)
+			// The accepted chunk may win the send/cancel select once a receiver
+			// appears. Cancellation must still close the bridge afterwards.
+			if string(chunk.Payload) != "chunk" || chunk.Err != nil {
+				t.Fatalf("unexpected accepted chunk: %#v", chunk)
+			}
+			select {
+			case _, stillOpen := <-out:
+				if stillOpen {
+					t.Fatal("output produced more than the accepted chunk")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("output channel stayed open after the accepted chunk")
+			}
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(time.Second):
 		t.Fatal("output channel was not closed after context cancellation")
 	}
 }

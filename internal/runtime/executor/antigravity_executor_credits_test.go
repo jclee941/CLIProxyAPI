@@ -406,6 +406,16 @@ func TestAntigravityExecute_NoCreditsWithoutConductorFlag(t *testing.T) {
 	}, cliproxyexecutor.Options{
 		SourceFormat: sdktranslator.FormatAntigravity,
 	})
+	refreshValue, ok := antigravityCreditsHintRefreshByID.Load(auth.ID)
+	if !ok {
+		t.Fatal("credit refresh state was not created")
+	}
+	refreshState, ok := refreshValue.(*antigravityCreditsHintRefreshState)
+	if !ok || refreshState == nil {
+		t.Fatalf("credit refresh state = %T, want *antigravityCreditsHintRefreshState", refreshValue)
+	}
+	refreshState.mu.Lock()
+	refreshState.mu.Unlock()
 	if err == nil {
 		t.Fatal("Execute() error = nil, want 429")
 	}

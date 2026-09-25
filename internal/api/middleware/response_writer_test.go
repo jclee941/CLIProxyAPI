@@ -14,6 +14,8 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/clienterror"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 )
 
 func TestExtractRequestBodyPrefersOverride(t *testing.T) {
@@ -156,6 +158,72 @@ func TestFinalizeStreamingWritesAPIWebsocketTimeline(t *testing.T) {
 	}
 	if !streamWriter.closed {
 		t.Fatal("expected stream writer to be closed")
+	}
+}
+
+func TestLogUpstreamRequestErrorIncludesModelContext(t *testing.T) {
+	// Given
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set(logging.UpstreamProviderContextKey, "codex")
+	c.Set(logging.UpstreamModelContextKey, "gpt-5.6-sol")
+	wrapper := &ResponseWriterWrapper{requestInfo: &RequestInfo{RequestID: "req-model-error"}}
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	// When
+	wrapper.logUpstreamRequestError(c, 400, []*interfaces.ErrorMessage{{
+		StatusCode: 400,
+		Error:      errors.New("Invalid value for input[0]"),
+	}})
+
+	// Then
+	entry := hook.LastEntry()
+	if entry == nil {
+		t.Fatal("error log entry = nil")
+	}
+	if entry.Level != log.ErrorLevel || entry.Message != "upstream model request failed" {
+		t.Fatalf("entry level/message = %s/%q", entry.Level, entry.Message)
+	}
+	wantFields := log.Fields{
+		"request_id": "req-model-error",
+		"provider":   "codex",
+		"model":      "gpt-5.6-sol",
+		"status":     "400",
+	}
+	for key, want := range wantFields {
+		if got := entry.Data[key]; got != want {
+			t.Fatalf("entry.Data[%q] = %#v, want %#v", key, got, want)
+		}
+	}
+	if got := entry.Data[log.ErrorKey]; got == nil || got.(error).Error() != "Invalid value for input[0]" {
+		t.Fatalf("entry error = %#v", got)
+	}
+}
+
+func TestLogUpstreamRequestErrorReadsViewerResponseMessage(t *testing.T) {
+	// Given
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	wrapper := &ResponseWriterWrapper{
+		body:        bytes.NewBufferString(`{"error":{"message":"Invalid role in input[0]"}}`),
+		requestInfo: &RequestInfo{RequestID: "req-viewer-error"},
+	}
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	// When
+	wrapper.logUpstreamRequestError(c, 400, nil)
+
+	// Then
+	entry := hook.LastEntry()
+	if entry == nil {
+		t.Fatal("error log entry = nil")
+	}
+	if got := entry.Data[log.ErrorKey]; got != "Invalid role in input[0]" {
+		t.Fatalf("entry error = %#v", got)
 	}
 }
 

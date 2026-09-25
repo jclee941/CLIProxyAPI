@@ -287,6 +287,7 @@ func (w *ResponseWriterWrapper) Finalize(c *gin.Context) error {
 	}
 
 	hasAPIError := hasActionableError(c, finalStatusCode, slicesAPIResponseError)
+	w.logUpstreamRequestError(c, finalStatusCode, slicesAPIResponseError)
 	forceLog := w.logOnErrorOnly && hasAPIError && !w.logger.IsEnabled()
 	websocketTimelineSource := w.extractWebsocketTimelineSource(c)
 	apiRequestSource := w.extractAPIRequestSource(c)
@@ -494,7 +495,11 @@ func (w *ResponseWriterWrapper) extractRequestBody(c *gin.Context) []byte {
 			break
 		}
 	}
-	body = decodeCapturedRequestBodyForLogWithLimit(body, encoding, maxDeferredErrorRequestBodyBytes)
+	if w.requestInfo.deferredBodyCapture.limit == 0 {
+		body = decodeCapturedRequestBodyForLog(body, encoding)
+	} else {
+		body = decodeCapturedRequestBodyForLogWithLimit(body, encoding, maxDeferredErrorRequestBodyBytes)
+	}
 	if statusMarker == "" {
 		return body
 	}

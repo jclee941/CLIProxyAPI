@@ -1,0 +1,2413 @@
+diff --git c/apps/web/src/components/quota/geminiWebQuotaConfig.test.ts i/apps/web/src/components/quota/geminiWebQuotaConfig.test.ts
+new file mode 100644
+index 0000000..254bc83
+--- /dev/null
++++ i/apps/web/src/components/quota/geminiWebQuotaConfig.test.ts
+@@ -0,0 +1,70 @@
++import { describe, expect, it } from 'vitest';
++import type { GeminiWebAccount } from '@/services/api/geminiWebDto';
++import { GEMINI_WEB_CONFIG, preserveGeminiWebObservation } from './geminiWebQuotaConfig';
++
++const account: GeminiWebAccount = {
++  id: 'gemini-web-fixture-1.json',
++  label: 'Fixture',
++  enabled: false,
++  status: 'ready',
++  models: [{ id: 'fixture-model', name: 'Fixture model' }],
++  observed_at: 1800000000,
++  usage: {
++    tier: null,
++    tier_code: 'opaque-42',
++    metrics: [],
++    source: 'GoogleWeb',
++    estimated: false,
++    observed_at: 1800000000,
++  },
++};
++describe('GeminiWeb manual quota adapter', () => {
++  it('retains the provider DTO instead of Codex windows when loaded', () => {
++    const result = GEMINI_WEB_CONFIG.buildSuccessState(account);
++    expect(GEMINI_WEB_CONFIG.type).toBe('gemini-web');
++    expect(result.account).toEqual(account);
++    expect(result).not.toHaveProperty('windows');
++    expect(result).not.toHaveProperty('planType');
++    expect(result).not.toHaveProperty('usedPercent');
++  });
++  it.each(['error', 'expired', 'unknown'] as const)(
++    'does not mark %s as success for HTTP 200',
++    (status) => {
++      const result = GEMINI_WEB_CONFIG.buildSuccessState({ ...account, status, usage: null });
++      expect(result.status).not.toBe('success');
++      expect(result.account?.usage).toBeNull();
++    }
++  );
++  it('keeps missing usage unknown even when models are ready', () => {
++    expect(GEMINI_WEB_CONFIG.buildSuccessState({ ...account, usage: null }).status).toBe('unknown');
++  });
++  it('marks the previous observation stale on body-level failure', () => {
++    const previous = GEMINI_WEB_CONFIG.buildSuccessState(account);
++    const failure = GEMINI_WEB_CONFIG.buildSuccessState({
++      ...account,
++      status: 'expired',
++      usage: null,
++      error: 'session_expired',
++    });
++    const result = preserveGeminiWebObservation(previous, failure);
++    expect(result.status).toBe('error');
++    expect(result.stale).toBe(true);
++    expect(result.account?.usage?.observed_at).toBe(1800000000);
++    expect(result.error).toContain('expired');
++  });
++  it('marks the previous observation stale on transport failure', () => {
++    const previous = GEMINI_WEB_CONFIG.buildSuccessState(account);
++    const result = preserveGeminiWebObservation(
++      previous,
++      GEMINI_WEB_CONFIG.buildErrorState('Unavailable')
++    );
++    expect(result.status).toBe('error');
++    expect(result.stale).toBe(true);
++    expect(result.account).toEqual(account);
++  });
++  it('replaces stale data with explicit nulls on the next non-error observation', () => {
++    const previous = { ...GEMINI_WEB_CONFIG.buildSuccessState(account), stale: true };
++    const next = GEMINI_WEB_CONFIG.buildSuccessState({ ...account, usage: null });
++    expect(preserveGeminiWebObservation(previous, next)).toEqual(next);
++  });
++});
+diff --git c/apps/web/src/components/quota/geminiWebQuotaConfig.ts i/apps/web/src/components/quota/geminiWebQuotaConfig.ts
+new file mode 100644
+index 0000000..d852328
+--- /dev/null
++++ i/apps/web/src/components/quota/geminiWebQuotaConfig.ts
+@@ -0,0 +1,44 @@
++import { geminiWebApi } from '@/services/api/geminiWeb';
++import type { GeminiWebAccount } from '@/services/api/geminiWebDto';
++import type { QuotaConfig } from './quotaConfigs';
++
++export type GeminiWebQuotaState = {
++  readonly status: 'idle' | 'loading' | 'success' | 'error' | 'unknown';
++  readonly account: GeminiWebAccount | null;
++  readonly stale: boolean;
++  readonly error?: string;
++};
++
++export const GEMINI_WEB_CONFIG: QuotaConfig<GeminiWebQuotaState, GeminiWebAccount> = {
++  type: 'gemini-web',
++  i18nPrefix: 'gemini_web',
++  fetchQuota: (file, _translate, scope) => geminiWebApi.refresh(file, scope),
++  buildLoadingState: () => ({ status: 'loading', account: null, stale: false }),
++  buildErrorState: (error) => ({ status: 'error', account: null, stale: false, error }),
++  buildSuccessState: (account) => {
++    switch (account.status) {
++      case 'error':
++      case 'expired':
++        return {
++          status: 'error',
++          account,
++          stale: false,
++          error: `${account.status}: ${account.error || 'account_check_failed'}`,
++        };
++      case 'unknown':
++        return { status: 'unknown', account, stale: false };
++      case 'ready':
++        return { status: account.usage ? 'success' : 'unknown', account, stale: false };
++    }
++  },
++};
++
++export function preserveGeminiWebObservation(
++  previous: GeminiWebQuotaState,
++  next: GeminiWebQuotaState
++): GeminiWebQuotaState {
++  if (next.status === 'error' && previous.account?.usage) {
++    return { ...next, account: previous.account, stale: true };
++  }
++  return next;
++}
+diff --git c/apps/web/src/components/quota/index.ts i/apps/web/src/components/quota/index.ts
+index afb876e..e462422 100644
+--- c/apps/web/src/components/quota/index.ts
++++ i/apps/web/src/components/quota/index.ts
+@@ -7,10 +7,11 @@ export {
+   buildObservedCodexQuotaState,
+   getQuotaStoreKey,
+   resolveQuotaDisplayState,
+ } from './quotaConfigs';
+ export type { QuotaConfig } from './quotaConfigs';
++export { GEMINI_WEB_CONFIG } from './geminiWebQuotaConfig';
+ export {
+   refreshQuotaWithConfig,
+   type QuotaRefreshResult,
+   type QuotaSetter,
+   type QuotaUpdater,
+diff --git c/apps/web/src/components/quota/quotaConfigs.ts i/apps/web/src/components/quota/quotaConfigs.ts
+index 0851533..9dca1d3 100644
+--- c/apps/web/src/components/quota/quotaConfigs.ts
++++ i/apps/web/src/components/quota/quotaConfigs.ts
+@@ -49,11 +49,11 @@ import {
+   buildQuotaCredentialIdentity,
+   getQuotaCredentialStoreKey,
+   scopeQuotaStateToCredential,
+ } from '@/utils/quota/credentialScope';
+ 
+-type QuotaType = 'antigravity' | 'claude' | 'codex' | 'kimi' | 'xai';
++type QuotaType = 'antigravity' | 'claude' | 'codex' | 'kimi' | 'xai' | 'gemini-web';
+ 
+ export interface QuotaConfig<TState, TData> {
+   type: QuotaType;
+   i18nPrefix: string;
+   fetchQuota: (
+diff --git c/apps/web/src/features/accounts/AccountsPage.tsx i/apps/web/src/features/accounts/AccountsPage.tsx
+index 7013705..41f1d54 100644
+--- c/apps/web/src/features/accounts/AccountsPage.tsx
++++ i/apps/web/src/features/accounts/AccountsPage.tsx
+@@ -5891,10 +5891,18 @@ export function AccountsPage() {
+               XAI_CONFIG,
+               setXaiQuota,
+               getScopedQuotaState(XAI_CONFIG, baseQuotaStores.xaiQuota, row.raw)
+             )
+           );
++        case 'gemini-web':
++          return {
++            status: 'error',
++            error: t('gemini_web.manual_quota', {
++              defaultValue:
++                'Open GeminiWeb quota details and load or refresh the provider measurements there.',
++            }),
++          };
+         default:
+           return { status: 'error', error: t('common.unknown_error') };
+       }
+     },
+     [
+@@ -6003,10 +6011,14 @@ export function AccountsPage() {
+   );
+ 
+   const refreshAccountQuota = useCallback(
+     async (row: AccountRow): Promise<void> => {
+       if (row.runtimeOnly) return;
++      if (row.provider === 'gemini-web') {
++        await openAccountDetail(row, 'quota');
++        return;
++      }
+       const refreshKey = getAccountQuotaRefreshKey(row);
+       if (manualQuotaRefreshingKeysRef.current.has(refreshKey)) return;
+ 
+       manualQuotaRefreshingKeysRef.current.add(refreshKey);
+       setManualQuotaRefreshingKeys((current) => {
+@@ -6048,11 +6060,18 @@ export function AccountsPage() {
+             return next;
+           });
+         }
+       }
+     },
+-    [accountDisplayMode, connectionFingerprint, refreshQuotaForRow, showNotification, t]
++    [
++      accountDisplayMode,
++      connectionFingerprint,
++      openAccountDetail,
++      refreshQuotaForRow,
++      showNotification,
++      t,
++    ]
+   );
+ 
+   const isManualQuotaRefreshing = (row: AccountRow): boolean =>
+     manualQuotaRefreshingKeys.has(getAccountQuotaRefreshKey(row));
+ 
+@@ -7313,12 +7332,20 @@ export function AccountsPage() {
+           onClick={() => void refreshAccountQuota(row)}
+           disabled={
+             disableControls || quotaRefreshing || isManualQuotaRefreshing(row) || row.runtimeOnly
+           }
+           loading={isManualQuotaRefreshing(row)}
+-          title={t('accounts.refresh_quota')}
+-          aria-label={t('accounts.refresh_quota')}
++          title={
++            row.provider === 'gemini-web'
++              ? t('gemini_web.quota_details', { defaultValue: 'GeminiWeb quota details' })
++              : t('accounts.refresh_quota')
++          }
++          aria-label={
++            row.provider === 'gemini-web'
++              ? t('gemini_web.quota_details', { defaultValue: 'GeminiWeb quota details' })
++              : t('accounts.refresh_quota')
++          }
+         >
+           {!isManualQuotaRefreshing(row) ? <IconRefreshCw size={15} /> : null}
+         </Button>
+         <Button
+           variant="secondary"
+@@ -7933,10 +7960,11 @@ export function AccountsPage() {
+ 
+     const renderActiveDetail = () => {
+       if (detailTab === 'quota') {
+         return (
+           <AccountQuotaTab
++            file={selectedRow.raw}
+             detailView={detailView}
+             windowUsageError={accountWindowUsageError}
+             historyAvailable={requestHistoryAvailable}
+             historyRefreshing={historyRefreshing}
+             onRefreshHistory={() => void refreshAccountHistory(selectedRow)}
+@@ -8135,19 +8163,21 @@ export function AccountsPage() {
+               >
+                 <IconShield size={16} />
+                 {t('accounts.recommend_action_reauth')}
+               </Button>
+             ) : null}
+-            <Button
+-              variant="secondary"
+-              onClick={() => void refreshAccountQuota(selectedRow)}
+-              loading={quotaRefreshing || selectedQuotaRefreshing}
+-              disabled={disableControls || selectedQuotaRefreshing || selectedRow.runtimeOnly}
+-            >
+-              {!quotaRefreshing && !selectedQuotaRefreshing ? <IconRefreshCw size={16} /> : null}
+-              {t('accounts.refresh_quota')}
+-            </Button>
++            {selectedRow.provider !== 'gemini-web' ? (
++              <Button
++                variant="secondary"
++                onClick={() => void refreshAccountQuota(selectedRow)}
++                loading={quotaRefreshing || selectedQuotaRefreshing}
++                disabled={disableControls || selectedQuotaRefreshing || selectedRow.runtimeOnly}
++              >
++                {!quotaRefreshing && !selectedQuotaRefreshing ? <IconRefreshCw size={16} /> : null}
++                {t('accounts.refresh_quota')}
++              </Button>
++            ) : null}
+             <Button
+               variant={selectedRow.disabled ? 'secondary' : 'danger'}
+               onClick={() => handleBatchStatus(selectedRow.disabled, [selectedRow])}
+               disabled={
+                 disableControls || configurationSaving || statusUpdating || selectedRow.runtimeOnly
+diff --git c/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx i/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx
+index 4d2fdaf..ba48b04 100644
+--- c/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx
++++ i/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx
+@@ -1,9 +1,11 @@
+ import { useId, useState } from 'react';
+ import { useTranslation } from 'react-i18next';
+ import type { JSX } from 'react';
+ import { Button } from '@/components/ui/Button';
++import type { AuthFileItem } from '@/types';
++import { GeminiWebQuotaPanel } from './GeminiWebQuotaPanel';
+ import {
+   IconBinary,
+   IconChartLine,
+   IconCheck,
+   IconDollarSign,
+@@ -93,20 +95,22 @@ const MetricCell = ({ icon, tone, label, value, valueTitle }: MetricCellProps):
+     </div>
+   );
+ };
+ 
+ interface AccountQuotaTabProps {
++  file?: AuthFileItem;
+   detailView: AccountDetailViewModel;
+   windowUsageError: string;
+   historyAvailable: boolean;
+   historyRefreshing: boolean;
+   onRefreshHistory: () => void;
+   onResetQuota: () => void;
+   resetQuotaDisabled: boolean;
+ }
+ 
+ export function AccountQuotaTab({
++  file,
+   detailView,
+   windowUsageError,
+   historyAvailable,
+   historyRefreshing,
+   onRefreshHistory,
+@@ -209,11 +213,16 @@ export function AccountQuotaTab({
+         </div>
+       </section>
+ 
+       {windowUsageError ? <div className={styles.errorBox}>{windowUsageError}</div> : null}
+ 
+-      {standardWindows.length > 0 || allWindows.length === 0 ? (
++      {file && detailView.identity.provider === 'gemini-web' ? (
++        <GeminiWebQuotaPanel file={file} />
++      ) : null}
++
++      {standardWindows.length > 0 ||
++      (allWindows.length === 0 && detailView.identity.provider !== 'gemini-web') ? (
+         <section className={styles.quotaSection} data-quota-window-group="standard">
+           <div className={styles.quotaSectionHeading}>
+             <h3>{t('accounts.detail_quota_standard_title', { defaultValue: '标准额度' })}</h3>
+             <span>
+               {t('accounts.detail_quota_standard_desc', {
+diff --git c/apps/web/src/features/accounts/components/accountDetail/GeminiWebQuotaPanel.tsx i/apps/web/src/features/accounts/components/accountDetail/GeminiWebQuotaPanel.tsx
+new file mode 100644
+index 0000000..d65975c
+--- /dev/null
++++ i/apps/web/src/features/accounts/components/accountDetail/GeminiWebQuotaPanel.tsx
+@@ -0,0 +1,221 @@
++import { useLayoutEffect, useMemo, useRef, useState } from 'react';
++import { useNavigate } from 'react-router-dom';
++import { useTranslation } from 'react-i18next';
++import { Button } from '@/components/ui/Button';
++import { Card } from '@/components/ui/Card';
++import { useAuthStore } from '@/stores';
++import type { AuthFileItem } from '@/types';
++import {
++  geminiWebApi,
++  geminiWebErrorMessage,
++  requireGeminiWebPortal,
++} from '@/services/api/geminiWeb';
++import {
++  GEMINI_WEB_CONFIG,
++  preserveGeminiWebObservation,
++  type GeminiWebQuotaState,
++} from '@/components/quota/geminiWebQuotaConfig';
++import styles from '@/features/accounts/AccountsPage.module.scss';
++
++const initialState: GeminiWebQuotaState = { status: 'idle', account: null, stale: false };
++
++export function GeminiWebQuotaPanel({ file }: { readonly file: AuthFileItem }) {
++  const { t, i18n } = useTranslation();
++  const navigate = useNavigate();
++  const apiBase = useAuthStore((state) => state.apiBase);
++  const managementKey = useAuthStore((state) => state.managementKey);
++  const supportsPlugin = useAuthStore((state) => state.supportsPlugin);
++  const connected = useAuthStore((state) => state.connectionStatus) === 'connected';
++  const scope = useMemo(() => ({ apiBase, managementKey }), [apiBase, managementKey]);
++  const [quota, setQuota] = useState(initialState);
++  const [pending, setPending] = useState(false);
++  const [portalError, setPortalError] = useState('');
++  const generation = useRef(0);
++  useLayoutEffect(() => {
++    setQuota(initialState);
++    setPending(false);
++    setPortalError('');
++    return () => {
++      generation.current += 1;
++    };
++  }, [scope, file.id, file.name, file.provider, file.type]);
++
++  const isCurrent = (version: number) =>
++    generation.current === version &&
++    useAuthStore.getState().apiBase === scope.apiBase &&
++    useAuthStore.getState().managementKey === scope.managementKey;
++  const load = async (refresh: boolean) => {
++    const version = generation.current;
++    setPending(true);
++    try {
++      const account = refresh
++        ? await GEMINI_WEB_CONFIG.fetchQuota(file, t, scope)
++        : await geminiWebApi.load(file, scope);
++      if (isCurrent(version))
++        setQuota((previous) =>
++          preserveGeminiWebObservation(previous, GEMINI_WEB_CONFIG.buildSuccessState(account))
++        );
++    } catch (error: unknown) {
++      if (isCurrent(version))
++        setQuota((previous) =>
++          preserveGeminiWebObservation(
++            previous,
++            GEMINI_WEB_CONFIG.buildErrorState(geminiWebErrorMessage(error))
++          )
++        );
++    } finally {
++      if (isCurrent(version)) setPending(false);
++    }
++  };
++  const openPortal = async () => {
++    const version = generation.current;
++    setPending(true);
++    setPortalError('');
++    try {
++      const route = await requireGeminiWebPortal(scope);
++      if (isCurrent(version)) navigate(route);
++    } catch (error: unknown) {
++      if (isCurrent(version)) setPortalError(geminiWebErrorMessage(error));
++    } finally {
++      if (isCurrent(version)) setPending(false);
++    }
++  };
++  const unknown = t('gemini_web.unknown', { defaultValue: 'Unknown' });
++  const time = (seconds: number | null | undefined) =>
++    seconds == null ? unknown : new Date(seconds * 1000).toLocaleString(i18n.language);
++  const account = quota.account;
++  const usage = account?.usage;
++  const fields = [
++    ['id', 'Account ID', account?.id ?? file.name],
++    ['label', 'Label', account?.label ?? unknown],
++    ['status', 'Account state (observed)', account?.status ?? unknown],
++    ['enabled', 'Enabled (observed)', account ? String(account.enabled) : unknown],
++    ['tier', 'Tier', usage?.tier ?? unknown],
++    ['tier-code', 'Tier code', usage?.tier_code ?? unknown],
++    ['account-observed', 'Account observed at', time(account?.observed_at)],
++    ['usage-observed', 'Usage observed at', time(usage?.observed_at)],
++  ];
++
++  return (
++    <section
++      className={styles.quotaSection}
++      data-gemini-web-quota={quota.status}
++      aria-busy={pending}
++    >
++      <Card title={t('gemini_web.quota_title', { defaultValue: 'GeminiWeb account quota' })}>
++        <div className={styles.quotaCardList}>
++          <p className={styles.quotaEmpty}>
++            {t('gemini_web.quota_hint', {
++              defaultValue:
++                'GoogleWeb provider measurements, not estimated request usage. Load on demand; refresh checks this account only. Login and account registration remain in the plugin panel.',
++            })}
++          </p>
++          <div className={styles.quotaTabActions}>
++            <Button
++              size="sm"
++              disabled={!connected || !supportsPlugin}
++              loading={pending}
++              onClick={() => void load(Boolean(account))}
++            >
++              {account
++                ? t('gemini_web.refresh', { defaultValue: 'Refresh GeminiWeb quota' })
++                : t('gemini_web.load', { defaultValue: 'Load GeminiWeb quota' })}
++            </Button>
++            <Button
++              size="sm"
++              variant="secondary"
++              disabled={!connected || !supportsPlugin || pending}
++              onClick={() => void openPortal()}
++            >
++              {t('gemini_web.open_panel', { defaultValue: 'Open GeminiWeb plugin panel' })}
++            </Button>
++          </div>
++          {!connected || !supportsPlugin ? (
++            <p role="alert">
++              {t('gemini_web.unsupported', {
++                defaultValue:
++                  'Connect to a Manager backend with plugin support to load GeminiWeb details.',
++              })}
++            </p>
++          ) : null}
++          {quota.error ? (
++            <div className={styles.errorBox} role="alert">
++              {quota.error}
++            </div>
++          ) : null}
++          {portalError ? (
++            <div className={styles.errorBox} role="alert">
++              {portalError}
++            </div>
++          ) : null}
++          {quota.stale ? (
++            <p role="status" data-gemini-web-stale="true">
++              {t('gemini_web.stale', {
++                defaultValue:
++                  'Refresh failed. Showing the previous observation below, not current account health or quota.',
++              })}
++            </p>
++          ) : null}
++          <dl className={styles.overviewFieldGrid}>
++            {fields.map(([key, label, value]) => (
++              <div key={key} data-gemini-web-field={key}>
++                <dt>{t(`gemini_web.${key}`, { defaultValue: String(label) })}</dt>
++                <dd>{value}</dd>
++              </div>
++            ))}
++          </dl>
++          <dl className={styles.overviewFieldGrid}>
++            <div>
++              <dt>{t('gemini_web.models', { defaultValue: 'Models (observed)' })}</dt>
++              <dd>
++                {account?.models.length
++                  ? account.models.map((model) => `${model.name} (${model.id})`).join(', ')
++                  : unknown}
++              </dd>
++            </div>
++          </dl>
++          {(usage?.metrics ?? []).map((metric, index) => (
++            <dl className={styles.overviewFieldGrid} key={index} data-gemini-web-metric={index}>
++              <div>
++                <dt>{t('gemini_web.window', { defaultValue: 'Provider window' })}</dt>
++                <dd>{metric.window_kind}</dd>
++              </div>
++              <div>
++                <dt>
++                  {t('gemini_web.remaining', { defaultValue: 'Remaining provider compute units' })}
++                </dt>
++                <dd>{metric.remaining_units ?? unknown}</dd>
++              </div>
++              <div>
++                <dt>{t('gemini_web.fraction', { defaultValue: 'Reported usage fraction' })}</dt>
++                <dd>{metric.usage_fraction ?? unknown}</dd>
++              </div>
++              <div>
++                <dt>{t('gemini_web.percent', { defaultValue: 'Reported usage percent' })}</dt>
++                <dd>{metric.usage_percent === undefined ? unknown : `${metric.usage_percent}%`}</dd>
++              </div>
++              <div>
++                <dt>{t('gemini_web.reset', { defaultValue: 'Reset at' })}</dt>
++                <dd>{time(metric.reset_unix_seconds)}</dd>
++              </div>
++              {metric.metric_type !== undefined ? (
++                <div>
++                  <dt>{t('gemini_web.metric_type', { defaultValue: 'Metric type' })}</dt>
++                  <dd>{metric.metric_type}</dd>
++                </div>
++              ) : null}
++            </dl>
++          ))}
++          {!usage?.metrics?.length ? (
++            <p className={styles.quotaEmpty}>
++              {t('gemini_web.no_metrics', {
++                defaultValue:
++                  'No provider quota metrics observed. This does not mean zero or unlimited quota.',
++              })}
++            </p>
++          ) : null}
++        </div>
++      </Card>
++    </section>
++  );
++}
+diff --git a/apps/web/src/features/logs/LogsPage.module.scss b/apps/web/src/features/logs/LogsPage.module.scss
+index 168945eecefdaac478f49c6f9675ccf522a19117..a12b0ba29aaf9defad09ede70925ea7637154455 100644
+--- a/apps/web/src/features/logs/LogsPage.module.scss
++++ b/apps/web/src/features/logs/LogsPage.module.scss
+@@ -725,5 +725,28 @@
+ 
+   .errorPanel {
+     height: 280px;
+   }
+ }
++
++.requestLogViewer {
++  width: 100%;
++  max-height: 60vh;
++  overflow: auto;
++  background: var(--bg-body);
++  color: var(--text-primary);
++  padding: $spacing-md;
++  border-radius: var(--border-radius-md);
++  border: 1px solid var(--border-color);
++  font-family: var(--font-mono);
++  font-size: 12px;
++  line-height: 1.5;
++  white-space: pre-wrap;
++  word-wrap: break-word;
++}
++
++.payloadTabs {
++  display: flex;
++  flex-wrap: wrap;
++  gap: $spacing-sm;
++  margin-bottom: $spacing-sm;
++}
+diff --git a/apps/web/src/features/logs/LogsPage.tsx b/apps/web/src/features/logs/LogsPage.tsx
+index c9000a85056e7627183df9179b2a927bfd7fe397..9f247fac593620810e3b5a221b756d48395b067a 100644
+--- a/apps/web/src/features/logs/LogsPage.tsx
++++ b/apps/web/src/features/logs/LogsPage.tsx
+@@ -38,10 +38,11 @@ import {
+ } from './hooks/logTypes';
+ import { parseLogLine } from './hooks/logParsing';
+ import { useLogFilters } from './hooks/useLogFilters';
+ import { isNearBottom, useLogScroller } from './hooks/useLogScroller';
+ import { isFileLogsAvailable } from './logFeatureAvailability';
++import { splitLogPayloads } from './logPayloads';
+ import styles from './LogsPage.module.scss';
+ 
+ interface ErrorLogItem {
+   name: string;
+   size?: number;
+@@ -93,11 +94,11 @@ export function LogsPage() {
+   );
+   const requestLogEnabled = config?.requestLog ?? false;
+   const [logState, setLogState] = useState<LogState>({ buffer: [], visibleFrom: 0 });
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState('');
+-  const [autoRefresh, setAutoRefresh] = useLocalStorage('logsPage.autoRefresh', false);
++  const [autoRefresh, setAutoRefresh] = useLocalStorage('logsPage.autoRefresh', true);
+   const [searchQuery, setSearchQuery] = useState('');
+   const deferredSearchQuery = useDeferredValue(searchQuery);
+   const [hideManagementLogs, setHideManagementLogs] = useLocalStorage(
+     'logsPage.hideManagementLogs',
+     true
+@@ -109,11 +110,20 @@ export function LogsPage() {
+   );
+   const [errorLogs, setErrorLogs] = useState<ErrorLogItem[]>([]);
+   const [loadingErrors, setLoadingErrors] = useState(false);
+   const [errorLogsError, setErrorLogsError] = useState('');
+   const [requestLogId, setRequestLogId] = useState<string | null>(null);
++  const [errorLogName, setErrorLogName] = useState<string | null>(null);
+   const [requestLogDownloading, setRequestLogDownloading] = useState(false);
++  const [requestLogContent, setRequestLogContent] = useState<string | null>(null);
++  const [requestLogLoading, setRequestLogLoading] = useState(false);
++  const [requestLogError, setRequestLogError] = useState('');
++  const [requestLogView, setRequestLogView] = useState<'request' | 'response' | 'raw'>('request');
++  const payloads = useMemo(() => splitLogPayloads(requestLogContent ?? ''), [requestLogContent]);
++  const visibleLogView = requestLogView !== 'raw' && payloads[requestLogView] !== null
++    ? requestLogView : 'raw';
++  const visibleLogText = visibleLogView === 'raw' ? requestLogContent : payloads[visibleLogView];
+ 
+   const logScrollerRef = useRef<ReturnType<typeof useLogScroller> | null>(null);
+   const longPressRef = useRef<{
+     timer: number | null;
+     startX: number;
+@@ -223,13 +233,11 @@ export function LogsPage() {
+         const visibleFrom = Math.max(buffer.length - INITIAL_DISPLAY_LINES, 0);
+         setLogState({ buffer, visibleFrom });
+       }
+     } catch (err: unknown) {
+       console.error('Failed to load logs:', err);
+-      if (!incremental) {
+-        setError(getErrorMessage(err) || t('logs.load_error'));
+-      }
++      setError(getErrorMessage(err) || t('logs.load_error'));
+     } finally {
+       if (!incremental) {
+         setLoading(false);
+       }
+       logRequestInFlightRef.current = false;
+@@ -351,21 +359,15 @@ export function LogsPage() {
+     }, 8000);
+     return () => window.clearInterval(id);
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [autoRefresh, connectionStatus, canLoadFileLogs]);
+ 
+-  const visibleLines = useMemo(
+-    () => logState.buffer.slice(logState.visibleFrom),
+-    [logState.buffer, logState.visibleFrom]
+-  );
+-
+   const trimmedSearchQuery = deferredSearchQuery.trim();
+   const isSearching = trimmedSearchQuery.length > 0;
+-  const baseLines = isSearching ? logState.buffer : visibleLines;
+ 
+   const parsedSearchLines = useMemo(() => {
+-    let working = baseLines;
++    let working = logState.buffer;
+ 
+     if (hideManagementLogs) {
+       working = working.filter((line) => !line.includes(MANAGEMENT_API_PREFIX));
+     }
+ 
+@@ -373,18 +375,18 @@ export function LogsPage() {
+       const queryLowered = trimmedSearchQuery.toLowerCase();
+       working = working.filter((line) => line.toLowerCase().includes(queryLowered));
+     }
+ 
+     return working.map((line) => parseLogLine(line));
+-  }, [baseLines, hideManagementLogs, trimmedSearchQuery]);
++  }, [logState.buffer, hideManagementLogs, trimmedSearchQuery]);
+ 
+   const filters = useLogFilters({ parsedLines: parsedSearchLines });
+   const structuredFiltersPanelId = 'logs-structured-filters';
+   const structuredFilterCount =
+     filters.methodFilters.length + filters.statusFilters.length + filters.pathFilters.length;
+ 
+-  const { filteredParsedLines, filteredLines, removedCount } = useMemo(() => {
++  const { filteredParsedLines, filteredLines, removedCount, availableLineCount } = useMemo(() => {
+     const filteredParsed = parsedSearchLines.filter((line) => {
+       if (
+         filters.methodFilterSet.size > 0 &&
+         (!line.method || !filters.methodFilterSet.has(line.method))
+       ) {
+@@ -404,17 +406,23 @@ export function LogsPage() {
+       }
+ 
+       return true;
+     });
+ 
++    const visible = isSearching
++      ? filteredParsed
++      : filteredParsed.slice(-(logState.buffer.length - logState.visibleFrom));
+     return {
+-      filteredParsedLines: filteredParsed,
+-      filteredLines: filteredParsed.map((line) => line.raw),
+-      removedCount: Math.max(baseLines.length - filteredParsed.length, 0)
++      filteredParsedLines: visible,
++      filteredLines: visible.map((line) => line.raw),
++      removedCount: logState.buffer.length - filteredParsed.length,
++      availableLineCount: filteredParsed.length
+     };
+   }, [
+-    baseLines,
++    logState.buffer,
++    logState.visibleFrom,
++    isSearching,
+     filters.methodFilterSet,
+     filters.pathFilterSet,
+     filters.statusFilterSet,
+     parsedSearchLines
+   ]);
+@@ -430,10 +438,11 @@ export function LogsPage() {
+     logState,
+     setLogState,
+     loading,
+     isSearching,
+     filteredLineCount: filteredLines.length,
++    availableLineCount,
+     hasStructuredFilters: filters.hasStructuredFilters,
+     showRawLogs
+   });
+ 
+   logScrollerRef.current = scroller;
+@@ -489,12 +498,36 @@ export function LogsPage() {
+   };
+ 
+   const closeRequestLogModal = () => {
+     if (requestLogDownloading) return;
+     setRequestLogId(null);
++    setErrorLogName(null);
++    setRequestLogContent(null);
++    setRequestLogError('');
+   };
+ 
++  useEffect(() => {
++    const target = errorLogName ?? requestLogId;
++    if (!target) return;
++    let active = true;
++    setRequestLogLoading(true);
++    setRequestLogContent(null);
++    setRequestLogError('');
++    setRequestLogView('request');
++    const download = errorLogName
++      ? logsApi.downloadErrorLog(target)
++      : logsApi.downloadRequestLogById(target);
++    void download
++      .then(response => response.data.text())
++      .then(text => { if (active) setRequestLogContent(text); })
++      .catch((err: unknown) => {
++        if (active) setRequestLogError(getErrorMessage(err) || t('logs.error_logs_load_error'));
++      })
++      .finally(() => { if (active) setRequestLogLoading(false); });
++    return () => { active = false; };
++  }, [requestLogId, errorLogName, t]);
++
+   const downloadRequestLog = async (id: string) => {
+     setRequestLogDownloading(true);
+     try {
+       const response = await logsApi.downloadRequestLogById(id);
+       downloadBlob({
+@@ -783,11 +816,11 @@ export function LogsPage() {
+                         <span className={styles.loadMoreCount}>
+                           {t('logs.filtered_lines', { count: removedCount })}
+                         </span>
+                       )}
+                       <span className={styles.loadMoreCount}>
+-                        {t('logs.hidden_lines', { count: logState.visibleFrom })}
++                        {t('logs.hidden_lines', { count: availableLineCount - filteredLines.length })}
+                       </span>
+                     </div>
+                   </div>
+                 )}
+                 {showRawLogs ? (
+@@ -918,17 +951,13 @@ export function LogsPage() {
+                 {t('common.refresh')}
+               </Button>
+             }
+           >
+             <div className="stack">
+-              <div className="hint">{t('logs.error_logs_description')}</div>
+-
+-              {requestLogEnabled && (
+-                <div>
+-                  <div className="status-badge warning">{t('logs.error_logs_request_log_enabled')}</div>
+-                </div>
+-              )}
++              <div className="hint">{t('logs.error_logs_full_description', {
++                defaultValue: 'Failed request logs. Open a log to inspect the full request and response.',
++              })}</div>
+ 
+               {errorLogsError && <div className="error-box">{errorLogsError}</div>}
+ 
+               <div className={styles.errorPanel}>
+                 {loadingErrors ? (
+@@ -945,10 +974,18 @@ export function LogsPage() {
+                             {item.size ? `${(item.size / 1024).toFixed(1)} KB` : ''}{' '}
+                             {item.modified ? formatUnixTimestamp(item.modified) : ''}
+                           </div>
+                         </div>
+                         <div className="item-actions">
++                          <Button
++                            variant="secondary"
++                            size="sm"
++                            onClick={() => setErrorLogName(item.name)}
++                            disabled={disableControls}
++                          >
++                            {t('common.view', { defaultValue: 'View' })}
++                          </Button>
+                           <Button
+                             variant="secondary"
+                             size="sm"
+                             onClick={() => downloadErrorLog(item.name)}
+                             disabled={disableControls}
+@@ -965,32 +1002,74 @@ export function LogsPage() {
+           </Card>
+         )}
+       </div>
+ 
+       <Modal
+-        open={Boolean(requestLogId)}
++        open={Boolean(requestLogId || errorLogName)}
+         onClose={closeRequestLogModal}
+-        title={t('logs.request_log_download_title')}
++        title={t('logs.request_log_details_title', { defaultValue: 'Request / response log' })}
++        width="min(1100px, calc(100vw - 32px))"
+         footer={
+           <>
+             <Button variant="secondary" onClick={closeRequestLogModal} disabled={requestLogDownloading}>
+               {t('common.cancel')}
+             </Button>
++            {visibleLogText !== null && (
++              <Button
++                variant="secondary"
++                onClick={async () => {
++                  const copied = await copyToClipboard(visibleLogText);
++                  showNotification(
++                    copied ? t('logs.copy_success') : t('logs.copy_failed', { defaultValue: 'Copy failed' }),
++                    copied ? 'success' : 'error'
++                  );
++                }}
++              >
++                {t('common.copy', { defaultValue: 'Copy' })}
++              </Button>
++            )}
+             <Button
+               onClick={() => {
+                 if (requestLogId) {
+                   void downloadRequestLog(requestLogId);
++                } else if (errorLogName) {
++                  void downloadErrorLog(errorLogName);
+                 }
+               }}
+               loading={requestLogDownloading}
+-              disabled={!requestLogId}
++              disabled={(!requestLogId && !errorLogName) || requestLogLoading}
+             >
+-              {t('common.confirm')}
++              <IconDownload size={16} />
++              {t('logs.download', { defaultValue: 'Download' })}
+             </Button>
+           </>
+         }
+       >
+-        {requestLogId ? t('logs.request_log_download_confirm', { id: requestLogId }) : null}
++        {requestLogLoading ? (
++          <div>{t('common.loading', { defaultValue: 'Loading...' })}</div>
++        ) : requestLogError ? (
++          <div role="alert" className="error-box">{requestLogError}</div>
++        ) : requestLogContent !== null ? (
++          <>
++            <div className={styles.payloadTabs} role="tablist" aria-label="Log content">
++              <Button role="tab" variant={visibleLogView === 'request' ? 'primary' : 'secondary'} aria-selected={visibleLogView === 'request'}
++                disabled={payloads.request === null} onClick={() => setRequestLogView('request')}>
++                {t('logs.request_payload', { defaultValue: 'Request payload' })}
++              </Button>
++              <Button role="tab" variant={visibleLogView === 'response' ? 'primary' : 'secondary'} aria-selected={visibleLogView === 'response'}
++                disabled={payloads.response === null} onClick={() => setRequestLogView('response')}>
++                {t('logs.response_payload', { defaultValue: 'Response payload' })}
++              </Button>
++              <Button role="tab" variant={visibleLogView === 'raw' ? 'primary' : 'secondary'} aria-selected={visibleLogView === 'raw'}
++                onClick={() => setRequestLogView('raw')}>
++                {t('logs.original_log', { defaultValue: 'Original log' })}
++              </Button>
++            </div>
++            <pre className={styles.requestLogViewer} role="tabpanel">{visibleLogText}</pre>
++          </>
++        ) : (
++          requestLogId ? t('logs.request_log_download_confirm', { id: requestLogId }) : null
++        )}
+       </Modal>
+     </div>
+   );
+ }
+diff --git a/apps/web/src/features/logs/hooks/useLogScroller.ts b/apps/web/src/features/logs/hooks/useLogScroller.ts
+index a19b88e2ed7559e6f933a0b4ac2b0feaf865d333..67d7f60b8e74e64baf7b45dda51fbc076bf17c71 100644
+--- a/apps/web/src/features/logs/hooks/useLogScroller.ts
++++ b/apps/web/src/features/logs/hooks/useLogScroller.ts
+@@ -15,10 +15,11 @@ interface UseLogScrollerOptions {
+   logState: LogState;
+   setLogState: Dispatch<SetStateAction<LogState>>;
+   loading: boolean;
+   isSearching: boolean;
+   filteredLineCount: number;
++  availableLineCount: number;
+   hasStructuredFilters: boolean;
+   showRawLogs: boolean;
+ }
+ 
+ interface UseLogScrollerReturn {
+@@ -34,19 +35,20 @@ export function useLogScroller(options: UseLogScrollerOptions): UseLogScrollerRe
+     logState,
+     setLogState,
+     loading,
+     isSearching,
+     filteredLineCount,
++    availableLineCount,
+     hasStructuredFilters,
+     showRawLogs,
+   } = options;
+ 
+   const logViewerRef = useRef<HTMLDivElement | null>(null);
+   const pendingScrollToBottomRef = useRef(false);
+   const pendingPrependScrollRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+ 
+-  const canLoadMore = !isSearching && logState.visibleFrom > 0;
++  const canLoadMore = !isSearching && filteredLineCount < availableLineCount;
+ 
+   const scrollToBottom = useCallback(() => {
+     const node = logViewerRef.current;
+     if (!node) return;
+     node.scrollTop = node.scrollHeight;
+diff --git a/apps/web/src/features/logs/logPayloads.ts b/apps/web/src/features/logs/logPayloads.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/web/src/features/logs/logPayloads.ts
+@@ -0,0 +1,25 @@
++export interface LogPayloads {
++  request: string | null;
++  response: string | null;
++}
++
++// Preserve captured text, including large integers and SSE frames. The original
++// log remains available when a legacy or incomplete file has no body framing.
++export function splitLogPayloads(log: string): LogPayloads {
++  const sections = [...log.matchAll(/^=== ([A-Z][A-Z ]*) ===\r?$/gm)];
++  let request: string | null = null;
++  let response: string | null = null;
++  sections.forEach((section, index) => {
++    let start = section.index + section[0].length;
++    if (log[start] === '\n') start += 1;
++    const content = log.slice(start, sections[index + 1]?.index ?? log.length);
++    if (section[1] === 'REQUEST BODY' && request === null) {
++      request = content;
++    }
++    if (section[1] === 'RESPONSE') {
++      const separator = /\r?\n\r?\n/.exec(content);
++      if (separator) response = content.slice(separator.index + separator[0].length);
++    }
++  });
++  return { request, response };
++}
+diff --git a/apps/web/src/features/logs/logPayloads.test.ts b/apps/web/src/features/logs/logPayloads.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/web/src/features/logs/logPayloads.test.ts
+@@ -0,0 +1,23 @@
++import { describe, expect, it } from 'vitest';
++import { splitLogPayloads } from './logPayloads';
++
++describe('request log payload boundaries', () => {
++  it('preserves exact payload text without JSON parsing or headers', () => {
++    const request = '{"integer":9007199254740993,"prompt":"=== RESPONSE ===\\nquoted"}\n\n\n';
++    const response = 'event: error\ndata: {"error":{"message":"failed"}}\n\n';
++    const log = '=== REQUEST INFO ===\nMethod: POST\n\n=== HEADERS ===\nAuthorization: ***\n\n' +
++      '=== REQUEST BODY ===\n' + request +
++      '=== API ERROR RESPONSE ===\nHTTP Status: 429\nupstream retry\n\n' +
++      '=== RESPONSE ===\nStatus: 422\nContent-Type: text/event-stream\n\n' + response;
++    expect(splitLogPayloads(log)).toEqual({ request, response });
++  });
++
++  it('does not invent payloads for unstructured logs', () => {
++    expect(splitLogPayloads('plain error log')).toEqual({ request: null, response: null });
++  });
++
++  it('supports CRLF framing and an empty captured body', () => {
++    const log = '=== REQUEST BODY ===\r\n\r\n=== RESPONSE ===\r\nStatus: 204\r\n\r\n';
++    expect(splitLogPayloads(log)).toEqual({ request: '\r\n', response: '' });
++  });
++});
+diff --git c/apps/web/src/features/oauth/OAuthPage.geminiWeb.test.tsx i/apps/web/src/features/oauth/OAuthPage.geminiWeb.test.tsx
+new file mode 100644
+index 0000000..4632415
+--- /dev/null
++++ i/apps/web/src/features/oauth/OAuthPage.geminiWeb.test.tsx
+@@ -0,0 +1,182 @@
++import { act, create, type ReactTestRenderer } from 'react-test-renderer';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import type { PluginListResponse } from '@/types';
++import { Button } from '@/components/ui/Button';
++import { OAuthPage } from './OAuthPage';
++
++const mocks = vi.hoisted(() => ({
++  navigate: vi.fn(),
++  startAuth: vi.fn(),
++  getAuthStatus: vi.fn(),
++  list: vi.fn(),
++  resource: vi.fn(),
++  authFiles: vi.fn(),
++  notify: vi.fn(),
++  interval: vi.fn(),
++}));
++vi.mock('react-i18next', () => ({
++  useTranslation: () => ({
++    t: (key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key,
++  }),
++}));
++vi.mock('react-router-dom', () => ({
++  useLocation: () => ({ pathname: '/oauth', search: '', hash: '' }),
++  useNavigate: () => mocks.navigate,
++}));
++vi.mock('@/stores', () => {
++  const state = {
++    apiBase: 'http://127.0.0.1:1',
++    managementKey: 'fixture-only',
++    connectionStatus: 'connected',
++    supportsPlugin: true,
++  };
++  return {
++    useAuthStore: Object.assign((select: (value: typeof state) => unknown) => select(state), {
++      getState: () => state,
++    }),
++    useThemeStore: () => 'light',
++    useNotificationStore: () => ({ showNotification: mocks.notify }),
++    publishAccountCredentialMutationRevision: vi.fn(),
++  };
++});
++vi.mock('@/services/api', () => ({
++  oauthApi: { startAuth: mocks.startAuth, getAuthStatus: mocks.getAuthStatus },
++  authFilesApi: { list: mocks.authFiles },
++  pluginsApi: { list: mocks.list },
++}));
++vi.mock('@/services/api/plugins', () => ({ pluginsApi: { list: mocks.list } }));
++vi.mock('@/services/api/client', () => ({
++  apiClient: { getRaw: mocks.resource },
++  createScopedApiRequestConfig: () => ({}),
++}));
++vi.mock('@/features/monitoring/codexInspection', () => ({
++  createCodexInspectionConnectionFingerprint: (apiBase: string) => apiBase,
++}));
++
++const plugins: PluginListResponse = {
++  pluginsEnabled: true,
++  pluginsDir: 'plugins',
++  plugins: [
++    {
++      id: 'gemini-web',
++      oauthProvider: 'gemini-web',
++      path: '',
++      configured: true,
++      registered: true,
++      enabled: true,
++      effectiveEnabled: true,
++      supportsOAuth: true,
++      logo: '',
++      configFields: [],
++      metadata: null,
++      menus: [
++        { menu: 'Gemini Web', description: '', path: '/v0/resource/plugins/gemini-web/index' },
++      ],
++    },
++  ],
++};
++let renderer: ReactTestRenderer;
++async function mount() {
++  await act(async () => {
++    renderer = create(<OAuthPage />);
++  });
++}
++async function click(provider: string) {
++  const button = renderer.root.findByProps({ id: `oauth-provider-${provider}` }).findByType(Button);
++  await act(async () => {
++    await button.props.onClick();
++  });
++}
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
++  vi.stubGlobal('window', {
++    setInterval: mocks.interval,
++    clearInterval: vi.fn(),
++    clearTimeout: vi.fn(),
++  });
++  mocks.list.mockResolvedValue(plugins);
++  mocks.resource.mockResolvedValue({
++    data: '<!doctype html><title>Fixture portal</title>',
++    headers: { 'content-type': 'text/html' },
++  });
++  mocks.authFiles.mockResolvedValue({ files: [] });
++  mocks.startAuth.mockResolvedValue({
++    url: 'https://example.invalid/oauth',
++    state: 'fixture-state',
++  });
++});
++afterEach(async () => {
++  if (renderer)
++    await act(async () => {
++      renderer.unmount();
++    });
++  vi.unstubAllGlobals();
++});
++
++describe('GeminiWeb original Login button', () => {
++  it('navigates to the plugin resource before any native auth attempt when available', async () => {
++    await mount();
++    await click('gemini-web');
++    expect(mocks.navigate).toHaveBeenCalledWith('/plugin-pages/gemini-web/0');
++    expect(mocks.startAuth).not.toHaveBeenCalled();
++    expect(mocks.getAuthStatus).not.toHaveBeenCalled();
++    expect(mocks.interval).not.toHaveBeenCalled();
++    expect(mocks.authFiles).not.toHaveBeenCalled();
++  });
++
++  it.each(['missing', 'disabled', 'resource-error', 'auth-error'])(
++    'stays out of native OAuth when %s',
++    async (failure) => {
++      await mount();
++      switch (failure) {
++        case 'missing':
++          mocks.list.mockResolvedValue({ ...plugins, plugins: [] });
++          break;
++        case 'disabled':
++          mocks.list.mockResolvedValue({ ...plugins, pluginsEnabled: false });
++          break;
++        case 'resource-error':
++          mocks.resource.mockRejectedValue(new Error('unavailable'));
++          break;
++        case 'auth-error':
++          mocks.list.mockRejectedValue(Object.assign(new Error('unauthorized'), { status: 401 }));
++          break;
++      }
++      await click('gemini-web');
++      expect(mocks.navigate).not.toHaveBeenCalled();
++      expect(mocks.notify).toHaveBeenCalledWith(expect.any(String), 'error');
++      expect(mocks.startAuth).not.toHaveBeenCalled();
++      expect(mocks.getAuthStatus).not.toHaveBeenCalled();
++      expect(mocks.authFiles).not.toHaveBeenCalled();
++    }
++  );
++
++  it.each(['codex', 'anthropic', 'antigravity', 'kimi', 'xai'])(
++    'keeps %s native start and polling when its original button is clicked',
++    async (provider) => {
++      await mount();
++      await click(provider);
++      expect(mocks.startAuth).toHaveBeenCalledWith(provider, expect.any(Object));
++      expect(mocks.interval).toHaveBeenCalled();
++      expect(mocks.navigate).not.toHaveBeenCalled();
++    }
++  );
++
++  it('keeps another plugin provider on its native start path', async () => {
++    mocks.list.mockResolvedValue({
++      ...plugins,
++      plugins: plugins.plugins.map((plugin) => ({
++        ...plugin,
++        id: 'gpt-web',
++        oauthProvider: 'gpt-web',
++      })),
++    });
++    await mount();
++    await click('gpt-web');
++    expect(mocks.startAuth).toHaveBeenCalledWith('gpt-web', expect.any(Object));
++    expect(mocks.interval).toHaveBeenCalled();
++    expect(mocks.navigate).not.toHaveBeenCalled();
++  });
++});
+diff --git c/apps/web/src/features/oauth/OAuthPage.tsx i/apps/web/src/features/oauth/OAuthPage.tsx
+index 9f68686..af3e5e9 100644
+--- c/apps/web/src/features/oauth/OAuthPage.tsx
++++ i/apps/web/src/features/oauth/OAuthPage.tsx
+@@ -34,10 +34,12 @@ import {
+   createAccountCredentialMutationBaseline,
+   recordAccountCredentialMutationMarker,
+   type AccountCredentialMutationBaseline,
+ } from '@/features/accounts/model/accountCredentialMutationMarker';
+ import type { ApiClientRequestScope } from '@/services/api/client';
++import { geminiWebErrorMessage, requireGeminiWebPortal } from '@/services/api/geminiWeb';
++import { GeminiWebError } from '@/services/api/geminiWebDto';
+ import {
+   completeAccountOAuthReauthSessionFromSearch,
+   readAccountOAuthReauthSessionId,
+ } from '@/features/accounts/model/accountReauthSession';
+ import {
+@@ -57,10 +59,12 @@ import iconKimiDark from '@/assets/icons/kimi-dark.svg';
+ import iconVertex from '@/assets/icons/vertex.svg';
+ import iconGrok from '@/assets/icons/grok.svg';
+ import iconGrokDark from '@/assets/icons/grok-dark.svg';
+ 
+ interface ProviderState {
++  portalOpening?: boolean;
++  portalError?: string;
+   url?: string;
+   state?: string;
+   status?: 'idle' | 'waiting' | 'success' | 'error';
+   error?: string;
+   polling?: boolean;
+@@ -286,10 +290,11 @@ export function OAuthPage() {
+   const callbackAttemptVersions = useRef<Partial<Record<string, number>>>({});
+   const oauthPollingScopeRef = useRef(oauthPollingScope);
+   const connectionFingerprintRef = useRef(connectionFingerprint);
+   const vertexImportGenerationRef = useRef(0);
+   const vertexFileInputRef = useRef<HTMLInputElement | null>(null);
++  const portalRequestVersion = useRef(0);
+   connectionFingerprintRef.current = connectionFingerprint;
+ 
+   const clearTimers = useCallback(() => {
+     Object.values(pollingTimers.current).forEach((timer) => {
+       if (timer !== undefined) window.clearInterval(timer);
+@@ -307,10 +312,11 @@ export function OAuthPage() {
+     if (isOAuthPollingScopeCurrent(previousScope, oauthPollingScope)) return;
+     providerAttemptVersions.current = {};
+     providerCredentialBaselines.current = {};
+     callbackAttemptVersions.current = {};
+     vertexImportGenerationRef.current += 1;
++    portalRequestVersion.current += 1;
+     clearTimers();
+     setStates((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+     setPluginOAuthPlugins([]);
+     setVertexState({ fileName: '', location: '', loading: false });
+   }, [clearTimers, oauthPollingScope]);
+@@ -332,11 +338,17 @@ export function OAuthPage() {
+             const title = getPluginTitle(plugin);
+             const logo = resolvePluginAssetURL(plugin.logo || plugin.metadata?.logo || '', apiBase);
+             return {
+               id: resolvePluginOAuthProviderId(plugin),
+               title,
+-              hint: t('auth_login.plugin_oauth_hint', { plugin: title }),
++              hint:
++                resolvePluginOAuthProviderId(plugin) === 'gemini-web'
++                  ? t('gemini_web.login_hint', {
++                      defaultValue:
++                        'Continue in the GeminiWeb plugin portal. Native OAuth is not supported; the plugin manages Google companion login and account persistence.',
++                    })
++                  : t('auth_login.plugin_oauth_hint', { plugin: title }),
+               urlLabel: t('auth_login.plugin_oauth_url_label'),
+               icon: logo || undefined,
+               supportsCallback: false,
+               isPlugin: true,
+             };
+@@ -358,10 +370,11 @@ export function OAuthPage() {
+     return () => {
+       providerAttemptVersions.current = {};
+       providerCredentialBaselines.current = {};
+       callbackAttemptVersions.current = {};
+       vertexImportGenerationRef.current += 1;
++      portalRequestVersion.current += 1;
+       clearTimers();
+     };
+   }, [clearTimers]);
+ 
+   useEffect(() => {
+@@ -651,10 +664,35 @@ export function OAuthPage() {
+     }, 3000);
+     pollingTimers.current[provider] = timer;
+   };
+ 
+   const startAuth = async (provider: OAuthProvider) => {
++    if (provider === 'gemini-web') {
++      const version = ++portalRequestVersion.current;
++      const isCurrent = () =>
++        version === portalRequestVersion.current &&
++        useAuthStore.getState().apiBase === requestScope.apiBase &&
++        useAuthStore.getState().managementKey === requestScope.managementKey;
++      updateProviderState(provider, { portalOpening: true, portalError: undefined });
++      try {
++        if (!pluginOAuthAvailable) {
++          throw new GeminiWebError(
++            'Connect to a Manager backend with plugin support before opening the GeminiWeb portal.'
++          );
++        }
++        const route = await requireGeminiWebPortal(requestScope);
++        if (isCurrent()) navigate(route);
++      } catch (error: unknown) {
++        if (!isCurrent()) return;
++        const message = geminiWebErrorMessage(error);
++        updateProviderState(provider, { portalError: message });
++        showNotification(message, 'error');
++      } finally {
++        if (isCurrent()) updateProviderState(provider, { portalOpening: false });
++      }
++      return;
++    }
+     clearProviderTimers(provider);
+     delete callbackAttemptVersions.current[provider];
+     delete providerCredentialBaselines.current[provider];
+     const attempt = beginProviderAttempt(provider);
+     updateProviderState(provider, {
+@@ -931,13 +969,15 @@ export function OAuthPage() {
+       <div className={styles.content}>
+         {providers.map((provider) => {
+           const state = states[provider.id] || {};
+           const canSubmitCallback = provider.supportsCallback && Boolean(state.url);
+           const loginButtonLabel =
+-            state.status === 'success'
+-              ? t('auth_login.login_another_account')
+-              : getProviderActionText(provider.id, 'oauth_button');
++            provider.id === 'gemini-web'
++              ? t('gemini_web.continue', { defaultValue: 'Continue in GeminiWeb plugin' })
++              : state.status === 'success'
++                ? t('auth_login.login_another_account')
++                : getProviderActionText(provider.id, 'oauth_button');
+           const statusBadgeClassName = [
+             'status-badge',
+             state.status === 'success' ? 'success' : '',
+             state.status === 'error' ? 'error' : '',
+           ]
+@@ -961,17 +1001,25 @@ export function OAuthPage() {
+                     )}
+                     {provider.title}
+                   </span>
+                 }
+                 extra={
+-                  <Button onClick={() => startAuth(provider.id)} loading={state.polling}>
++                  <Button
++                    onClick={() => startAuth(provider.id)}
++                    loading={state.polling || state.portalOpening}
++                  >
+                     {loginButtonLabel}
+                   </Button>
+                 }
+               >
+                 <div className={styles.cardContent}>
+                   <div className={styles.cardHint}>{provider.hint}</div>
++                  {state.portalError ? (
++                    <div className="status-badge error" role="alert">
++                      {state.portalError}
++                    </div>
++                  ) : null}
+                   {state.url && (
+                     <div className={styles.authUrlBox}>
+                       <div className={styles.authUrlLabel}>{provider.urlLabel}</div>
+                       <div className={styles.authUrlValue}>{state.url}</div>
+                       <div className={styles.authUrlActions}>
+diff --git c/apps/web/src/features/plugins/PluginResourcePage.tsx i/apps/web/src/features/plugins/PluginResourcePage.tsx
+index 60b34c9..8c7cd3b 100644
+--- c/apps/web/src/features/plugins/PluginResourcePage.tsx
++++ i/apps/web/src/features/plugins/PluginResourcePage.tsx
+@@ -5,23 +5,20 @@ import { EmptyState } from '@/components/ui/EmptyState';
+ import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
+ import { pluginsApi } from '@/services/api';
+ import { useAuthStore, useThemeStore } from '@/stores';
+ import { getErrorMessage, isRecord } from '@/utils/helpers';
+ import type { PluginListResponse } from '@/types';
+-import {
+-  createPluginHostStyleBridge,
+-  type PluginHostStyleBridge,
+-} from './pluginHostStyle';
++import { createPluginHostStyleBridge, type PluginHostStyleBridge } from './pluginHostStyle';
+ import {
+   collectPluginResourceEntries,
+   PLUGIN_RESOURCES_REFRESH_EVENT,
+   resolvePluginAssetURL,
+ } from './pluginResources';
+ import styles from './PluginResourcePage.module.scss';
++import { createPluginHostRequestBridge } from './pluginHostRequest';
+ 
+-const hasStatus = (error: unknown, status: number) =>
+-  isRecord(error) && error.status === status;
++const hasStatus = (error: unknown, status: number) => isRecord(error) && error.status === status;
+ 
+ const safeDecodeURIComponent = (value = '') => {
+   try {
+     return decodeURIComponent(value);
+   } catch {
+@@ -37,18 +34,20 @@ const parseMenuIndex = (value = '') => {
+ export function PluginResourcePage() {
+   const { t } = useTranslation();
+   const params = useParams<{ pluginId: string; menuIndex: string }>();
+   const connectionStatus = useAuthStore((state) => state.connectionStatus);
+   const apiBase = useAuthStore((state) => state.apiBase);
++  const managementKey = useAuthStore((state) => state.managementKey);
+   const supportsPlugin = useAuthStore((state) => state.supportsPlugin);
+   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
+ 
+   const [data, setData] = useState<PluginListResponse | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState('');
+   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+   const hostStyleBridgeRef = useRef<PluginHostStyleBridge | null>(null);
++  const revokeRequestRef = useRef<(() => void) | undefined>(undefined);
+ 
+   const connected = connectionStatus === 'connected';
+   const pluginID = useMemo(() => safeDecodeURIComponent(params.pluginId), [params.pluginId]);
+   const menuIndex = useMemo(() => parseMenuIndex(params.menuIndex), [params.menuIndex]);
+ 
+@@ -99,10 +98,35 @@ export function PluginResourcePage() {
+     return entries.find((entry) => entry.pluginID === pluginID && entry.menuIndex === menuIndex);
+   }, [data?.plugins, menuIndex, pluginID]);
+ 
+   const iframeSrc = resource ? resolvePluginAssetURL(resource.menu.path, apiBase) : '';
+ 
++  const connectPluginRequests = useCallback(() => {
++    revokeRequestRef.current?.();
++    revokeRequestRef.current = undefined;
++    const iframe = iframeRef.current;
++    const registered =
++      data?.pluginsEnabled &&
++      data.plugins.some(
++        (plugin) => plugin.id === pluginID && plugin.registered && plugin.effectiveEnabled
++      );
++    if (iframe && registered && !loading) {
++      revokeRequestRef.current = createPluginHostRequestBridge(iframe, {
++        pluginID,
++        url: iframeSrc,
++      });
++    }
++  }, [data, pluginID, iframeSrc, loading]);
++
++  useEffect(() => {
++    connectPluginRequests();
++    return () => {
++      revokeRequestRef.current?.();
++      revokeRequestRef.current = undefined;
++    };
++  }, [connectPluginRequests, managementKey, apiBase, connected, supportsPlugin]);
++
+   const refreshPluginHostStyle = useCallback(() => {
+     const iframe = iframeRef.current;
+     if (!iframe) return;
+ 
+     const options = { theme: resolvedTheme };
+@@ -117,11 +141,12 @@ export function PluginResourcePage() {
+ 
+   const handleIframeLoad = useCallback(() => {
+     hostStyleBridgeRef.current?.disconnect();
+     hostStyleBridgeRef.current = null;
+     refreshPluginHostStyle();
+-  }, [refreshPluginHostStyle]);
++    connectPluginRequests();
++  }, [refreshPluginHostStyle, connectPluginRequests]);
+ 
+   useEffect(() => {
+     if (!iframeSrc) {
+       hostStyleBridgeRef.current?.disconnect();
+       hostStyleBridgeRef.current = null;
+diff --git c/apps/web/src/features/plugins/chatgptHostPolicy.ts i/apps/web/src/features/plugins/chatgptHostPolicy.ts
+new file mode 100644
+index 0000000..2df6ba2
+--- /dev/null
++++ i/apps/web/src/features/plugins/chatgptHostPolicy.ts
+@@ -0,0 +1,38 @@
++import { isRecord } from '@/utils/helpers';
++
++export const chatgptErrorCodes: ReadonlySet<string> = new Set([
++  'invalid_management_request', 'invalid_account_request', 'invalid_import_request_require_consent',
++  'invalid_web_account_id', 'invalid_web_enabled_request_require_consent', 'source_not_found', 'not_found', 'method_not_allowed',
++  'source_metadata_unavailable', 'source_credential_invalid', 'disabled_source_requires_override',
++  'vendor_disabled_import_unsupported', 'vendor_disabled_refresh_unsupported', 'vendor_web_enabled_unsupported',
++  'web_account_status_unknown', 'web_account_stale_reload_needed', 'web_api_unavailable',
++  'web_api_http_error', 'web_api_redirect_blocked', 'web_api_invalid_response',
++  'web_api_response_too_large', 'vendor_refresh_failed', 'vendor_disabled_contract_violated', 'vendor_web_enabled_contract_violated',
++  'host_callback_required', 'host_auth_unavailable',
++  'web_api_unconfigured_set_CHATGPT2API_AUTH_KEY', 'request_cancelled',
++  'host_request_encoding_failed', 'request_encoding_failed', 'response_encoding_failed',
++]);
++
++export function allowChatGPTPost(path: string, body: unknown): boolean {
++  if (typeof body !== 'string' || new TextEncoder().encode(body).byteLength > 4096) return false;
++  try {
++    const input: unknown = JSON.parse(body);
++    if (!isRecord(input) || typeof input.id !== 'string') return false;
++    const keys = Object.keys(input);
++    switch (path) {
++      case '/v0/management/plugins/chatgpt2api/import-codex':
++        return /^codex_[a-f0-9]{64}$/.test(input.id) && input.consent === true &&
++          (input.allow_disabled_source === undefined || input.allow_disabled_source === true) &&
++          keys.every((key) => ['id', 'consent', 'allow_disabled_source'].includes(key));
++      case '/v0/management/plugins/chatgpt2api/refresh-web':
++        return /^web_[a-f0-9]{64}$/.test(input.id) && keys.length === 1;
++      case '/v0/management/plugins/chatgpt2api/set-web-enabled':
++        return /^web_[a-f0-9]{64}$/.test(input.id) && input.consent === true &&
++          typeof input.enabled === 'boolean' && keys.every((key) => ['id', 'enabled', 'consent'].includes(key));
++      default:
++        return false;
++    }
++  } catch {
++    return false;
++  }
++}
+diff --git c/apps/web/src/features/plugins/chatgptHostRequest.test.ts i/apps/web/src/features/plugins/chatgptHostRequest.test.ts
+new file mode 100644
+index 0000000..706754e
+--- /dev/null
++++ i/apps/web/src/features/plugins/chatgptHostRequest.test.ts
+@@ -0,0 +1,56 @@
++import { describe, expect, it } from 'vitest';
++import { allowPluginRequest, safePluginError } from './pluginHostRequest';
++
++const prefix = '/v0/management/plugins/chatgpt2api/';
++const sourceID = `codex_${'a'.repeat(64)}`;
++const webID = `web_${'b'.repeat(64)}`;
++const accounts = new Set<string>();
++const allowed = [
++  ['import-codex', { id: sourceID, consent: true }],
++  ['import-codex', { id: sourceID, consent: true, allow_disabled_source: true }],
++  ['refresh-web', { id: webID }],
++  ['set-web-enabled', { id: webID, enabled: true, consent: true }],
++  ['set-web-enabled', { id: webID, enabled: false, consent: true }],
++] as const;
++
++describe('ChatGPT scoped POST policy', () => {
++  it.each(allowed)('allows only the exact %s request shape', (path, payload) => {
++    const input = { path: `${prefix}${path}`, method: 'POST', body: JSON.stringify(payload) };
++    expect(allowPluginRequest('chatgpt2api', input, accounts)).toBe(true);
++    expect(allowPluginRequest('gemini-web', input, accounts)).toBe(false);
++  });
++  it.each(['status', 'accounts', 'refresh', 'login/start', 'import-codex/other', 'refresh-web/', 'set-web-enabled?x=1', '../config', '%72efresh-web'])('blocks arbitrary POST %s', (path) => {
++    expect(allowPluginRequest('chatgpt2api', { path: `${prefix}${path}`, method: 'POST', body: JSON.stringify({ id: webID }) }, accounts)).toBe(false);
++  });
++  it.each([
++    ['import-codex', { id: sourceID }],
++    ['import-codex', { id: sourceID, consent: false }],
++    ['import-codex', { id: sourceID, consent: true, allow_disabled_source: false }],
++    ['import-codex', { id: webID, consent: true }],
++    ['refresh-web', { id: sourceID }],
++    ['refresh-web', { id: webID, token: 'synthetic-not-accepted' }],
++    ['refresh-web', { id: [webID] }],
++    ['set-web-enabled', { id: webID, enabled: true }],
++    ['set-web-enabled', { id: webID, enabled: 'false', consent: true }],
++    ['set-web-enabled', { id: webID, enabled: false, consent: false }],
++  ])('blocks invalid body for %s', (path, payload) => {
++    expect(allowPluginRequest('chatgpt2api', { path: `${prefix}${path}`, method: 'POST', body: JSON.stringify(payload) }, accounts)).toBe(false);
++  });
++  it.each([undefined, '', 'null', '[]', '{', ' '.repeat(4096) + JSON.stringify({ id: webID })])('blocks missing, malformed and oversized bodies', (body) => {
++    expect(allowPluginRequest('chatgpt2api', { path: `${prefix}refresh-web`, method: 'POST', body }, accounts)).toBe(false);
++  });
++  it('preserves GET status and rejects headers, generic management and cross-plugin POST', () => {
++    expect(allowPluginRequest('chatgpt2api', { path: `${prefix}status`, method: 'GET' }, accounts)).toBe(true);
++    for (const path of ['/v0/management/config', '/v0/management/plugins/gemini-web/refresh']) {
++      expect(allowPluginRequest('chatgpt2api', { path, method: 'POST', body: JSON.stringify({ id: webID }) }, accounts)).toBe(false);
++    }
++    expect(allowPluginRequest('chatgpt2api', { path: `${prefix}refresh-web`, method: 'POST', body: JSON.stringify({ id: webID }), headers: { Authorization: 'synthetic' } }, accounts)).toBe(false);
++  });
++  it('preserves only fixed ChatGPT codes in that plugin scope', () => {
++    const body = JSON.stringify({ error: 'web_account_stale_reload_needed', config: { key: 'synthetic-private' } });
++    expect(safePluginError(body, 'chatgpt2api')).toBe('web_account_stale_reload_needed');
++    expect(safePluginError(body)).toBeUndefined();
++    expect(safePluginError('{"error":"account_unavailable"}', 'chatgpt2api')).toBeUndefined();
++    expect(safePluginError('{"error":"synthetic-private"}', 'chatgpt2api')).toBeUndefined();
++  });
++});
+diff --git c/apps/web/src/features/plugins/pluginHostRequest.test.ts i/apps/web/src/features/plugins/pluginHostRequest.test.ts
+new file mode 100644
+index 0000000..8bbc864
+--- /dev/null
++++ i/apps/web/src/features/plugins/pluginHostRequest.test.ts
+@@ -0,0 +1,140 @@
++import { describe, expect, it } from 'vitest';
++import {
++  allowPluginRequest,
++  isPluginRequestAuthCurrent,
++  safePluginError,
++  trustedPluginResource,
++} from './pluginHostRequest';
++
++const origin = 'https://manager.example';
++const accountId = 'gemini-web-fixture.json';
++const accounts = new Set([accountId]);
++
++describe('plugin request scope', () => {
++  it.each(['accounts', 'refresh', 'login/start', 'login/complete', 'login/status'])(
++    'accepts the plugin path %s',
++    (path) => {
++      expect(
++        allowPluginRequest(
++          'gemini-web',
++          { path: `/v0/management/plugins/gemini-web/${path}`, method: 'POST', body: '{}' },
++          accounts
++        )
++      ).toBe(true);
++    }
++  );
++  it.each([
++    'https://manager.example/v0/management/plugins/gemini-web/accounts',
++    '//manager.example/v0/management/plugins/gemini-web/accounts',
++    '/v0/management/plugins/chatgpt2api/status',
++    '/v0/management/plugins/gemini-web/../config',
++    '/v0/management/plugins/gemini-web/%2e%2e/config',
++    '/v0/management/plugins/gemini-web/%252e%252e/config',
++    '/v0/management/plugins/gemini-web/..\\config',
++    '/v0/management/plugins/gemini-web/accounts?redirect=//foreign.invalid',
++    '/v0/management/plugins/gemini-web/accounts#fragment',
++    '/v0/management/plugins/gemini-web-other/accounts',
++  ])('denies escaped or foreign request %s', (path) => {
++    expect(allowPluginRequest('gemini-web', { path, method: 'GET' }, accounts)).toBe(false);
++  });
++  it.each(['PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', 'get'])(
++    'denies unnecessary method %s',
++    (method) => {
++      expect(
++        allowPluginRequest(
++          'gemini-web',
++          { path: '/v0/management/plugins/gemini-web/accounts', method },
++          accounts
++        )
++      ).toBe(false);
++    }
++  );
++  it('denies caller headers and GET bodies', () => {
++    const request = { path: '/v0/management/plugins/gemini-web/accounts', method: 'GET' };
++    expect(
++      allowPluginRequest(
++        'gemini-web',
++        { ...request, headers: { Authorization: 'caller' } },
++        accounts
++      )
++    ).toBe(false);
++    expect(allowPluginRequest('gemini-web', { ...request, body: '{}' }, accounts)).toBe(false);
++    expect(
++      allowPluginRequest('gemini-web', { ...request, method: { toString: () => 'GET' } }, accounts)
++    ).toBe(false);
++  });
++  it('allows only the observed Gemini account exact read-only model query', () => {
++    const request = { path: `/v0/management/auth-files/models?name=${accountId}`, method: 'GET' };
++    expect(allowPluginRequest('gemini-web', request, accounts)).toBe(true);
++    expect(allowPluginRequest('gemini-web', request, new Set())).toBe(false);
++    expect(allowPluginRequest('chatgpt2api', request, accounts)).toBe(false);
++    expect(allowPluginRequest('gemini-web', { ...request, method: 'POST' }, accounts)).toBe(false);
++    expect(
++      allowPluginRequest(
++        'gemini-web',
++        { ...request, path: `${request.path}&name=codex.json` },
++        accounts
++      )
++    ).toBe(false);
++  });
++});
++
++describe('per-call current authentication', () => {
++  const authenticated = {
++    apiBase: origin,
++    managementKey: 'synthetic-first',
++    isAuthenticated: true,
++    connectionStatus: 'connected',
++    supportsPlugin: true,
++  } as const;
++  it('allows the unchanged current authenticated host', () => {
++    expect(isPluginRequestAuthCurrent(authenticated, { ...authenticated })).toBe(true);
++  });
++  it.each([
++    { ...authenticated, managementKey: 'synthetic-rotated' },
++    { ...authenticated, managementKey: '' },
++    { ...authenticated, apiBase: 'https://other.example' },
++    { ...authenticated, isAuthenticated: false },
++    { ...authenticated, supportsPlugin: false },
++    { ...authenticated, connectionStatus: 'connecting' as const },
++  ])('revokes when the credential, target or authenticated connection changes', (state) => {
++    expect(isPluginRequestAuthCurrent(authenticated, state)).toBe(false);
++  });
++});
++
++describe('safe plugin response errors', () => {
++  it('preserves only existing fixed plugin codes, never response messages or configuration', () => {
++    expect(
++      safePluginError(
++        JSON.stringify({ error: 'account_unavailable', config: { key: 'synthetic-private' } })
++      )
++    ).toBe('account_unavailable');
++    expect(
++      safePluginError(
++        JSON.stringify({ error: 'synthetic-private', config: { key: 'synthetic-private' } })
++      )
++    ).toBeUndefined();
++    expect(
++      safePluginError(JSON.stringify({ error: { message: 'synthetic-private' } }))
++    ).toBeUndefined();
++    expect(safePluginError('synthetic-private')).toBeUndefined();
++  });
++});
++
++describe('trusted registered resource', () => {
++  it('accepts only the same-origin registered plugin resource namespace', () => {
++    expect(
++      trustedPluginResource('gemini-web', `${origin}/v0/resource/plugins/gemini-web/index`, origin)
++    ).toBe(true);
++  });
++  it.each([
++    'https://foreign.invalid/v0/resource/plugins/gemini-web/index',
++    `${origin}/v0/resource/plugins/chatgpt2api/index`,
++    `${origin}/management.html`,
++    `${origin}/v0/resource/plugins/gemini-web/%2e%2e/index`,
++    `${origin}/v0/resource/plugins/gemini-web/index?url=elsewhere`,
++    'data:text/html,example',
++  ])('denies arbitrary resource %s', (url) => {
++    expect(trustedPluginResource('gemini-web', url, origin)).toBe(false);
++  });
++});
+diff --git c/apps/web/src/features/plugins/pluginHostRequest.ts i/apps/web/src/features/plugins/pluginHostRequest.ts
+new file mode 100644
+index 0000000..5d8b593
+--- /dev/null
++++ i/apps/web/src/features/plugins/pluginHostRequest.ts
+@@ -0,0 +1,276 @@
++import { apiClient, createScopedApiRequestConfig } from '@/services/api/client';
++import { useAuthStore } from '@/stores/useAuthStore';
++import { isRecord } from '@/utils/helpers';
++import { allowChatGPTPost, chatgptErrorCodes } from './chatgptHostPolicy';
++
++type PluginRequest = {
++  readonly path: string;
++  readonly method: 'GET' | 'POST';
++  readonly body?: string;
++};
++type PluginResponse = { readonly status: number; readonly body: string };
++const supportedPlugin = (id: string) => id === 'gemini-web' || id === 'chatgpt2api';
++const accountPattern = /^gemini-web-[A-Za-z0-9_-]+\.json$/;
++const safePath = (path: string) => /^\/[A-Za-z0-9_/-]+$/.test(path) && !path.includes('//');
++const failure = (status: number): PluginResponse => ({
++  status,
++  body: '{"error":"host_request_failed"}',
++});
++const pluginErrorCodes = new Set([
++  'account_unavailable',
++  'sidecar_request_failed',
++  'disabled_account_update_requires_host_enable',
++  'secret_store_unavailable',
++]);
++
++export function safePluginError(body: string, pluginID = 'gemini-web'): string | undefined {
++  try {
++    const payload: unknown = JSON.parse(body);
++    return isRecord(payload) &&
++      typeof payload.error === 'string' &&
++      (pluginID === 'chatgpt2api' ? chatgptErrorCodes : pluginErrorCodes).has(payload.error)
++      ? payload.error
++      : undefined;
++  } catch {
++    return undefined;
++  }
++}
++type RequestAuth = Pick<
++  ReturnType<typeof useAuthStore.getState>,
++  'apiBase' | 'managementKey' | 'isAuthenticated' | 'connectionStatus' | 'supportsPlugin'
++>;
++
++export function isPluginRequestAuthCurrent(original: RequestAuth, current: RequestAuth): boolean {
++  return (
++    current.isAuthenticated &&
++    current.connectionStatus === 'connected' &&
++    current.supportsPlugin &&
++    current.apiBase === original.apiBase &&
++    current.managementKey === original.managementKey &&
++    Boolean(current.managementKey)
++  );
++}
++
++export function trustedPluginResource(pluginID: string, url: string, origin: string): boolean {
++  try {
++    const resource = new URL(url);
++    return (
++      supportedPlugin(pluginID) &&
++      resource.origin === origin &&
++      !resource.username &&
++      !resource.password &&
++      !resource.search &&
++      !resource.hash &&
++      url === resource.href &&
++      safePath(resource.pathname) &&
++      resource.pathname.startsWith(`/v0/resource/plugins/${pluginID}/`)
++    );
++  } catch {
++    return false;
++  }
++}
++
++export function allowPluginRequest(
++  pluginID: string,
++  input: unknown,
++  accounts: ReadonlySet<string>
++): input is PluginRequest {
++  if (
++    !supportedPlugin(pluginID) ||
++    !isRecord(input) ||
++    typeof input.path !== 'string' ||
++    typeof input.method !== 'string' ||
++    !['GET', 'POST'].includes(input.method) ||
++    Object.keys(input).some((key) => !['path', 'method', 'body'].includes(key)) ||
++    (input.body !== undefined && (typeof input.body !== 'string' || input.method !== 'POST'))
++  )
++    return false;
++  if (pluginID === 'chatgpt2api' && input.method === 'POST')
++    return allowChatGPTPost(input.path, input.body);
++  if (safePath(input.path) && input.path.startsWith(`/v0/management/plugins/${pluginID}/`))
++    return true;
++  const name =
++    /^\/v0\/management\/auth-files\/models\?name=(gemini-web-[A-Za-z0-9_-]+\.json)$/.exec(
++      input.path
++    )?.[1];
++  return pluginID === 'gemini-web' && input.method === 'GET' && Boolean(name && accounts.has(name));
++}
++
++export function createPluginHostRequestBridge(
++  iframe: HTMLIFrameElement,
++  resource: { readonly pluginID: string; readonly url: string }
++): (() => void) | undefined {
++  const auth = useAuthStore.getState();
++  const origin = window.location.origin;
++  if (auth.apiBase !== origin || !trustedPluginResource(resource.pluginID, resource.url, origin))
++    return;
++  const child = iframe.contentWindow;
++  const document = iframe.contentDocument;
++  if (
++    !child ||
++    !document ||
++    document.readyState !== 'complete' ||
++    !child.navigation ||
++    !window.navigation
++  )
++    return;
++  const childNavigation = child.navigation;
++  const parentNavigation = window.navigation;
++  const pending = new Set<AbortController>();
++  const accounts = new Set<string>();
++  let active = true;
++  const current = () => {
++    try {
++      const state = useAuthStore.getState();
++      return (
++        active &&
++        isPluginRequestAuthCurrent(auth, state) &&
++        iframe.isConnected &&
++        iframe.ownerDocument === window.document &&
++        !iframe.hasAttribute('srcdoc') &&
++        iframe.contentDocument === document &&
++        child.document === document &&
++        child.location.href === resource.url &&
++        iframe.src === resource.url
++      );
++    } catch {
++      return false;
++    }
++  };
++  const observer = new MutationObserver(() => {
++    if (!current()) revoke();
++  });
++  const revoke = () => {
++    if (!active) return;
++    active = false;
++    for (const controller of pending) controller.abort();
++    pending.clear();
++    accounts.clear();
++    unsubscribe();
++    observer.disconnect();
++    childNavigation.removeEventListener('navigate', revoke);
++    parentNavigation.removeEventListener('navigate', revoke);
++    child.removeEventListener('pagehide', revoke);
++    child.removeEventListener('hashchange', revoke);
++    child.removeEventListener('popstate', revoke);
++    window.removeEventListener('pagehide', revoke);
++    window.removeEventListener('hashchange', revoke);
++  };
++  if (!current()) return;
++  const request = async (input: unknown): Promise<PluginResponse> => {
++    const controller = new AbortController();
++    try {
++      if (!current()) {
++        revoke();
++        return failure(401);
++      }
++      if (!allowPluginRequest(resource.pluginID, input, accounts)) return failure(403);
++      const state = useAuthStore.getState();
++      pending.add(controller);
++      const response = await apiClient.requestRaw({
++        ...createScopedApiRequestConfig({
++          apiBase: state.apiBase,
++          managementKey: state.managementKey,
++        }),
++        url: input.path.slice('/v0/management'.length),
++        method: input.method,
++        data: input.body,
++        signal: controller.signal,
++        timeout: 0,
++        adapter: 'fetch',
++        responseType: 'text',
++        fetchOptions: {
++          redirect: 'error',
++          mode: 'same-origin',
++          cache: 'no-store',
++          referrerPolicy: 'no-referrer',
++        },
++        transformResponse: [(data: unknown) => data],
++        validateStatus: () => true,
++      });
++      if (!current() || controller.signal.aborted) {
++        revoke();
++        return failure(401);
++      }
++      const body: unknown = response.data;
++      if (typeof body !== 'string') return failure(502);
++      const chatgptPayload: unknown = resource.pluginID === 'chatgpt2api' ? JSON.parse(body) : undefined;
++      if (response.status < 200 || response.status >= 300 || (isRecord(chatgptPayload) && 'error' in chatgptPayload)) {
++        const code =
++          input.path.startsWith(`/v0/management/plugins/${resource.pluginID}/`)
++            ? safePluginError(body, resource.pluginID)
++            : undefined;
++        const googleAuthFailure =
++          code === 'account_unavailable' || code === 'sidecar_request_failed';
++        const chatgptAccountFailure = resource.pluginID === 'chatgpt2api' && code !== undefined;
++        if (response.status === 401 && !googleAuthFailure && !chatgptAccountFailure)
++          window.dispatchEvent(new Event('unauthorized'));
++        return code
++          ? { status: response.status, body: JSON.stringify({ error: code }) }
++          : failure(response.status);
++      }
++      if (body.includes(state.managementKey)) return failure(502);
++      if (resource.pluginID === 'gemini-web') {
++        const payload: unknown = JSON.parse(body);
++        if (
++          input.path === '/v0/management/plugins/gemini-web/accounts' &&
++          input.method === 'GET' &&
++          isRecord(payload) &&
++          payload.provider === 'gemini-web' &&
++          Array.isArray(payload.accounts)
++        ) {
++          accounts.clear();
++          for (const account of payload.accounts) {
++            if (
++              isRecord(account) &&
++              typeof account.id === 'string' &&
++              accountPattern.test(account.id)
++            )
++              accounts.add(account.id);
++          }
++        }
++        if (
++          input.path === '/v0/management/plugins/gemini-web/refresh' &&
++          input.method === 'POST' &&
++          isRecord(payload) &&
++          typeof payload.id === 'string' &&
++          accountPattern.test(payload.id)
++        )
++          accounts.add(payload.id);
++      }
++      return { status: response.status, body };
++    } catch (error) {
++      const status =
++        isRecord(error) &&
++        typeof error.status === 'number' &&
++        error.status >= 400 &&
++        error.status <= 599
++          ? error.status
++          : 502;
++      return failure(current() ? status : 401);
++    } finally {
++      pending.delete(controller);
++    }
++  };
++  const capability = Object.freeze({
++    version: 1,
++    pluginID: resource.pluginID,
++    resourceURL: resource.url,
++    request: Object.freeze(request),
++  });
++  Object.defineProperty(child, '__CPAMP_PLUGIN_HOST__', { value: capability, configurable: true });
++  childNavigation.addEventListener('navigate', revoke);
++  parentNavigation.addEventListener('navigate', revoke);
++  child.addEventListener('pagehide', revoke);
++  child.addEventListener('hashchange', revoke);
++  child.addEventListener('popstate', revoke);
++  window.addEventListener('pagehide', revoke);
++  window.addEventListener('hashchange', revoke);
++  observer.observe(iframe, { attributes: true, attributeFilter: ['src', 'srcdoc'] });
++  observer.observe(window.document.body, { childList: true, subtree: true });
++  const unsubscribe = useAuthStore.subscribe(() => {
++    if (!current()) revoke();
++  });
++  child.dispatchEvent(new Event('cpamp-plugin-request-ready'));
++  return revoke;
++}
+diff --git c/apps/web/src/services/api/geminiWeb.test.ts i/apps/web/src/services/api/geminiWeb.test.ts
+new file mode 100644
+index 0000000..dfbc571
+--- /dev/null
++++ i/apps/web/src/services/api/geminiWeb.test.ts
+@@ -0,0 +1,155 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { geminiWebApi, requireGeminiWebPortal } from './geminiWeb';
++import { apiClient } from './client';
++
++const id = 'gemini-web-fixture-1.json';
++const usage = {
++  tier: null,
++  tier_code: 'opaque-42',
++  source: 'GoogleWeb',
++  estimated: false,
++  observed_at: 1800000000,
++  metrics: [
++    {
++      remaining_units: 71.25,
++      usage_fraction: null,
++      reset_unix_seconds: null,
++      window_kind: 'ai_credit',
++      unit: 'provider_compute_unit',
++      metric_type: 9,
++    },
++  ],
++};
++const account = {
++  id,
++  label: 'Fixture',
++  enabled: false,
++  status: 'ready',
++  models: [],
++  usage,
++  observed_at: 1800000001,
++};
++const base = 'http://127.0.0.1:1';
++let response: unknown;
++let status: number;
++let calls: {
++  method: string | undefined;
++  path: string | undefined;
++  body: string;
++  authorization: string | undefined;
++}[];
++beforeEach(() => {
++  response = account;
++  status = 200;
++  calls = [];
++  vi.spyOn(apiClient, 'get').mockImplementation(async (path) => {
++    calls.push({
++      method: 'GET',
++      path: `/v0/management${path}`,
++      body: '',
++      authorization: undefined,
++    });
++    return response;
++  });
++  vi.spyOn(apiClient, 'post').mockImplementation(async (path, body, config) => {
++    calls.push({
++      method: 'POST',
++      path: `/v0/management${path}`,
++      body: JSON.stringify(body),
++      authorization: String(config?.headers?.Authorization),
++    });
++    if (status !== 200) throw Object.assign(new Error('Fixture authorization failure'), { status });
++    return response;
++  });
++});
++afterEach(() => {
++  vi.restoreAllMocks();
++});
++const file = { id, name: id, type: 'gemini-web', provider: 'gemini-web' };
++const scope = () => ({ apiBase: base, managementKey: 'synthetic-manager-fixture' });
++
++describe('GeminiWeb account boundary', () => {
++  it('refreshes the exact native identity with the existing Manager transport', async () => {
++    const result = await geminiWebApi.refresh(file, scope());
++    expect(calls).toEqual([
++      {
++        method: 'POST',
++        path: '/v0/management/plugins/gemini-web/refresh',
++        body: JSON.stringify({ id }),
++        authorization: 'Bearer synthetic-manager-fixture',
++      },
++    ]);
++    expect(result).toEqual(account);
++    expect(result.usage?.metrics?.[0]).not.toHaveProperty('usage_percent');
++  });
++  it('loads the canonical account from a provider-scoped list without email fallback', async () => {
++    response = {
++      provider: 'gemini-web',
++      accounts: [{ ...account, id: 'gemini-web-other.json', label: 'Fixture' }, account],
++    };
++    expect(await geminiWebApi.load(file, scope())).toEqual(account);
++    expect(calls[0]?.path).toBe('/v0/management/plugins/gemini-web/accounts');
++  });
++  it('preserves null metrics, tier, fraction and reset rather than fabricating windows', async () => {
++    response = { ...account, usage: { ...usage, tier_code: null, metrics: null } };
++    const result = await geminiWebApi.refresh(file, scope());
++    expect(result.usage).toEqual({ ...usage, tier_code: null, metrics: null });
++  });
++  it('preserves explicit zero only when the provider actually reports it', async () => {
++    const metric = {
++      remaining_units: 0,
++      usage_fraction: 0,
++      usage_percent: 0,
++      reset_unix_seconds: 1800000500,
++      window_kind: 'unknown',
++      unit: 'provider_compute_unit',
++    };
++    response = { ...account, usage: { ...usage, metrics: [metric] } };
++    expect((await geminiWebApi.refresh(file, scope())).usage?.metrics).toEqual([metric]);
++  });
++  it.each(['error', 'expired', 'unknown'])(
++    'preserves HTTP 200 body state %s with null usage',
++    async (state) => {
++      response = { ...account, status: state, usage: null, error: 'account_check_failed' };
++      expect(await geminiWebApi.refresh(file, scope())).toEqual(response);
++    }
++  );
++  it.each([
++    { ...file, provider: 'codex' },
++    { ...file, type: 'gpt-web' },
++    { ...file, id: 'gemini-web-forged.json' },
++    { ...file, name: 'Fixture' },
++  ])('rejects cross-provider or inconsistent native identities before HTTP', async (target) => {
++    await expect(geminiWebApi.refresh(target, scope())).rejects.toThrow();
++    expect(calls).toHaveLength(0);
++  });
++  it.each([
++    { ...account, id: 'gemini-web-other.json' },
++    { ...account, usage: { ...usage, source: 'Codex' } },
++    { ...account, usage: { ...usage, estimated: true } },
++    { ...account, usage: { ...usage, metrics: [{ remaining_units: '71' }] } },
++  ])('fails closed on mismatched or malformed provider evidence', async (value) => {
++    response = value;
++    await expect(geminiWebApi.refresh(file, scope())).rejects.toThrow();
++  });
++  it.each([
++    { provider: 'codex', accounts: [account] },
++    {
++      provider: 'gemini-web',
++      accounts: [{ ...account, id: 'gemini-web-other.json', email: 'same@example.invalid' }],
++    },
++    { provider: 'gemini-web', accounts: [account, account] },
++  ])('rejects an ambiguous or non-matching list', async (value) => {
++    response = value;
++    await expect(geminiWebApi.load(file, scope())).rejects.toThrow();
++  });
++  it('does not hide transport authorization failures', async () => {
++    status = 401;
++    response = { error: 'unauthorized' };
++    await expect(geminiWebApi.refresh(file, scope())).rejects.toMatchObject({ status: 401 });
++  });
++  it('rejects missing portal resources instead of returning a blind link', async () => {
++    response = { plugins_enabled: true, plugins: [] };
++    await expect(requireGeminiWebPortal(scope())).rejects.toThrow();
++  });
++});
+diff --git c/apps/web/src/services/api/geminiWeb.ts i/apps/web/src/services/api/geminiWeb.ts
+new file mode 100644
+index 0000000..6475bc9
+--- /dev/null
++++ i/apps/web/src/services/api/geminiWeb.ts
+@@ -0,0 +1,101 @@
++import type { AuthFileItem } from '@/types';
++import { isRecord } from '@/utils/helpers';
++import { normalizeApiBase } from '@/utils/connection';
++import { apiClient, createScopedApiRequestConfig, type ApiClientRequestScope } from './client';
++import { pluginsApi } from './plugins';
++import { GeminiWebError, parseGeminiWebAccount } from './geminiWebDto';
++
++const resourcePath = '/v0/resource/plugins/gemini-web/index';
++export const GEMINI_WEB_PORTAL_ROUTE = '/plugin-pages/gemini-web/0';
++
++export function geminiWebAccountId(file: AuthFileItem): string {
++  if (
++    (file.provider || file.type) !== 'gemini-web' ||
++    (file.type && file.type !== 'gemini-web') ||
++    !/^gemini-web-[a-z0-9-]+\.json$/.test(file.name) ||
++    (file.id && file.id !== file.name)
++  ) {
++    throw new GeminiWebError(
++      'GeminiWeb account identity does not match its provider filename. Open the plugin panel.'
++    );
++  }
++  return file.name;
++}
++
++export async function requireGeminiWebPortal(scope: ApiClientRequestScope): Promise<string> {
++  const response = await pluginsApi.list(scope);
++  const plugin = response.plugins.find((entry) => entry.id === 'gemini-web');
++  if (
++    !response.pluginsEnabled ||
++    !plugin?.registered ||
++    !plugin.effectiveEnabled ||
++    plugin.menus[0]?.path !== resourcePath
++  ) {
++    throw new GeminiWebError(
++      'GeminiWeb portal is unavailable. Check that the GeminiWeb plugin is enabled and its first resource page is installed.'
++    );
++  }
++  const resource = await apiClient.getRaw(resourcePath, {
++    ...createScopedApiRequestConfig(scope),
++    baseURL: normalizeApiBase(scope.apiBase),
++    responseType: 'text',
++  });
++  if (
++    !String(resource.headers['content-type']).includes('text/html') ||
++    typeof resource.data !== 'string' ||
++    !resource.data.trim()
++  ) {
++    throw new GeminiWebError(
++      'GeminiWeb portal did not return HTML. Check the plugin resource installation.'
++    );
++  }
++  return GEMINI_WEB_PORTAL_ROUTE;
++}
++
++export function geminiWebErrorMessage(error: unknown): string {
++  if (error instanceof GeminiWebError) return error.message;
++  if (isRecord(error) && (error.status === 401 || error.status === 403)) {
++    return 'Manager authorization failed. Sign in to Manager again and check plugin access.';
++  }
++  return 'GeminiWeb request failed. Check the plugin and its resource installation, then retry.';
++}
++
++export const geminiWebApi = {
++  async load(file: AuthFileItem, scope?: ApiClientRequestScope) {
++    const id = geminiWebAccountId(file);
++    const response = await apiClient.get(
++      '/plugins/gemini-web/accounts',
++      scope ? createScopedApiRequestConfig(scope) : undefined
++    );
++    if (
++      !isRecord(response) ||
++      response.provider !== 'gemini-web' ||
++      !Array.isArray(response.accounts)
++    ) {
++      throw new GeminiWebError('Invalid GeminiWeb account list. Check the plugin version.');
++    }
++    const matches = response.accounts.filter(
++      (account: unknown) => isRecord(account) && account.id === id
++    );
++    if (matches.length !== 1) {
++      throw new GeminiWebError(
++        'No unique GeminiWeb account matches this filename. Open the plugin panel to check registration.'
++      );
++    }
++    return parseGeminiWebAccount(matches[0]);
++  },
++  async refresh(file: AuthFileItem, scope?: ApiClientRequestScope) {
++    const id = geminiWebAccountId(file);
++    const response = await apiClient.post(
++      '/plugins/gemini-web/refresh',
++      { id },
++      scope ? createScopedApiRequestConfig(scope) : undefined
++    );
++    const account = parseGeminiWebAccount(response);
++    if (account.id !== id)
++      throw new GeminiWebError(
++        'GeminiWeb returned a different account. No measurements were applied.'
++      );
++    return account;
++  },
++};
+diff --git c/apps/web/src/services/api/geminiWebDto.ts i/apps/web/src/services/api/geminiWebDto.ts
+new file mode 100644
+index 0000000..c6b2cbc
+--- /dev/null
++++ i/apps/web/src/services/api/geminiWebDto.ts
+@@ -0,0 +1,133 @@
++import { isRecord } from '@/utils/helpers';
++
++export type GeminiWebMetric = {
++  readonly remaining_units: number | null;
++  readonly usage_fraction: number | null;
++  readonly usage_percent?: number;
++  readonly reset_unix_seconds: number | null;
++  readonly window_kind: '5h' | 'weekly' | 'ai_credit' | 'unknown';
++  readonly unit: 'provider_compute_unit';
++  readonly metric_type?: string | number;
++};
++export type GeminiWebUsage = {
++  readonly tier: string | null;
++  readonly tier_code: number | string | null;
++  readonly metrics: readonly GeminiWebMetric[] | null;
++  readonly source: 'GoogleWeb';
++  readonly estimated: false;
++  readonly observed_at: number;
++};
++export type GeminiWebAccount = {
++  readonly id: string;
++  readonly label: string;
++  readonly enabled: boolean;
++  readonly status: 'ready' | 'expired' | 'error' | 'unknown';
++  readonly models: readonly { readonly id: string; readonly name: string }[];
++  readonly usage: GeminiWebUsage | null;
++  readonly error?: string;
++  readonly observed_at: number;
++};
++
++export class GeminiWebError extends Error {
++  readonly name = 'GeminiWebError';
++}
++
++function numberOrNull(value: unknown): number | null {
++  if (value === null || (typeof value === 'number' && Number.isFinite(value))) return value;
++  throw new GeminiWebError('Invalid GeminiWeb measurement. Check the plugin version.');
++}
++function timestamp(value: unknown): number {
++  const result = numberOrNull(value);
++  if (result !== null && result > 0 && result <= 8.64e12) return result;
++  throw new GeminiWebError('Invalid GeminiWeb observation time. Check the plugin version.');
++}
++function textOrNull(value: unknown): string | null {
++  if (value === null || typeof value === 'string') return value;
++  throw new GeminiWebError('Invalid GeminiWeb text field. Check the plugin version.');
++}
++function parseMetric(value: unknown): GeminiWebMetric {
++  if (!isRecord(value) || value.unit !== 'provider_compute_unit') {
++    throw new GeminiWebError('Unsupported GeminiWeb metric. Open the plugin panel for details.');
++  }
++  const window = value.window_kind;
++  if (window !== '5h' && window !== 'weekly' && window !== 'ai_credit' && window !== 'unknown') {
++    throw new GeminiWebError('Invalid GeminiWeb window.');
++  }
++  const percent = value.usage_percent === undefined ? undefined : numberOrNull(value.usage_percent);
++  if (
++    percent === null ||
++    (value.metric_type !== undefined &&
++      typeof value.metric_type !== 'string' &&
++      typeof value.metric_type !== 'number')
++  ) {
++    throw new GeminiWebError('Invalid GeminiWeb metric details.');
++  }
++  return {
++    remaining_units: numberOrNull(value.remaining_units),
++    usage_fraction: numberOrNull(value.usage_fraction),
++    ...(percent !== undefined ? { usage_percent: percent } : {}),
++    reset_unix_seconds:
++      value.reset_unix_seconds === null ? null : timestamp(value.reset_unix_seconds),
++    window_kind: window,
++    unit: 'provider_compute_unit',
++    ...(value.metric_type !== undefined ? { metric_type: value.metric_type } : {}),
++  };
++}
++function parseUsage(value: unknown): GeminiWebUsage | null {
++  if (value === null) return null;
++  if (
++    !isRecord(value) ||
++    value.source !== 'GoogleWeb' ||
++    value.estimated !== false ||
++    (value.metrics !== null && !Array.isArray(value.metrics))
++  ) {
++    throw new GeminiWebError('Invalid GeminiWeb usage response. Check the plugin version.');
++  }
++  const tierCode = value.tier_code;
++  if (
++    tierCode !== null &&
++    typeof tierCode !== 'string' &&
++    !(typeof tierCode === 'number' && Number.isFinite(tierCode))
++  ) {
++    throw new GeminiWebError('Invalid GeminiWeb tier code.');
++  }
++  return {
++    tier: textOrNull(value.tier),
++    tier_code: tierCode,
++    metrics: value.metrics === null ? null : value.metrics.map(parseMetric),
++    source: 'GoogleWeb',
++    estimated: false,
++    observed_at: timestamp(value.observed_at),
++  };
++}
++export function parseGeminiWebAccount(value: unknown): GeminiWebAccount {
++  if (
++    !isRecord(value) ||
++    typeof value.id !== 'string' ||
++    typeof value.label !== 'string' ||
++    typeof value.enabled !== 'boolean' ||
++    !Array.isArray(value.models) ||
++    (value.error !== undefined && typeof value.error !== 'string')
++  ) {
++    throw new GeminiWebError('Invalid GeminiWeb account response. Check the plugin version.');
++  }
++  const status = value.status;
++  if (status !== 'ready' && status !== 'expired' && status !== 'error' && status !== 'unknown') {
++    throw new GeminiWebError('Invalid GeminiWeb account state.');
++  }
++  return {
++    id: value.id,
++    label: value.label,
++    enabled: value.enabled,
++    status,
++    models: value.models.map((model: unknown) => {
++      if (!isRecord(model) || typeof model.id !== 'string' || typeof model.name !== 'string') {
++        throw new GeminiWebError('Invalid GeminiWeb model response.');
++      }
++      return { id: model.id, name: model.name };
++    }),
++    usage: parseUsage(value.usage),
++    observed_at: timestamp(value.observed_at),
++    ...(value.error !== undefined ? { error: value.error } : {}),
++  };
++}

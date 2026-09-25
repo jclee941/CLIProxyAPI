@@ -1,0 +1,5 @@
+{
+  "include": ["*.py"],
+  "executionEnvironments": [{ "root": ".", "extraPaths": ["."] }],
+  "typeCheckingMode": "strict"
+}

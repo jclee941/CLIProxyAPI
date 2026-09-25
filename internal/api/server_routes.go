@@ -123,8 +123,16 @@ func (s *Server) setupRoutes() {
 	{
 		v1beta.GET("/models", s.geminiModelsHandler(geminiHandlers))
 		v1beta.POST("/interactions", geminiHandlers.Interactions)
+		v1beta.GET("/interactions/:id", geminiHandlers.RetrieveInteraction)
 		v1beta.POST("/models/*action", geminiHandlers.GeminiHandler)
 		v1beta.GET("/models/*action", s.geminiGetHandler(geminiHandlers))
+	}
+
+	apiSync := s.engine.Group("/api/config-sync")
+	apiSync.Use(AuthMiddleware(s.accessManager))
+	{
+		apiSync.GET("/version", managementHandlers.ConfigSyncVersion)
+		apiSync.GET("/bundle", managementHandlers.ConfigSyncBundle)
 	}
 
 	// Root endpoint

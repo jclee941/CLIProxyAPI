@@ -47,7 +47,10 @@ func RequestLoggingMiddleware(logger logging.RequestLogger) gin.HandlerFunc {
 		}
 
 		loggerEnabled := logger.IsEnabled()
-		captureBody := shouldCaptureRequestBody(loggerEnabled, c.Request)
+		// Native routes are dispatched through NoRoute after authentication.
+		// Do not eagerly read even when a route is added during this request.
+		deferBody := c.FullPath() == ""
+		captureBody := !deferBody && shouldCaptureRequestBody(loggerEnabled, c.Request)
 
 		// Capture request information
 		requestInfo, err := captureRequestInfo(c, captureBody)
@@ -65,7 +68,12 @@ func RequestLoggingMiddleware(logger logging.RequestLogger) gin.HandlerFunc {
 		}
 		c.Writer = wrapper
 		attachRequestLogSources(c, logger, loggerEnabled)
-		attachDeferredRequestBodyCapture(c.Request, logger, requestInfo, loggerEnabled, captureBody)
+		capture := attachDeferredRequestBodyCapture(c.Request, logger, requestInfo, loggerEnabled && !deferBody, captureBody)
+		if capture != nil && loggerEnabled {
+			// Authenticated native routes already bound their reads. Full logging
+			// records the bytes they consume without the error-only capture cap.
+			capture.limit = 0
+		}
 
 		// Process the request
 		c.Next()
@@ -93,6 +101,7 @@ type deferredRequestBodyCapture struct {
 	finished      bool
 	sawEOF        bool
 	truncated     bool
+	limit         int64
 }
 
 func attachDeferredRequestBodyCapture(req *http.Request, logger logging.RequestLogger, requestInfo *RequestInfo, loggerEnabled, bodyCaptured bool) *deferredRequestBodyCapture {
@@ -121,6 +130,7 @@ func attachDeferredRequestBodyCapture(req *http.Request, logger logging.RequestL
 		file:          file,
 		source:        source,
 		contentLength: req.ContentLength,
+		limit:         maxDeferredErrorRequestBodyBytes,
 	}
 	req.Body = capture
 	requestInfo.deferredBodyCapture = capture
@@ -143,7 +153,10 @@ func (c *deferredRequestBodyCapture) Read(payload []byte) (int, error) {
 		return n, errRead
 	}
 
-	remaining := maxDeferredErrorRequestBodyBytes - c.bytesCaptured
+	remaining := int64(n)
+	if c.limit > 0 {
+		remaining = c.limit - c.bytesCaptured
+	}
 	if remaining <= 0 {
 		c.truncated = true
 		return n, errRead

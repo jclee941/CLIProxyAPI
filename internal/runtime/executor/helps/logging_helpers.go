@@ -70,6 +70,7 @@ func RecordAPIRequest(ctx context.Context, cfg *config.Config, info UpstreamRequ
 	if ginCtx == nil {
 		return
 	}
+	recordUpstreamMetadata(ginCtx, info)
 	if !cfg.RequestLog {
 		deferAPIRequest(ginCtx, info)
 		return

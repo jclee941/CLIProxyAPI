@@ -1,0 +1,621 @@
+diff --git i/internal/runtime/executor/openai_compat_executor.go w/internal/runtime/executor/openai_compat_executor.go
+index fd972379f..4651c1f8a 100644
+--- i/internal/runtime/executor/openai_compat_executor.go
++++ w/internal/runtime/executor/openai_compat_executor.go
+@@ -377,11 +377,11 @@ func (e *OpenAICompatExecutor) executeImages(ctx context.Context, auth *cliproxy
+ 		AuthLabel: authLabel,
+ 		AuthType:  authType,
+ 		AuthValue: authValue,
+ 	})
+ 
+-	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
++	httpClient := helps.NewProxyAwareImageHTTPClient(ctx, e.cfg, auth)
+ 	httpClient = reporter.TrackHTTPClient(httpClient)
+ 	httpResp, err := httpClient.Do(httpReq)
+ 	if err != nil {
+ 		helps.RecordAPIResponseError(ctx, e.cfg, err)
+ 		return resp, err
+@@ -964,11 +964,11 @@ func (e *OpenAICompatExecutor) executeImagesStream(ctx context.Context, auth *cl
+ 		AuthLabel: authLabel,
+ 		AuthType:  authType,
+ 		AuthValue: authValue,
+ 	})
+ 
+-	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
++	httpClient := helps.NewProxyAwareImageHTTPClient(ctx, e.cfg, auth)
+ 	httpClient = reporter.TrackHTTPClient(httpClient)
+ 	httpResp, err := httpClient.Do(httpReq)
+ 	if err != nil {
+ 		helps.RecordAPIResponseError(ctx, e.cfg, err)
+ 		return nil, err
+diff --git 1/internal/runtime/executor/helps/proxy_image_helpers.go 2/internal/runtime/executor/helps/proxy_image_helpers.go
+new file mode 100644
+index 000000000..a0e3a23cf
+--- /dev/null
++++ 2/internal/runtime/executor/helps/proxy_image_helpers.go
+@@ -0,0 +1,77 @@
++package helps
++
++import (
++	"context"
++	"net/http"
++	"strings"
++	"sync"
++
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
++	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
++)
++
++type imageHTTPClientKey struct {
++	proxyURL  string
++	transport *http.Transport
++}
++
++var (
++	imageHTTPClientsMutex sync.Mutex
++	imageHTTPClients      = make(map[imageHTTPClientKey]*http.Client)
++)
++
++func NewProxyAwareImageHTTPClient(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth) *http.Client {
++	var proxyURL string
++	if auth != nil {
++		proxyURL = strings.TrimSpace(auth.ProxyURL)
++	}
++	if proxyURL == "" && cfg != nil {
++		proxyURL = strings.TrimSpace(cfg.ProxyURL)
++	}
++	if proxyURL != "" {
++		client := cachedImageHTTPClient(imageHTTPClientKey{proxyURL: proxyURL}, func() *http.Transport {
++			return buildProxyTransport(proxyURL)
++		})
++		if client != nil {
++			return client
++		}
++	}
++
++	rt := http.DefaultTransport
++	if ctx != nil {
++		if provided, ok := ctx.Value("cliproxy.roundtripper").(http.RoundTripper); ok && provided != nil {
++			rt = provided
++		}
++	}
++unwrap:
++	for {
++		switch wrapper := rt.(type) {
++		case idleTimeoutRoundTripper:
++			rt = wrapper.next
++		case *idleTimeoutRoundTripper:
++			rt = wrapper.next
++		default:
++			break unwrap
++		}
++	}
++	if transport, ok := rt.(*http.Transport); ok && transport != nil {
++		return cachedImageHTTPClient(imageHTTPClientKey{transport: transport}, transport.Clone)
++	}
++	return &http.Client{Transport: rt}
++}
++
++func cachedImageHTTPClient(key imageHTTPClientKey, build func() *http.Transport) *http.Client {
++	imageHTTPClientsMutex.Lock()
++	defer imageHTTPClientsMutex.Unlock()
++	if client := imageHTTPClients[key]; client != nil {
++		return client
++	}
++	transport := build()
++	if transport == nil {
++		return nil
++	}
++	transport.ResponseHeaderTimeout = 0
++	client := &http.Client{Transport: transport}
++	imageHTTPClients[key] = client
++	return client
++}
+diff --git 1/internal/runtime/executor/helps/proxy_image_helpers_test.go 2/internal/runtime/executor/helps/proxy_image_helpers_test.go
+new file mode 100644
+index 000000000..94f325764
+--- /dev/null
++++ 2/internal/runtime/executor/helps/proxy_image_helpers_test.go
+@@ -0,0 +1,194 @@
++package helps
++
++import (
++	"context"
++	"errors"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
++	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
++	sdkconfig "github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
++)
++
++func TestImageHTTPClientIsolatesOrdinaryTimeoutPolicy(t *testing.T) {
++	t.Parallel()
++	for _, imageFirst := range []bool{false, true} {
++		t.Run(map[bool]string{false: "chat first", true: "image first"}[imageFirst], func(t *testing.T) {
++			server := httptest.NewServer(http.NotFoundHandler())
++			defer server.Close()
++			cleanupImageProxyClients(t, server.URL)
++			auth := &cliproxyauth.Auth{ProxyURL: server.URL}
++			var image *http.Client
++			if imageFirst {
++				image = NewProxyAwareImageHTTPClient(t.Context(), nil, auth)
++			}
++			ordinary := NewProxyAwareHTTPClient(t.Context(), nil, auth, 17*time.Second)
++			if !imageFirst {
++				image = NewProxyAwareImageHTTPClient(t.Context(), nil, auth)
++			}
++			defer ordinary.CloseIdleConnections()
++			defer image.CloseIdleConnections()
++
++			if image.Timeout != 0 {
++				t.Errorf("image Timeout = %v, want 0 despite cached credential timeout", image.Timeout)
++			}
++			imageTransport := requireHTTPTransport(t, image.Transport)
++			ordinaryTransport := requireHTTPTransport(t, ordinary.Transport)
++			if imageTransport.ResponseHeaderTimeout != 0 {
++				t.Errorf("image ResponseHeaderTimeout = %v, want 0", imageTransport.ResponseHeaderTimeout)
++			}
++			if _, wrapped := image.Transport.(idleTimeoutRoundTripper); wrapped {
++				t.Error("image client adds a body-read idle deadline")
++			}
++			if ordinary.Timeout != 17*time.Second || ordinaryTransport.ResponseHeaderTimeout != 45*time.Second {
++				t.Error("ordinary credential/header timeout policy changed")
++			}
++			if wrapper, wrapped := ordinary.Transport.(idleTimeoutRoundTripper); !wrapped || wrapper.idleTimeout != 5*time.Minute {
++				t.Error("ordinary five-minute body timeout policy changed")
++			}
++			if imageTransport == ordinaryTransport {
++				t.Error("image and ordinary clients share the same mutable transport")
++			}
++			if NewProxyAwareImageHTTPClient(t.Context(), nil, auth).Transport != image.Transport {
++				t.Error("image proxy transport is not reused")
++			}
++		})
++	}
++}
++
++func TestImageHTTPClientClonesAndReusesContextTransport(t *testing.T) {
++	t.Parallel()
++	base := http.DefaultTransport.(*http.Transport).Clone()
++	base.ResponseHeaderTimeout = 19 * time.Second
++	ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", withStreamingIdleTimeout(base))
++
++	client := NewProxyAwareImageHTTPClient(ctx, nil, nil)
++	clone := requireHTTPTransport(t, client.Transport)
++
++	if clone == base || clone.ResponseHeaderTimeout != 0 {
++		t.Fatalf("image context clone shared=%v header=%v, want private clone with header=0", clone == base, clone.ResponseHeaderTimeout)
++	}
++	if base.ResponseHeaderTimeout != 19*time.Second || clone.IdleConnTimeout != base.IdleConnTimeout || clone.TLSHandshakeTimeout != base.TLSHandshakeTimeout || clone.DialContext == nil {
++		t.Fatal("caller transport mutated or connection settings lost")
++	}
++	if next := NewProxyAwareImageHTTPClient(ctx, nil, nil); next.Transport != client.Transport {
++		t.Fatal("context image connection pool is not reused")
++	}
++}
++
++func TestImageHTTPClientDefaultAndDirectPolicy(t *testing.T) {
++	t.Parallel()
++	for _, proxyURL := range []string{"", "direct"} {
++		t.Run(proxyURL, func(t *testing.T) {
++			var cfg *config.Config
++			if proxyURL == "direct" {
++				cfg = &config.Config{SDKConfig: sdkconfig.SDKConfig{ProxyURL: "http://ignored.invalid:8080"}}
++			}
++			auth := &cliproxyauth.Auth{ProxyURL: proxyURL}
++			client := NewProxyAwareImageHTTPClient(t.Context(), cfg, auth)
++			transport := requireHTTPTransport(t, client.Transport)
++
++			if client.Timeout != 0 || transport.ResponseHeaderTimeout != 0 {
++				t.Fatalf("image total/header deadlines = %v/%v, want 0/0", client.Timeout, transport.ResponseHeaderTimeout)
++			}
++			if transport.TLSHandshakeTimeout <= 0 || transport.IdleConnTimeout <= 0 || transport.DialContext == nil {
++				t.Fatal("connection settings lost")
++			}
++			if proxyURL == "direct" && transport.Proxy != nil {
++				t.Fatal("auth direct must override global proxy")
++			}
++			if NewProxyAwareImageHTTPClient(t.Context(), cfg, auth).Transport != client.Transport {
++				t.Fatal("image connection pool is not reused")
++			}
++		})
++	}
++}
++
++type imageMiddlewareTransport struct {
++	http.RoundTripper
++	called bool
++}
++
++func (transport *imageMiddlewareTransport) Unwrap() http.RoundTripper {
++	return transport.RoundTripper
++}
++
++func (transport *imageMiddlewareTransport) RoundTrip(request *http.Request) (*http.Response, error) {
++	transport.called = true
++	return transport.RoundTripper.RoundTrip(request)
++}
++
++func TestImageHTTPClientPreservesUnknownMiddleware(t *testing.T) {
++	t.Parallel()
++	for _, proxyURL := range []string{"", "://invalid"} {
++		t.Run(proxyURL, func(t *testing.T) {
++			body := io.NopCloser(strings.NewReader("image"))
++			middleware := &imageMiddlewareTransport{RoundTripper: roundTripFunc(func(*http.Request) (*http.Response, error) {
++				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: body}, nil
++			})}
++			ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", withStreamingIdleTimeout(middleware))
++			client := NewProxyAwareImageHTTPClient(ctx, nil, &cliproxyauth.Auth{ProxyURL: proxyURL})
++
++			response, err := client.Get("http://upstream.invalid/images")
++
++			if err != nil {
++				t.Fatal(err)
++			}
++			if errClose := response.Body.Close(); errClose != nil {
++				t.Fatal(errClose)
++			}
++			if !middleware.called || response.Body != body {
++				t.Fatal("unknown middleware lost or image body wrapped")
++			}
++		})
++	}
++}
++
++func TestImageHTTPClientPreservesFunctionTransportAndErrors(t *testing.T) {
++	t.Parallel()
++	want := errors.New("upstream rejected")
++	transport := roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, want })
++	ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", transport)
++
++	client := NewProxyAwareImageHTTPClient(ctx, nil, nil)
++	_, err := client.Get("http://upstream.invalid/images")
++
++	if !errors.Is(err, want) {
++		t.Fatalf("image transport error = %v, want original error", err)
++	}
++}
++
++func TestImageHTTPClientProxyPriorityOverridesContext(t *testing.T) {
++	t.Parallel()
++	server := httptest.NewServer(http.NotFoundHandler())
++	defer server.Close()
++	cleanupImageProxyClients(t, server.URL)
++	ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", &http.Transport{})
++	cfg := &config.Config{SDKConfig: sdkconfig.SDKConfig{ProxyURL: "http://ignored.invalid:8080"}}
++	auth := &cliproxyauth.Auth{ProxyURL: server.URL}
++
++	client := NewProxyAwareImageHTTPClient(ctx, cfg, auth)
++	transport := requireHTTPTransport(t, client.Transport)
++	proxyURL, err := transport.Proxy(httptest.NewRequest(http.MethodGet, "http://upstream.invalid", nil))
++
++	if err != nil || proxyURL.String() != server.URL {
++		t.Fatalf("selected proxy = %v, %v, want auth proxy", proxyURL, err)
++	}
++}
++
++func cleanupImageProxyClients(t *testing.T, proxyURL string) {
++	t.Helper()
++	t.Cleanup(func() {
++		imageHTTPClientsMutex.Lock()
++		delete(imageHTTPClients, imageHTTPClientKey{proxyURL: proxyURL})
++		imageHTTPClientsMutex.Unlock()
++		httpClientCacheMutex.Lock()
++		delete(httpClientCache, proxyURL)
++		httpClientCacheMutex.Unlock()
++	})
++}
+diff --git 1/internal/runtime/executor/helps/proxy_image_http_test.go 2/internal/runtime/executor/helps/proxy_image_http_test.go
+new file mode 100644
+index 000000000..b1c367206
+--- /dev/null
++++ 2/internal/runtime/executor/helps/proxy_image_http_test.go
+@@ -0,0 +1,181 @@
++package helps
++
++import (
++	"context"
++	"errors"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
++	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
++	sdkconfig "github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
++)
++
++func TestImageHTTPClientDelayedResponseFollowsCallerContext(t *testing.T) {
++	t.Parallel()
++	for _, route := range []string{"default", "direct", "context", "proxy"} {
++		for _, outcome := range []string{"complete", "cancel headers", "cancel body"} {
++			t.Run(route+"/"+outcome, func(t *testing.T) {
++				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
++				received := make(chan struct{})
++				releaseHeaders := make(chan struct{})
++				releaseBody := make(chan struct{})
++				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
++					if _, errRead := io.Copy(io.Discard, request.Body); errRead != nil {
++						t.Error(errRead)
++						return
++					}
++					close(received)
++					select {
++					case <-releaseHeaders:
++					case <-request.Context().Done():
++						return
++					}
++					writer.WriteHeader(http.StatusOK)
++					if errFlush := http.NewResponseController(writer).Flush(); errFlush != nil {
++						t.Error(errFlush)
++						return
++					}
++					select {
++					case <-releaseBody:
++						if _, errWrite := io.WriteString(writer, "image"); errWrite != nil {
++							t.Error(errWrite)
++						}
++					case <-request.Context().Done():
++					}
++				}))
++				defer server.Close()
++				defer cancel()
++				var auth *cliproxyauth.Auth
++				switch route {
++				case "default":
++				case "direct":
++					auth = &cliproxyauth.Auth{ProxyURL: "direct"}
++				case "context":
++					ctx = context.WithValue(ctx, "cliproxy.roundtripper", server.Client().Transport)
++				case "proxy":
++					auth = &cliproxyauth.Auth{ProxyURL: server.URL}
++					cleanupImageProxyClients(t, server.URL)
++				}
++				client := NewProxyAwareImageHTTPClient(ctx, nil, auth)
++				defer client.CloseIdleConnections()
++				request, errRequest := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/images", strings.NewReader("request"))
++				if errRequest != nil {
++					t.Fatal(errRequest)
++				}
++				type result struct {
++					payload string
++					err     error
++				}
++				done := make(chan result, 1)
++				headers := make(chan struct{})
++
++				go func() {
++					response, errDo := client.Do(request)
++					if errDo != nil {
++						done <- result{err: errDo}
++						return
++					}
++					if _, wrapped := response.Body.(*idleTimeoutBody); wrapped {
++						t.Error("model response body has an active idle deadline")
++					}
++					close(headers)
++					payload, errRead := io.ReadAll(response.Body)
++					done <- result{payload: string(payload), err: errors.Join(errRead, response.Body.Close())}
++				}()
++
++				select {
++				case <-received:
++				case <-ctx.Done():
++					t.Fatal("request did not reach local server")
++				}
++				if outcome == "cancel headers" {
++					cancel()
++				} else {
++					close(releaseHeaders)
++					select {
++					case <-headers:
++					case got := <-done:
++						t.Fatalf("request ended before headers: %v", got.err)
++					case <-ctx.Done():
++						t.Fatal("response headers did not arrive")
++					}
++					if outcome == "cancel body" {
++						cancel()
++					} else {
++						close(releaseBody)
++					}
++				}
++				select {
++				case got := <-done:
++					if outcome == "complete" {
++						if got.err != nil || got.payload != "image" {
++							t.Fatalf("delayed response = %q, %v, want image, nil", got.payload, got.err)
++						}
++					} else if !errors.Is(got.err, context.Canceled) {
++						t.Fatalf("canceled request error = %v, want context.Canceled", got.err)
++					}
++				case <-time.After(5 * time.Second):
++					t.Fatal("request did not complete after release or cancellation")
++				}
++			})
++		}
++	}
++}
++
++func TestNewProxyAwareHTTPClientCredentialTimeoutExpires(t *testing.T) {
++	t.Parallel()
++	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
++		<-request.Context().Done()
++	}))
++	defer server.Close()
++	client := NewProxyAwareHTTPClient(t.Context(), nil, nil, 25*time.Millisecond)
++	defer client.CloseIdleConnections()
++
++	_, err := client.Get(server.URL)
++
++	if !errors.Is(err, context.DeadlineExceeded) {
++		t.Fatalf("credential request error = %v, want context.DeadlineExceeded", err)
++	}
++}
++
++func TestImageHTTPClientReusesProxyConnection(t *testing.T) {
++	t.Parallel()
++	addresses := make(chan string, 2)
++	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
++		addresses <- request.RemoteAddr
++		writer.WriteHeader(http.StatusNoContent)
++	}))
++	defer server.Close()
++	cleanupImageProxyClients(t, server.URL)
++	cfg := &config.Config{SDKConfig: sdkconfig.SDKConfig{ProxyURL: server.URL}}
++	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
++	defer cancel()
++
++	for range 2 {
++		client := NewProxyAwareImageHTTPClient(ctx, cfg, nil)
++		defer client.CloseIdleConnections()
++		request, errRequest := http.NewRequestWithContext(ctx, http.MethodPost, "http://upstream.invalid/images", nil)
++		if errRequest != nil {
++			t.Fatal(errRequest)
++		}
++		response, errDo := client.Do(request)
++		if errDo != nil {
++			t.Fatal(errDo)
++		}
++		if errClose := response.Body.Close(); errClose != nil {
++			t.Fatal(errClose)
++		}
++		if response.StatusCode != http.StatusNoContent {
++			t.Fatalf("proxy response = %d, want 204", response.StatusCode)
++		}
++	}
++
++	if first, second := <-addresses, <-addresses; first != second {
++		t.Fatalf("image proxy connections differ: %s, %s", first, second)
++	}
++}
+diff --git 1/internal/runtime/executor/openai_compat_images_timeout_test.go 2/internal/runtime/executor/openai_compat_images_timeout_test.go
+new file mode 100644
+index 000000000..b547770ca
+--- /dev/null
++++ 2/internal/runtime/executor/openai_compat_images_timeout_test.go
+@@ -0,0 +1,115 @@
++package executor
++
++import (
++	"context"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
++	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
++	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
++	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
++	"github.com/tidwall/gjson"
++)
++
++func TestOpenAICompatImagesWaitForGenerationWithoutHeaderDeadline(t *testing.T) {
++	t.Parallel()
++	for _, endpoint := range []string{"/v1/images/generations", "/v1/images/edits"} {
++		for _, streaming := range []bool{false, true} {
++			name := endpoint + map[bool]string{false: "/nonstream", true: "/stream"}[streaming]
++			t.Run(name, func(t *testing.T) {
++				release := make(chan struct{})
++				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
++					payload, errRead := io.ReadAll(request.Body)
++					if errRead != nil {
++						t.Error(errRead)
++						return
++					}
++					if request.URL.Path != endpoint || gjson.GetBytes(payload, "model").String() != "gpt-image-2" || gjson.GetBytes(payload, "prompt").String() != "draw" {
++						t.Error("image path or rewritten payload changed")
++					}
++					select {
++					case <-release:
++					case <-request.Context().Done():
++						return
++					}
++					response := `{"data":[{"b64_json":"AA=="}]}`
++					writer.Header().Set("Content-Type", "application/json")
++					if streaming {
++						writer.Header().Set("Content-Type", "text/event-stream")
++						response = "data: " + response + "\n\ndata: [DONE]\n\n"
++					}
++					if _, errWrite := io.WriteString(writer, response); errWrite != nil {
++						t.Error(errWrite)
++					}
++				}))
++				defer server.Close()
++				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
++				defer cancel()
++				transport := http.DefaultTransport.(*http.Transport).Clone()
++				transport.ResponseHeaderTimeout = time.Nanosecond
++				ctx = context.WithValue(ctx, "cliproxy.roundtripper", transport)
++				executor := NewOpenAICompatExecutor("openai-compatibility", &config.Config{})
++				auth := &cliproxyauth.Auth{Attributes: map[string]string{"base_url": server.URL + "/v1"}}
++				request := cliproxyexecutor.Request{Model: "gpt-image-2", Payload: []byte(`{"model":"alias","prompt":"draw"}`)}
++				options := cliproxyexecutor.Options{
++					SourceFormat: sdktranslator.FromString("openai-image"),
++					Stream:       streaming,
++					Headers:      http.Header{"Content-Type": []string{"application/json"}},
++					Metadata:     map[string]any{cliproxyexecutor.RequestPathMetadataKey: endpoint},
++				}
++				done := make(chan error, 1)
++
++				go func() {
++					if !streaming {
++						response, err := executor.Execute(ctx, auth, request, options)
++						if err == nil && gjson.GetBytes(response.Payload, "data.0.b64_json").String() != "AA==" {
++							t.Error("image response payload changed")
++						}
++						done <- err
++						return
++					}
++					response, err := executor.ExecuteStream(ctx, auth, request, options)
++					if err != nil {
++						done <- err
++						return
++					}
++					var body strings.Builder
++					for chunk := range response.Chunks {
++						if chunk.Err != nil {
++							done <- chunk.Err
++							return
++						}
++						body.Write(chunk.Payload)
++					}
++					if !strings.Contains(body.String(), `"b64_json":"AA=="`) {
++						t.Error("image SSE payload changed")
++					}
++					done <- nil
++				}()
++
++				select {
++				case err := <-done:
++					t.Fatalf("image execution ended before generation completed: %v", err)
++				case <-time.After(25 * time.Millisecond):
++					close(release)
++				}
++				select {
++				case err := <-done:
++					if err != nil {
++						t.Fatal(err)
++					}
++				case <-ctx.Done():
++					t.Fatal("image execution did not complete")
++				}
++				if transport.ResponseHeaderTimeout != time.Nanosecond {
++					t.Fatal("image execution mutated the caller's transport")
++				}
++			})
++		}
++	}
++}

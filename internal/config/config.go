@@ -43,11 +43,15 @@ type Config struct {
 	// Discovery configures local network mDNS / DNS-SD service advertising.
 	Discovery DiscoveryConfig `yaml:"discovery" json:"discovery"`
 
+	Telegram TelegramConfig `yaml:"telegram" json:"telegram"`
+
 	// CommercialMode disables high-overhead request logging and HTTP middleware features to minimize per-request memory usage.
 	CommercialMode bool `yaml:"commercial-mode" json:"commercial-mode"`
 
 	// LoggingToFile controls whether application logs are written to rotating files or stdout.
 	LoggingToFile bool `yaml:"logging-to-file" json:"logging-to-file"`
+	// LogFormat controls the application log encoding. Supported values are text and json.
+	LogFormat string `yaml:"log-format" json:"log-format"`
 
 	// LogsMaxTotalSizeMB limits the total size (in MB) of log files under the logs directory.
 	// When exceeded, the oldest log files are deleted until within the limit. Set to 0 to disable.

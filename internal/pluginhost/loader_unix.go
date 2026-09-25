@@ -88,6 +88,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 var (
@@ -183,6 +185,14 @@ func (c *dynamicLibraryClient) Call(ctx context.Context, method string, request 
 	}
 	var response C.cliproxy_buffer
 	rc := C.cliproxy_call_plugin(c.api.call, cMethod, (*C.uint8_t)(cRequest), C.size_t(len(request)), &response)
+	// Check the frontend message boundary before converting a native length to
+	// C.int or reading plugin memory. Other capability behavior is unchanged.
+	if isFrontendHTTPMethod(method) && response.len > pluginapi.FrontendHTTPMaxMessageBytes {
+		if response.ptr != nil {
+			C.cliproxy_free_plugin_buffer(c.api.free_buffer, response.ptr, response.len)
+		}
+		return nil, errFrontendHTTPResponseTooLarge
+	}
 	var out []byte
 	if response.ptr != nil && response.len > 0 {
 		out = C.GoBytes(response.ptr, C.int(response.len))

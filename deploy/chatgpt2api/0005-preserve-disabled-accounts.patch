@@ -1,0 +1,687 @@
+diff --git a/api/accounts.py b/api/accounts.py
+index dca3c0f..b3cec95 100644
+--- a/api/accounts.py
++++ b/api/accounts.py
+@@ -48,6 +48,7 @@ class UserKeyUpdateRequest(BaseModel):
+ class AccountCreateRequest(BaseModel):
+     tokens: list[str] = Field(default_factory=list)
+     accounts: list[dict[str, Any]] = Field(default_factory=list)
++    preserve_disabled: bool = False
+ 
+ 
+ class AccountDeleteRequest(BaseModel):
+@@ -56,6 +57,7 @@ class AccountDeleteRequest(BaseModel):
+ 
+ class AccountRefreshRequest(BaseModel):
+     access_tokens: list[str] = Field(default_factory=list)
++    preserve_disabled: bool = False
+ 
+ 
+ class AccountExportRequest(BaseModel):
+@@ -210,11 +212,24 @@ def create_router() -> APIRouter:
+     @router.get("/api/accounts")
+     async def get_accounts(authorization: str | None = Header(default=None)):
+         require_admin(authorization)
+-        return {"items": account_service.list_accounts()}
++        return {"items": account_service.list_accounts(), "capabilities": {"preserve_disabled_accounts": 1}}
+ 
+     @router.post("/api/accounts")
+     async def create_accounts(body: AccountCreateRequest, authorization: str | None = Header(default=None)):
+         require_admin(authorization)
++        if body.preserve_disabled:
++            if body.tokens or len(body.accounts) != 1:
++                raise HTTPException(status_code=400, detail={"error": "one disabled account is required"})
++            item = body.accounts[0]
++            if (set(item) - {"access_token", "id_token", "status", "source_type"}
++                    or item.get("status") != "禁用" or not _account_payload_token(item)):
++                raise HTTPException(status_code=400, detail={"error": "access-only disabled account is required"})
++            result = account_service.add_account_items([item], create_only=True)
++            if not result["added"]:
++                return {**result, "refreshed": 0, "errors": []}
++            refresh_result = account_service.refresh_accounts(
++                [_account_payload_token(item)], preserve_disabled=True)
++            return {**result, **refresh_result}
+         account_payloads = [item for item in body.accounts if isinstance(item, dict)]
+         payload_tokens = [_account_payload_token(item) for item in account_payloads]
+         tokens = _unique_tokens([*body.tokens, *payload_tokens])
+@@ -259,10 +274,12 @@ def create_router() -> APIRouter:
+ 
+         async def _do_refresh():
+             try:
+-                await run_in_threadpool(account_service.refresh_accounts, access_tokens, progress_id, False)
++                await run_in_threadpool(account_service.refresh_accounts, access_tokens, progress_id, False,
++                                        preserve_disabled=body.preserve_disabled)
+             except Exception as e:
+                 account_service.finish_refresh_progress(progress_id, error=str(e))
+ 
++        account_service.init_refresh_progress(progress_id, len(access_tokens))
+         asyncio.create_task(_do_refresh())
+ 
+         return {"progress_id": progress_id}
+diff --git a/services/account_service.py b/services/account_service.py
+index 14f071c..902275d 100644
+--- a/services/account_service.py
++++ b/services/account_service.py
+@@ -434,7 +434,7 @@ class AccountService:
+         )
+         return new_token
+ 
+-    def refresh_access_token(self, access_token: str, *, force: bool = False, event: str = "refresh_access_token") -> str:
++    def refresh_access_token(self, access_token: str, *, force: bool = False, event: str = "refresh_access_token", preserve_disabled: bool = False) -> str:
+         if not access_token:
+             return ""
+         with self._token_refresh_lock:
+@@ -464,13 +464,14 @@ class AccountService:
+                         t = Thread(
+                             target=self._password_re_login_thread,
+                             args=(active_token, email, password, event),
++                            kwargs={"preserve_disabled": preserve_disabled},
+                             daemon=True,
+                         )
+                         t.start()
+                 return active_token
+             return self._apply_refreshed_tokens(active_token, token_data, event)
+ 
+-    def _password_re_login_thread(self, access_token: str, email: str, password: str, event: str, progress_id: str | None = None) -> None:
++    def _password_re_login_thread(self, access_token: str, email: str, password: str, event: str, progress_id: str | None = None, *, preserve_disabled: bool = False) -> None:
+         """密码重新登录线程入口"""
+         try:
+             result = self._login_with_password(email, password)
+@@ -495,7 +496,7 @@ class AccountService:
+                 self.update_account(new_token, {
+                     "source_type": result.get("source_type", "password"),
+                     "status": "正常",
+-                }, quiet=True)
++                }, quiet=True, preserve_disabled=preserve_disabled)
+ 
+                 log_service.add(
+                     LOG_TYPE_ACCOUNT,
+@@ -545,7 +546,7 @@ class AccountService:
+                             self.update_relogin_progress(progress_id, access_token, "禁用")
+                     else:
+                         # 永久故障：将账号标记为异常（或自动移除）
+-                        self.remove_invalid_token(access_token, f"{event}:password_relogin_failed", quiet=True)
++                        self.remove_invalid_token(access_token, f"{event}:password_relogin_failed", quiet=True, preserve_disabled=preserve_disabled)
+                         if progress_id:
+                             self.update_relogin_progress(progress_id, access_token, "异常", error_type)
+                 else:
+@@ -562,7 +563,7 @@ class AccountService:
+                         },
+                     )
+                     # 永久故障：将账号标记为异常（或自动移除）
+-                    self.remove_invalid_token(access_token, f"{event}:password_relogin_failed", quiet=True)
++                    self.remove_invalid_token(access_token, f"{event}:password_relogin_failed", quiet=True, preserve_disabled=preserve_disabled)
+                     if progress_id:
+                         self.update_relogin_progress(progress_id, access_token, "异常", error_type)
+         except Exception as exc:
+@@ -578,7 +579,7 @@ class AccountService:
+                 },
+             )
+             # 将账号标记为异常（或自动移除）
+-            self.remove_invalid_token(access_token, f"{event}:password_relogin_exception", quiet=True)
++            self.remove_invalid_token(access_token, f"{event}:password_relogin_exception", quiet=True, preserve_disabled=preserve_disabled)
+             if progress_id:
+                 self.update_relogin_progress(progress_id, access_token, "异常", str(exc))
+ 
+@@ -1049,16 +1050,16 @@ class AccountService:
+             self._accounts[access_token] = account
+             self._save_accounts()
+ 
+-    def remove_invalid_token(self, access_token: str, event: str, quiet: bool = False) -> bool:
++    def remove_invalid_token(self, access_token: str, event: str, quiet: bool = False, *, preserve_disabled: bool = False) -> bool:
+         if not config.auto_remove_invalid_accounts:
+-            self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
++            self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet, preserve_disabled=preserve_disabled)
+             return False
+         removed = bool(self.delete_accounts([access_token])["removed"])
+         if removed:
+             log_service.add(LOG_TYPE_ACCOUNT, "Auto-removed invalid account",
+                             {"source": event, "token": anonymize_token(access_token)})
+         elif access_token:
+-            self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
++            self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet, preserve_disabled=preserve_disabled)
+         return removed
+ 
+     def get_account(self, access_token: str) -> dict | None:
+@@ -1127,13 +1128,13 @@ class AccountService:
+             payload["type"] = str(payload.get("plan_type") or "").strip()
+         return payload
+ 
+-    def add_account_items(self, items: list[dict]) -> dict:
++    def add_account_items(self, items: list[dict], *, create_only: bool = False) -> dict:
+         payloads = [
+             payload
+             for item in items
+             if (payload := self._prepare_account_payload(item)) is not None
+         ]
+-        return self._add_account_payloads(payloads)
++        return self._add_account_payloads(payloads, create_only=create_only)
+ 
+     def add_accounts(self, tokens: list[str], source_type: str = "web") -> dict:
+         tokens = list(dict.fromkeys(token for token in tokens if token))
+@@ -1144,7 +1145,7 @@ class AccountService:
+             for token in tokens
+         ])
+ 
+-    def _add_account_payloads(self, payloads: list[dict]) -> dict:
++    def _add_account_payloads(self, payloads: list[dict], *, create_only: bool = False) -> dict:
+         deduped: dict[str, dict] = {}
+         for payload in payloads:
+             if not isinstance(payload, dict):
+@@ -1170,6 +1171,8 @@ class AccountService:
+                     current = {"created_at": self._now()}
+                 else:
+                     skipped += 1
++                    if create_only:
++                        continue
+                 incoming = dict(payload)
+                 if not incoming.get("created_at"):
+                     incoming.pop("created_at", None)
+@@ -1183,7 +1186,8 @@ class AccountService:
+                 )
+                 if account is not None:
+                     self._accounts[access_token] = account
+-            self._save_accounts()
++            if added or not create_only:
++                self._save_accounts()
+             items = [dict(item) for item in self._accounts.values()]
+             log_service.add(LOG_TYPE_ACCOUNT, f"Added {added} accounts, skipped {skipped}",
+                             {"added": added, "skipped": skipped})
+@@ -1213,7 +1217,7 @@ class AccountService:
+             items = [dict(item) for item in self._accounts.values()]
+         return {"removed": removed, "items": items}
+ 
+-    def update_account(self, access_token: str, updates: dict, quiet: bool = False) -> dict | None:
++    def update_account(self, access_token: str, updates: dict, quiet: bool = False, *, preserve_disabled: bool = False) -> dict | None:
+         if not access_token:
+             return None
+         with self._lock:
+@@ -1224,6 +1228,8 @@ class AccountService:
+             account = self._normalize_account({**current, **updates, "access_token": access_token})
+             if account is None:
+                 return None
++            if preserve_disabled and current.get("status") == "禁用":
++                account["status"] = "禁用"
+             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
+                 self._accounts.pop(access_token, None)
+                 self._save_accounts()
+@@ -1337,11 +1343,12 @@ class AccountService:
+         access_token: str,
+         event: str = "fetch_remote_info",
+         defer_invalid_removal: bool = True,
++        *, preserve_disabled: bool = False,
+     ) -> dict[str, Any] | None:
+         if not access_token:
+             raise ValueError("access_token is required")
+ 
+-        active_token = self.refresh_access_token(access_token, event=f"{event}:preflight") or access_token
++        active_token = self.refresh_access_token(access_token, event=f"{event}:preflight", preserve_disabled=preserve_disabled) or access_token
+         try:
+             from services.openai_backend_api import InvalidAccessTokenError, OpenAIBackendAPI
+             backend = OpenAIBackendAPI(active_token)
+@@ -1350,7 +1357,7 @@ class AccountService:
+             finally:
+                 backend.close()
+         except InvalidAccessTokenError as exc:
+-            refreshed_token = self.refresh_access_token(active_token, force=True, event=f"{event}:invalid_access_token")
++            refreshed_token = self.refresh_access_token(active_token, force=True, event=f"{event}:invalid_access_token", preserve_disabled=preserve_disabled)
+             if refreshed_token and refreshed_token != active_token:
+                 try:
+                     backend = OpenAIBackendAPI(refreshed_token)
+@@ -1365,7 +1372,7 @@ class AccountService:
+                         str(retry_exc),
+                         defer_invalid_removal=defer_invalid_removal,
+                     ):
+-                        self.remove_invalid_token(refreshed_token, event)
++                        self.remove_invalid_token(refreshed_token, event, preserve_disabled=preserve_disabled)
+                     raise
+                 active_token = refreshed_token
+             else:
+@@ -1375,10 +1382,10 @@ class AccountService:
+                     str(exc),
+                     defer_invalid_removal=defer_invalid_removal,
+                 ):
+-                    self.remove_invalid_token(active_token, event)
++                    self.remove_invalid_token(active_token, event, preserve_disabled=preserve_disabled)
+                 raise
+         self._record_refresh_success(active_token)
+-        return self.update_account(active_token, result)
++        return self.update_account(active_token, result, preserve_disabled=preserve_disabled)
+ 
+     # ---- 刷新进度追踪 ----
+ 
+@@ -1485,6 +1492,7 @@ class AccountService:
+         access_tokens: list[str],
+         progress_id: str | None = None,
+         defer_invalid_removal: bool = True,
++        *, preserve_disabled: bool = False,
+     ) -> dict[str, Any]:
+         access_tokens = list(dict.fromkeys(token for token in access_tokens if token))
+         if not access_tokens:
+@@ -1504,7 +1512,8 @@ class AccountService:
+         executor = ThreadPoolExecutor(max_workers=max_workers)
+         try:
+             futures = {
+-                executor.submit(self.fetch_remote_info, token, "refresh_accounts", defer_invalid_removal): token
++                executor.submit(self.fetch_remote_info, token, "refresh_accounts", defer_invalid_removal,
++                                preserve_disabled=preserve_disabled): token
+                 for token in access_tokens
+             }
+             for future in as_completed(futures):
+@@ -1551,6 +1560,7 @@ class AccountService:
+                 t = Thread(
+                     target=self._password_re_login_thread,
+                     args=(token, email, password, "auto_relogin_after_refresh"),
++                    kwargs={"preserve_disabled": preserve_disabled},
+                     daemon=True,
+                 )
+                 t.start()
+diff --git a/test/manual_disabled_http.py b/test/manual_disabled_http.py
+new file mode 100644
+index 0000000..143f692
+--- /dev/null
++++ b/test/manual_disabled_http.py
+@@ -0,0 +1,72 @@
++from __future__ import annotations
++
++import json
++import socket
++from threading import Thread
++import time
++from urllib.error import HTTPError
++from urllib.request import Request, urlopen
++from unittest import mock
++
++from curl_cffi import requests
++import uvicorn
++
++from test.test_preserve_disabled_accounts import PreserveDisabledTests, DISABLED, TOKEN
++
++
++def main() -> None:
++    case = PreserveDisabledTests()
++    case.setUp()
++    with socket.socket() as listener, mock.patch.object(requests.Session, "request", side_effect=AssertionError("external HTTP forbidden")):
++        listener.bind(("127.0.0.1", 0))
++        server = uvicorn.Server(uvicorn.Config(case.client.app, log_level="error"))
++        thread = Thread(target=server.run, kwargs={"sockets": [listener]})
++        thread.start()
++        origin = "http://127.0.0.1:" + str(listener.getsockname()[1])
++
++        def call(method: str, path: str, payload: str | None = None):
++            request = Request(origin + path, method=method, data=payload.encode() if payload else None,
++                              headers={"Authorization": "Bearer offline-test-only", "Content-Type": "application/json"})
++            with urlopen(request) as response:
++                return json.load(response)
++
++        try:
++            deadline = time.monotonic() + 5
++            while not server.started:
++                assert time.monotonic() < deadline
++                time.sleep(0.01)
++            inventory = call("GET", "/api/accounts")
++            assert inventory["capabilities"] == {"preserve_disabled_accounts": 1}
++            body = json.dumps({"preserve_disabled": True, "accounts": [{"access_token": TOKEN, "status": DISABLED, "source_type": "codex"}]})
++            imported = call("POST", "/api/accounts", body)
++            assert imported["added"] == 1 and imported["items"][0]["status"] == DISABLED
++            before = case.storage.file_path.read_bytes()
++            duplicate = call("POST", "/api/accounts", body)
++            assert duplicate["added"] == 0 and duplicate["refreshed"] == 0
++            assert case.storage.file_path.read_bytes() == before
++            started = call("POST", "/api/accounts/refresh", json.dumps({"access_tokens": [TOKEN], "preserve_disabled": True}))
++            deadline = time.monotonic() + 5
++            while True:
++                progress = call("GET", "/api/accounts/refresh/progress/" + started["progress_id"])
++                if progress["done"]:
++                    break
++                assert time.monotonic() < deadline
++                time.sleep(0.01)
++            assert progress["result"]["items"][0]["status"] == DISABLED
++            assert set(case.saved_statuses) == {DISABLED}
++            try:
++                call("POST", "/api/accounts", json.dumps({"preserve_disabled": True, "tokens": [TOKEN]}))
++            except HTTPError as error:
++                assert error.code == 400
++            else:
++                raise AssertionError("bad import was accepted")
++            print(json.dumps({"surface": "live loopback HTTP", "new_disabled_import": "PASS", "duplicate_no_write": "PASS", "disabled_quota_refresh": "PASS", "bad_input_400": "PASS", "all_persisted_states_disabled": True, "writes": len(case.saved_statuses)}))
++        finally:
++            server.should_exit = True
++            thread.join(5)
++            assert not thread.is_alive()
++            case.doCleanups()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/test/run_preserve_disabled_offline.py b/test/run_preserve_disabled_offline.py
+new file mode 100644
+index 0000000..4d0c5b0
+--- /dev/null
++++ b/test/run_preserve_disabled_offline.py
+@@ -0,0 +1,52 @@
++from __future__ import annotations
++
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import sys
++import tempfile
++
++
++def main() -> int:
++    root = Path(__file__).resolve().parents[1]
++    with tempfile.TemporaryDirectory(prefix="disabled-offline-") as directory:
++        sandbox = Path(directory)
++        for name in ("api", "services", "utils", "test"):
++            for source in (root / name).rglob("*.py"):
++                target = sandbox / source.relative_to(root)
++                target.parent.mkdir(parents=True, exist_ok=True)
++                shutil.copyfile(source, target)
++        command = """
++import socket
++import sys
++import unittest
++from unittest import mock
++from curl_cffi import requests
++if sys.argv[1:] == ['--manual']:
++    from test.manual_disabled_http import main
++    main()
++    raise SystemExit(0)
++with (
++    mock.patch.object(socket.socket, 'connect', side_effect=AssertionError('offline network forbidden')),
++    mock.patch.object(requests.Session, 'request', side_effect=AssertionError('offline HTTP forbidden')),
++):
++    suite = unittest.defaultTestLoader.loadTestsFromNames([
++        'test.test_preserve_disabled_accounts',
++        'test.test_account_export',
++        'test.test_account_image_capabilities',
++    ])
++    result = unittest.TextTestRunner(verbosity=2).run(suite)
++    raise SystemExit(not result.wasSuccessful())
++"""
++        result = subprocess.run(
++            [sys.executable, "-B", "-c", command, *sys.argv[1:]], cwd=sandbox,
++            env={"PATH": os.defpath, "STORAGE_BACKEND": "json", "PYTHONDONTWRITEBYTECODE": "1",
++                 "CHATGPT2API_AUTH_KEY": "offline-test-only"},
++            check=False,
++        )
++        return result.returncode
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/test/test_preserve_disabled_accounts.py b/test/test_preserve_disabled_accounts.py
+new file mode 100644
+index 0000000..9137b31
+--- /dev/null
++++ b/test/test_preserve_disabled_accounts.py
+@@ -0,0 +1,267 @@
++from __future__ import annotations
++
++from pathlib import Path
++import tempfile
++from threading import Event
++import unittest
++from unittest import mock
++
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++
++from api import accounts
++from services import openai_backend_api
++from services.account_service import AccountService
++from services.config import config
++from services.storage.json_storage import JSONStorageBackend
++
++
++TOKEN = "synthetic-disabled-access"
++DISABLED = "\u7981\u7528"
++NORMAL = "\u6b63\u5e38"
++LIMITED = "\u9650\u6d41"
++
++
++class PreserveDisabledTests(unittest.TestCase):
++    def __init__(self, methodName: str = "runTest") -> None:
++        super().__init__(methodName)
++        directory = self.enterContext(tempfile.TemporaryDirectory())
++        self.storage = JSONStorageBackend(Path(directory) / "accounts.json")
++        self.service = AccountService(self.storage)
++        self.me: mock.Mock = mock.Mock()
++        self.init: mock.Mock = mock.Mock()
++        self.saved_statuses: list[str] = []
++        app = FastAPI()
++        app.include_router(accounts.create_router())
++        self.client = TestClient(app)
++
++    def setUp(self) -> None:
++        self.enterContext(mock.patch.object(self.service, "_get_cumulative_file", return_value=self.storage.file_path.with_name("total")))
++        self.enterContext(mock.patch.object(accounts, "account_service", self.service))
++        self.enterContext(mock.patch.object(openai_backend_api, "account_service", self.service))
++        self.enterContext(mock.patch.object(type(config), "auto_remove_rate_limited_accounts", new_callable=mock.PropertyMock, return_value=True))
++        self.enterContext(mock.patch.object(type(config), "auto_relogin_after_refresh", new_callable=mock.PropertyMock, return_value=False))
++        self.me = self.enterContext(mock.patch.object(openai_backend_api.OpenAIBackendAPI, "_get_me", return_value={"email": "synthetic@example.invalid", "id": "synthetic-user"}))
++        self.init = self.enterContext(mock.patch.object(openai_backend_api.OpenAIBackendAPI, "_get_conversation_init", return_value={"limits_progress": [{"feature_name": "image_gen", "remaining": 8}]}))
++        self.enterContext(mock.patch.object(openai_backend_api.OpenAIBackendAPI, "_get_default_account", return_value={"plan_type": "pro"}))
++        original_save = self.service._save_accounts
++
++        def observe_save() -> None:
++            original_save()
++            self.saved_statuses.extend(str(item["status"]) for item in self.storage.load_accounts())
++
++        self.enterContext(mock.patch.object(self.service, "_save_accounts", side_effect=observe_save))
++        self.enterContext(self.client)
++        self.client.headers["Authorization"] = "Bearer offline-test-only"
++
++    def test_import_when_healthy_preflight_never_persists_enabled(self) -> None:
++        stages: list[str] = []
++
++        def observe_init():
++            stages.extend(str(item["status"]) for item in self.storage.load_accounts())
++            return {"limits_progress": [{"feature_name": "image_gen", "remaining": 8}]}
++
++        self.init.side_effect = observe_init
++
++        response = self.client.post("/api/accounts", json={"preserve_disabled": True, "accounts": [{"access_token": TOKEN, "status": DISABLED, "source_type": "codex"}]})
++
++        self.assertEqual(response.status_code, 200)
++        self.assertEqual(stages, [DISABLED])
++        self.assertTrue(self.saved_statuses)
++        self.assertEqual(set(self.saved_statuses), {DISABLED})
++        item = response.json()["items"][0]
++        self.assertEqual(item["status"], DISABLED)
++        self.assertEqual(item["quota"], 8)
++        self.assertEqual(item["limits_progress"][0]["remaining"], 8)
++        self.assertNotIn("refresh_token", item)
++        self.assertEqual(self.service.list_normal_tokens(), [])
++
++    def test_import_when_duplicate_exists_does_not_merge_or_preflight(self) -> None:
++        self.service.add_account_items([{"access_token": TOKEN, "status": NORMAL, "refresh_token": "synthetic-owner", "source_type": "web"}])
++        before = self.storage.file_path.read_bytes()
++        self.saved_statuses.clear()
++
++        response = self.client.post("/api/accounts", json={"preserve_disabled": True, "accounts": [{"access_token": TOKEN, "status": DISABLED, "source_type": "codex"}]})
++
++        self.assertEqual(response.status_code, 200)
++        self.assertEqual(response.json()["added"], 0)
++        self.assertEqual(response.json()["refreshed"], 0)
++        self.assertEqual(self.storage.file_path.read_bytes(), before)
++        self.assertEqual(self.saved_statuses, [])
++        self.me.assert_not_called()
++
++    def test_refresh_when_disabled_and_remote_limited_preserves_status_and_quota(self) -> None:
++        self.service.add_account_items([{"access_token": TOKEN, "status": DISABLED}])
++        self.init.return_value = {"limits_progress": [{"feature_name": "image_gen", "remaining": 0}]}
++        completed = Event()
++        finish = self.service.finish_refresh_progress
++
++        def observe_finish(*args, **kwargs) -> None:
++            finish(*args, **kwargs)
++            completed.set()
++
++        self.enterContext(mock.patch.object(self.service, "finish_refresh_progress", side_effect=observe_finish))
++
++        response = self.client.post("/api/accounts/refresh", json={"access_tokens": [TOKEN], "preserve_disabled": True})
++        self.assertTrue(completed.wait(5))
++        progress = self.client.get("/api/accounts/refresh/progress/" + response.json()["progress_id"]).json()
++
++        self.assertTrue(progress["done"])
++        self.assertEqual(progress["result"]["items"][0]["status"], DISABLED)
++        self.assertEqual(progress["result"]["items"][0]["quota"], 0)
++        self.assertEqual(set(self.saved_statuses), {DISABLED})
++
++    def test_refresh_when_operator_disables_during_fetch_uses_current_locked_status(self) -> None:
++        self.service.add_account_items([{"access_token": TOKEN, "status": NORMAL}])
++        fetching, release, completed = Event(), Event(), Event()
++
++        def blocked_init():
++            fetching.set()
++            if not release.wait(5):
++                raise AssertionError("metadata release missing")
++            return {"limits_progress": [{"feature_name": "image_gen", "remaining": 8}]}
++
++        finish = self.service.finish_refresh_progress
++
++        def observe_finish(*args, **kwargs) -> None:
++            finish(*args, **kwargs)
++            completed.set()
++
++        self.init.side_effect = blocked_init
++        self.enterContext(mock.patch.object(self.service, "finish_refresh_progress", side_effect=observe_finish))
++
++        response = self.client.post("/api/accounts/refresh", json={"access_tokens": [TOKEN], "preserve_disabled": True})
++        try:
++            self.assertTrue(fetching.wait(5))
++            update = self.client.post("/api/accounts/update", json={"access_token": TOKEN, "status": DISABLED})
++            self.assertEqual(update.status_code, 200)
++            self.saved_statuses.clear()
++        finally:
++            release.set()
++        self.assertTrue(completed.wait(5))
++
++        self.assertEqual(response.status_code, 200)
++        self.assertEqual(set(self.saved_statuses), {DISABLED})
++        item = self.service.get_account(TOKEN)
++        assert item is not None
++        self.assertEqual(item["quota"], 8)
++
++    def test_update_when_operator_explicitly_enables_still_works(self) -> None:
++        self.service.add_account_items([{"access_token": TOKEN, "status": DISABLED}])
++
++        response = self.client.post("/api/accounts/update", json={"access_token": TOKEN, "status": NORMAL})
++
++        self.assertEqual(response.status_code, 200)
++        self.assertEqual(response.json()["item"]["status"], NORMAL)
++
++    def test_refresh_when_legacy_health_repair_is_requested_still_enables(self) -> None:
++        self.service.add_account_items([{"access_token": TOKEN, "status": DISABLED}])
++
++        response = self.client.post("/api/accounts", json={"tokens": [TOKEN]})
++
++        self.assertEqual(response.status_code, 200)
++        self.assertEqual(response.json()["items"][0]["status"], NORMAL)
++
++    def test_inventory_when_authenticated_advertises_versioned_contract(self) -> None:
++        response = self.client.get("/api/accounts")
++
++        self.assertEqual(response.status_code, 200)
++        self.assertEqual(response.json()["capabilities"], {"preserve_disabled_accounts": 1})
++
++    def test_import_when_unauthenticated_never_persists(self) -> None:
++        self.client.headers.pop("Authorization")
++
++        response = self.client.post("/api/accounts", json={"preserve_disabled": True, "accounts": [{"access_token": TOKEN, "status": DISABLED}]})
++
++        self.assertEqual(response.status_code, 401)
++        self.assertEqual(self.saved_statuses, [])
++
++    def test_import_when_protected_payload_is_unsafe_rejects_before_writes(self) -> None:
++        for payload in (
++            {"tokens": [TOKEN]},
++            {"accounts": [{"access_token": TOKEN, "status": NORMAL}]},
++            {"accounts": [{"access_token": TOKEN, "status": DISABLED, "refresh_token": "synthetic-owner"}]},
++        ):
++            with self.subTest(payload=tuple(payload)):
++                response = self.client.post("/api/accounts", json={**payload, "preserve_disabled": True})
++                self.assertEqual(response.status_code, 400)
++                self.assertEqual(self.saved_statuses, [])
++
++    def test_refresh_when_invalid_preserves_errors_and_configured_deletion(self) -> None:
++        self.me.side_effect = openai_backend_api.InvalidAccessTokenError("synthetic-expired")
++        for remove in (False, True):
++            with self.subTest(remove=remove), mock.patch.object(type(config), "auto_remove_invalid_accounts", new_callable=mock.PropertyMock, return_value=remove):
++                self.service.add_account_items([{"access_token": TOKEN, "status": DISABLED}])
++                self.saved_statuses.clear()
++
++                result = self.service.refresh_accounts([TOKEN], defer_invalid_removal=False, preserve_disabled=True)
++
++                self.assertEqual(result["refreshed"], 0)
++                self.assertEqual(len(result["errors"]), 1)
++                self.assertEqual(set(self.saved_statuses), {DISABLED})
++                if remove:
++                    self.assertEqual(result["items"], [])
++                else:
++                    item = result["items"][0]
++                    self.assertEqual(item["status"], DISABLED)
++                    self.assertEqual(item["invalid_count"], 1)
++                    self.assertEqual(item["quota"], 0)
++                    self.assertEqual(item["last_refresh_error"], "synthetic-expired")
++
++    def test_refresh_when_existing_owner_rotates_token_never_enables(self) -> None:
++        self.service.add_account_items([{"access_token": TOKEN, "status": DISABLED, "refresh_token": "synthetic-owner"}])
++        self.enterContext(mock.patch.object(self.service, "_token_needs_refresh", return_value=True))
++        exchange = self.enterContext(mock.patch.object(self.service, "_request_access_token_refresh", return_value={"access_token": "synthetic-rotated", "refresh_token": "synthetic-rotated-owner"}))
++
++        result = self.service.refresh_accounts([TOKEN], preserve_disabled=True)
++
++        self.assertEqual(result["items"][0]["access_token"], "synthetic-rotated")
++        self.assertEqual(result["items"][0]["status"], DISABLED)
++        self.assertEqual(result["items"][0]["quota"], 8)
++        self.assertEqual(set(self.saved_statuses), {DISABLED})
++        self.assertEqual(exchange.call_args.args[0], "synthetic-owner")
++
++    def test_refresh_when_session_terminated_recovery_cannot_enable_disabled(self) -> None:
++        self.service.add_account_items([{"access_token": TOKEN, "status": DISABLED, "refresh_token": "synthetic-owner", "email": "synthetic@example.invalid", "password": "synthetic-password"}])
++        self.enterContext(mock.patch.object(self.service, "_token_needs_refresh", return_value=True))
++        self.enterContext(mock.patch.object(self.service, "_request_access_token_refresh", side_effect=RuntimeError("app_session_terminated")))
++        self.enterContext(mock.patch.object(self.service, "_login_with_password", return_value={"ok": True, "access_token": TOKEN}))
++        completed = Event()
++        relogin = self.service._password_re_login_thread
++
++        def observe_relogin(*args, **kwargs) -> None:
++            try:
++                relogin(*args, **kwargs)
++            finally:
++                completed.set()
++
++        self.enterContext(mock.patch.object(self.service, "_password_re_login_thread", side_effect=observe_relogin))
++
++        self.service.refresh_accounts([TOKEN], preserve_disabled=True)
++        self.assertTrue(completed.wait(5))
++
++        self.assertEqual(set(self.saved_statuses), {DISABLED})
++
++    def test_refresh_when_not_disabled_retains_health_transitions(self) -> None:
++        self.enterContext(mock.patch.object(type(config), "auto_remove_rate_limited_accounts", new_callable=mock.PropertyMock, return_value=False))
++        self.service.add_account_items([{"access_token": TOKEN, "status": NORMAL}])
++        self.init.return_value = {"limits_progress": [{"feature_name": "image_gen", "remaining": 0}]}
++
++        result = self.service.refresh_accounts([TOKEN], preserve_disabled=True)
++
++        self.assertEqual(result["items"][0]["status"], LIMITED)
++        self.init.return_value = {"limits_progress": [{"feature_name": "image_gen", "remaining": 5}]}
++        recovered = self.service.refresh_accounts([TOKEN], preserve_disabled=True)
++        self.assertEqual(recovered["items"][0]["status"], NORMAL)
++
++    def test_refresh_when_worker_has_not_started_progress_is_already_available(self) -> None:
++        self.service.add_account_items([{"access_token": TOKEN, "status": DISABLED}])
++        self.enterContext(mock.patch.object(accounts, "run_in_threadpool", new_callable=mock.AsyncMock))
++
++        response = self.client.post("/api/accounts/refresh", json={"access_tokens": [TOKEN], "preserve_disabled": True})
++        progress = self.client.get("/api/accounts/refresh/progress/" + response.json()["progress_id"])
++
++        self.assertEqual(progress.status_code, 200)
++        self.assertFalse(progress.json()["done"])
++        self.assertEqual(progress.json()["processed"], 0)
++        self.assertEqual(progress.json()["total"], 1)

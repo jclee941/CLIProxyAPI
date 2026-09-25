@@ -131,6 +131,10 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	if cfg.Pprof.Addr == "" {
 		cfg.Pprof.Addr = DefaultPprofAddr
 	}
+	cfg.Telegram.applyEnvironment()
+	if err = cfg.Telegram.normalize(); err != nil {
+		return nil, err
+	}
 
 	if cfg.LogsMaxTotalSizeMB < 0 {
 		cfg.LogsMaxTotalSizeMB = 0

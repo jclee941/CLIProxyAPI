@@ -1,0 +1,13 @@
+{
+  "global": {"checkNewVersion": false, "sendAnonymousUsage": false},
+  "entryPoints": {
+    "gateway": {
+      "address": "127.0.0.1:8317",
+      "forwardedHeaders": {"trustedIPs": ["127.0.0.1/32", "::1/128"]},
+      "transport": {"respondingTimeouts": {"readTimeout": "0s", "writeTimeout": "0s", "idleTimeout": "180s"}}
+    }
+  },
+  "providers": {"file": {"filename": "/opt/cpa-manager-plus/gateway-routes.yaml", "watch": true}},
+  "serversTransport": {"forwardingTimeouts": {"responseHeaderTimeout": "0s", "idleConnTimeout": "90s"}},
+  "log": {"level": "WARN"}
+}

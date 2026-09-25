@@ -380,7 +380,8 @@ func writeResponseSection(w io.Writer, statusCode int, statusWritten bool, respo
 	if responseHeaders != nil {
 		for key, values := range responseHeaders {
 			for _, value := range values {
-				if _, errWrite := io.WriteString(w, fmt.Sprintf("%s: %s\n", key, value)); errWrite != nil {
+				masked := util.MaskSensitiveHeaderValue(key, value)
+				if _, errWrite := io.WriteString(w, fmt.Sprintf("%s: %s\n", key, masked)); errWrite != nil {
 					return errWrite
 				}
 			}

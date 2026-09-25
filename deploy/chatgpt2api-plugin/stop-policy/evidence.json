@@ -1,0 +1,116 @@
+{
+  "scope": "Local synthetic CPA Chat Completions STOP compatibility only; no production approval",
+  "source": {
+    "repository": "https://github.com/router-for-me/CLIProxyAPI.git",
+    "tag": "v7.2.159",
+    "commit": "ac02da6c05e18f465aa7e3ed5b0a65a2f060917d",
+    "tree": "d3bc409ffe0b7183d65a12ad673ba3cb573e5d12",
+    "rpc_schema": 6,
+    "source_pin_file": "../../gemini-web-plugin/host-compat/source.json",
+    "source_pin_sha256": "29402825d9534f56a911b5ed2fcc7d2c593e83fc17668a25eb805806a2ef6dac",
+    "existing_disabled_patch_sha256": "1bfd300dcd123275c10fc7a7f37864cc5cbada52e1d4ef9aa5e43b2f9a4ae915",
+    "stop_patch_sha256": "e412c2af20e34a8be1ca0d54fab0840b308a5399830c50b09f287382cdd422c8"
+  },
+  "binaries": {
+    "production_reference_sha256_not_executed_here": "07077b8b61ee2422fa99b14cd8d3c7b0a3ce0979cd07d714607f0f70bc5764ea",
+    "disabled_only_rebuilt_sha256": "3045afdc0dd40fbe0024ae8c386239d4fd9487a44a6975579edf371f20b01fb8",
+    "combined_version": "v7.2.159-compatible-host-auth-save-stop.1",
+    "combined_path": "/tmp/opencode/cpa-stop-build-ow4dKK/CLIProxyAPI-host-stop",
+    "combined_sha256": "986ecbfb5a112f248b26b6f61506f5d0becaf5633f84ff541806aa1daa35b5b6",
+    "independent_identical_build": "/tmp/opencode/cpa-stop-policy-rlSSzL/core-final",
+    "byte_comparison_exit": 0
+  },
+  "core_tests": {
+    "red_path": "/tmp/opencode/cpa-stop-build-ow4dKK/red.jsonl",
+    "red_sha256": "296297422ad8fece7eeae3aab9c7e3864aa1becdd41511ae776dcf152802c693",
+    "red_failing_groups": ["TestStopBoundaryPreservesTerminalMarker", "TestStopHeaderOverridesPassthrough"],
+    "green_path": "/tmp/opencode/cpa-stop-build-ow4dKK/green.log",
+    "green_sha256": "24f264d2e01008eb73b36da5f168f7974a0c9d52a1a8096d2674e926f47948a8",
+    "related_race_packages_passed": 12,
+    "focused_executor_retry_test_groups_passed": 2,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "old_tests_modified": false,
+    "preexisting_broader_executor_failures_reproduced_on_disabled_baseline": [
+      "TestClaudeExecutorPrepareRequestAuthIsRaceFreeOnSharedCredential: metadata map race",
+      "TestOpenAICompatExecutorToolResultContentByInputModalities: four modality subtests"
+    ]
+  },
+  "http_red": {
+    "path": "/tmp/opencode/cpa-stop-fixture-xCiMlD/results/report.json",
+    "sha256": "1418059aa259f1de531e97f93b8f803753fcc63e525e27602f2a8c62a3f6a987",
+    "cases": 50,
+    "failed_checks": 9,
+    "cause": "Three mandatory-header checks failed; Node and Python each submitted three times for terminal HTTP, streamed HTTP 502, and first-frame SSE error. CPA STOP policy was already configured.",
+    "core": "/tmp/opencode/cpa-stop-policy-rlSSzL/core-red"
+  },
+  "http_green": {
+    "path": "/tmp/opencode/cpa-stop-fixture-8382pp/results/report.json",
+    "sha256": "fbd747b779cf7d46f3f5859fefefc93b30bfee705383c5b0a96e4502b481971c",
+    "cases": 50,
+    "assertions": 307,
+    "failures": 0,
+    "total_synthetic_submissions_including_controls": 71,
+    "eligible_auth_candidates_per_case": 2,
+    "request_retry": 3,
+    "streaming_bootstrap_retries": 2,
+    "passthrough_headers": false,
+    "partial_error_waits_for_downstream_content_ack": true,
+    "per_logical_request_counts": {
+      "direct_terminal": 1,
+      "openai_node_default_terminal": 1,
+      "openai_python_default_terminal": 1,
+      "vercel_unmodified_default_http_terminal_UNSUPPORTED": 3,
+      "vercel_policy_default_retry_count_http_terminal": 1,
+      "all_callers_role_only_and_partial_sse_terminal": 1,
+      "all_callers_success_nonstream_and_stream": 1,
+      "all_callers_ordinary_503_then_success_two_distinct_keys": 2,
+      "all_callers_other_502_then_success_two_distinct_keys": 2,
+      "all_callers_code_mention_only_then_success_two_distinct_keys": 2
+    },
+    "isolation": "/tmp/opencode/cpa-stop-fixture-8382pp/isolation.json",
+    "cleanup": "/tmp/opencode/cpa-stop-fixture-8382pp/cleanup.log",
+    "additional_green_run": "/tmp/opencode/cpa-stop-fixture-TXtfZN/results/report.json"
+  },
+  "clients": {
+    "openai_js": "6.32.0",
+    "openai_python": "2.26.0",
+    "ai": "6.0.116",
+    "openai_compatible": "2.0.35",
+    "bun": "1.3.14",
+    "python": "3.13.13",
+    "default_sdk_retry_count": 2,
+    "bun_lock_sha256": "c74d1864715ac443465e52432fe86efe3654cf8b5ceea5b952369259bfac708f",
+    "context7": "Attempted resolve-library-id; monthly quota exhausted. Official source and installed pinned packages inspected instead.",
+    "vercel_limit": "Ignores x-should-retry. Use explicit exported constructor + provided errorStructure. Typed factory second config argument is ignored in this version. SSE error part loses error.code but must remain terminal."
+  },
+  "gemini_compatibility": {
+    "path": "/tmp/opencode/cpa-stop-gemini-compat-u6oO6W/result/report.json",
+    "sha256": "dab8d1a44d399b292dc34795954acf51e7f5718a5975e32e59b0e2627d37556c",
+    "assertions_excluding_data_events": 71,
+    "failures": 0,
+    "driver_sha256": "4dfbb07bd0fba578c5f132273d134240413786e88f7ad24cc077af918ed2aa60",
+    "unchanged_plugin_sha256": "c6111b408c34a00b246108d33f69e92bff58d35c9144fcd95d438e29a38470aa",
+    "core_namespace_pids_terminated_and_waited": [15, 42],
+    "cleanup": "/tmp/opencode/cpa-stop-gemini-compat-u6oO6W/cleanup.log",
+    "old_proof_directory_overwritten": false
+  },
+  "diagnostics": {
+    "go_source_and_new_tests": "clean",
+    "typescript_and_python": "clean with isolated pinned test dependencies",
+    "json_yaml_markdown": "clean",
+    "shell": "no errors; ShellCheck SC2317 informational on EXIT-trap cleanup function",
+    "patch": "No patch LSP; git apply check/reverse check and fresh replay passed"
+  },
+  "unverified_boundaries": [
+    "Production merge, all-replica/caller activation, and live Pro final answer",
+    "Outer job/agent retry wrappers, intermediary proxies, browser/CORS",
+    "Other API protocols, Home dispatch, and custom response-transforming plugins",
+    "Connection loss or timeout before a terminal response is observed"
+  ],
+  "production_actions": [],
+  "secret_accesses": 0,
+  "commits": 0,
+  "pushes": 0,
+  "deployments": 0
+}

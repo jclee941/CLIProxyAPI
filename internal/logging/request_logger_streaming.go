@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -217,6 +219,15 @@ func (w *FileStreamingLogWriter) Close() error {
 	if w.logFilePath == "" {
 		w.cleanupTempFiles()
 		return nil
+	}
+
+	isError := isRequestFailureStatus(w.responseStatus) || isStreamingResponseBodyError(w.responseBodyPath)
+	if isError {
+		dir := filepath.Dir(w.logFilePath)
+		base := filepath.Base(w.logFilePath)
+		if !strings.HasPrefix(base, "error-") {
+			w.logFilePath = filepath.Join(dir, "error-"+base)
+		}
 	}
 
 	logFile, errOpen := os.OpenFile(w.logFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)

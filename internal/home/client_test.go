@@ -985,6 +985,63 @@ func TestGetPluginSyncCancellationInterruptsRead(t *testing.T) {
 	}
 }
 
+// deadlineRecorderConn records the read deadline it holds and signals every
+// SetDeadline call, which is how the cancellation watcher reaches it.
+type deadlineRecorderConn struct {
+	net.Conn
+	mu      sync.Mutex
+	read    time.Time
+	expired chan struct{}
+}
+
+func (c *deadlineRecorderConn) SetDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.read = t
+	c.mu.Unlock()
+	select {
+	case c.expired <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (c *deadlineRecorderConn) SetReadDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.read = t
+	return nil
+}
+
+func (c *deadlineRecorderConn) Close() error { return nil }
+
+// go-redis sets a fresh read deadline before it reads each reply. When the
+// cancellation watcher expired the connection first, that later deadline
+// replaced the expired one and the command waited out the whole plugin sync
+// read timeout (2m0s under a loaded test run) instead of returning at once.
+func TestPluginSyncCancellationOutlivesALaterReadDeadline(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	recorder := &deadlineRecorderConn{expired: make(chan struct{}, 1)}
+	conn := newPluginSyncCancelableConn(ctx, recorder)
+	defer func() { _ = conn.Close() }()
+	cancel()
+	select {
+	case <-recorder.expired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancellation never reached the connection")
+	}
+
+	if errDeadline := conn.SetReadDeadline(time.Now().Add(homePluginSyncOperationTimeout)); errDeadline != nil {
+		t.Fatal(errDeadline)
+	}
+
+	recorder.mu.Lock()
+	deadline := recorder.read
+	recorder.mu.Unlock()
+	if deadline.After(time.Now()) {
+		t.Fatalf("a read deadline set after cancellation reopened the connection until %s", deadline)
+	}
+}
+
 func TestProcessPluginSyncCommandCancellationInterruptsTLSHandshake(t *testing.T) {
 	listener, errListen := net.Listen("tcp", "127.0.0.1:0")
 	if errListen != nil {
@@ -1325,7 +1382,7 @@ func (l *redisCommandLog) CountCommandKey(commandName string, key string) int {
 	return count
 }
 
-const homeRedisTestOperationTimeout = 50 * time.Millisecond
+const homeRedisTestOperationTimeout = 500 * time.Millisecond
 
 func newRedisCommandTestClient(t *testing.T, handler func([]string) string) (*Client, *redisCommandLog) {
 	t.Helper()

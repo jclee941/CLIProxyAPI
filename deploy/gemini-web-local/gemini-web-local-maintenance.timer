@@ -1,0 +1,10 @@
+[Unit]
+Description=Maintain only migrated local Gemini accounts
+
+[Timer]
+OnActiveSec=30min
+OnUnitInactiveSec=30min
+Unit=gemini-web-local-maintenance.service
+
+[Install]
+WantedBy=timers.target

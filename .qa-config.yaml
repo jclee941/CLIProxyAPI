@@ -1,0 +1,19 @@
+host: "127.0.0.1"
+port: 48317
+
+remote-management:
+  allow-remote: false
+  secret-key: ""
+
+auth-dir: "/tmp/opencode/cliproxy-qa-auth"
+
+api-keys:
+  - "qa-api-key"
+
+debug: false
+logging-to-file: false
+
+telegram:
+  enabled: false
+  bot-token: ""
+  chat-id: ""

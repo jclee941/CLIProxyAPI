@@ -1,0 +1,1084 @@
+--- a/services/openai_backend_api.py
++++ b/services/openai_backend_api.py
+@@ -22,6 +22,7 @@
+ 
+ from services.account_service import account_service
+ from services.config import config
++from services.image_poll_diagnostics import ImagePollDiagnostics
+ from services.proxy_service import proxy_settings
+ from utils.helper import UpstreamHTTPError, ensure_ok, iter_sse_payloads, new_uuid, split_image_model
+ from utils.log import logger
+@@ -114,6 +115,7 @@
+ _CONTENT_POLICY_KEYWORDS = (
+     # Explicit content-policy violations.
+     "内容政策", "防护限制", "违反", "moderation", "policy", "blocked",
++    "may violate our guardrails",
+     # Generation refusals.
+     "不能生成", "无法生成", "不能帮助", "无法帮助",
+     # Sensitive content.
+@@ -2212,14 +2214,17 @@
+         last_hit_key: tuple[tuple[str, ...], tuple[str, ...]] | None = (
+             (tuple(file_ids), tuple(sediment_ids)) if has_initial_ids else None
+         )
++        diagnostics = ImagePollDiagnostics(conversation_id, logger)
++        diagnostics.file_count = len(file_ids)
++        diagnostics.sediment_count = len(sediment_ids)
+         logger.info({
+             "event": "image_poll_start",
+-            "conversation_id": conversation_id,
++            "conversation_id": diagnostics.conversation_id,
+             "timeout_secs": timeout_secs,
+             "initial_wait_secs": initial_wait,
+             "interval_secs": interval,
+-            "initial_file_ids": file_ids,
+-            "initial_sediment_ids": sediment_ids,
++            "initial_file_count": len(file_ids),
++            "initial_sediment_count": len(sediment_ids),
+         })
+ 
+         def _remaining() -> float:
+@@ -2245,7 +2250,7 @@
+             sleep_for = min(backoff, remaining)
+             log_payload: Dict[str, Any] = {
+                 "event": "image_poll_retry",
+-                "conversation_id": conversation_id,
++                "conversation_id": diagnostics.conversation_id,
+                 "attempt": attempt,
+                 "reason": reason,
+                 "sleep_secs": round(sleep_for, 2),
+@@ -2253,7 +2258,7 @@
+             if status_code is not None:
+                 log_payload["status_code"] = status_code
+             if error is not None:
+-                log_payload["error"] = error
++                log_payload["error_type"] = error
+             logger.warning(log_payload)
+             time.sleep(sleep_for)
+             return True
+@@ -2261,45 +2266,42 @@
+         last_task_error = ""
+         while _remaining() > 0:
+             attempt += 1
+-            # 在每次轮询时，检查 /backend-api/tasks/ 是否有错误（仅记录，不中断）
+-            # 内容政策违规检测通过对话文本进行（在 _find_content_policy_error_in_conversation 中）
++            diagnostics.attempt = attempt
++            # Task errors remain non-blocking; only the current attempt affects policy classification.
+             last_task_error = ""
++            tasks = None
++            task_error_count = 0
+             try:
+                 tasks = self._query_backend_tasks(conversation_id=conversation_id, timeout_secs=5.0)
+                 for task in tasks:
+-                    is_error, error_msg, metadata = self.check_task_error(task)
++                    is_error, error_msg, _metadata = self.check_task_error(task)
+                     if is_error and error_msg:
+                         last_task_error = error_msg
+-                        logger.info({
+-                            "event": "image_poll_task_error_not_blocking",
+-                            "conversation_id": conversation_id,
+-                            "attempt": attempt,
+-                            "error_msg": error_msg,
+-                            "metadata": metadata,
+-                        })
++                        task_error_count += 1
+             except Exception as exc:
+-                # tasks 查询失败不影响正常轮询流程
+-                logger.debug({
+-                    "event": "image_poll_task_check_failed",
+-                    "conversation_id": conversation_id,
+-                    "attempt": attempt,
+-                    "error": str(exc),
+-                })
++                # A task lookup/check failure must not interrupt conversation polling.
++                diagnostics.task_state(tasks, task_error_count, exc)
++            else:
++                diagnostics.task_state(tasks, task_error_count)
+ 
+             try:
+                 conversation = self._get_conversation(conversation_id)
+             except UpstreamHTTPError as exc:
++                diagnostics.conversation_error(exc)
+                 if exc.status_code in (429, 500, 502, 503, 504):
+                     if _retry_sleep("upstream_status", exc.status_code, None, exc.retry_after):
+                         continue
+                     break
++                diagnostics.finish("upstream_error")
+                 raise
+             except requests.exceptions.RequestException as exc:
+-                if _retry_sleep("network", None, str(exc), None):
++                diagnostics.conversation_error(exc)
++                if _retry_sleep("network", None, diagnostics.error_fields(exc)["error_type"], None):
+                     continue
+                 break
+ 
+-            for record in self._extract_image_tool_records(conversation):
++            records = self._extract_image_tool_records(conversation)
++            for record in records:
+                 for file_id in record["file_ids"]:
+                     if file_id not in file_ids:
+                         file_ids.append(file_id)
+@@ -2307,61 +2309,60 @@
+                     if sediment_id not in sediment_ids:
+                         sediment_ids.append(sediment_id)
+ 
+-            # 检查对话文本中是否包含内容政策违规错误
+-            # 当上游拒绝生成图片时，错误消息会出现在对话文档的 assistant 消息中，
+-            # 而非 /backend-api/tasks/ 的 task error 结构中。
+-            # 如果在没有找到图片文件 ID 的同时检测到内容政策违规，立即中断轮询。
++            diagnostics.file_count = len(file_ids)
++            diagnostics.sediment_count = len(sediment_ids)
++            diagnostics.conversation_state(conversation, len(records))
++            # Policy refusals in conversation text still stop polling only when there are no image IDs.
+             if not file_ids and not sediment_ids:
+                 policy_msg = self._find_content_policy_error_in_conversation(conversation)
+                 if policy_msg:
+                     logger.warning({
+                         "event": "image_poll_conversation_text_policy_violation",
+-                        "conversation_id": conversation_id,
++                        "conversation_id": diagnostics.conversation_id,
+                         "attempt": attempt,
+-                        "error_msg": policy_msg[:200],
+                     })
++                    diagnostics.finish("policy")
+                     raise ImageContentPolicyError(policy_msg, conversation_id or "")
+ 
+-            logger.debug({"event": "image_poll_check", "conversation_id": conversation_id, "attempt": attempt,
+-                          "file_ids": file_ids, "sediment_ids": sediment_ids})
++            logger.debug({"event": "image_poll_check", "conversation_id": diagnostics.conversation_id, "attempt": attempt,
++                          "file_count": len(file_ids), "sediment_count": len(sediment_ids)})
+             if file_ids or sediment_ids:
+                 if not config.image_check_before_hit_enabled:
+-                    # 先check再hit 机制关闭：直接返回首次发现的 file_ids
+-                    logger.info({"event": "image_poll_hit_no_settle", "conversation_id": conversation_id,
+-                                 "file_ids": file_ids, "sediment_ids": sediment_ids})
++                    # With check-before-hit disabled, return the first discovered IDs.
++                    diagnostics.finish("success")
+                     return file_ids, sediment_ids
+                 hit_key = (tuple(file_ids), tuple(sediment_ids))
+                 if last_hit_key == hit_key:
+-                    logger.info({"event": "image_poll_hit", "conversation_id": conversation_id, "file_ids": file_ids,
+-                                 "sediment_ids": sediment_ids})
++                    diagnostics.finish("success")
+                     return file_ids, sediment_ids
+                 last_hit_key = hit_key
+                 if not config.image_settle_enabled:
+-                    # 二次确认机制关闭：直接返回首次发现的 file_ids
+-                    logger.info({"event": "image_poll_hit_settle_disabled", "conversation_id": conversation_id,
+-                                 "file_ids": file_ids, "sediment_ids": sediment_ids})
++                    # With settling disabled, return the first discovered IDs.
++                    diagnostics.finish("success")
+                     return file_ids, sediment_ids
+-                logger.info({"event": "image_poll_hit_pending_settle", "conversation_id": conversation_id,
+-                             "file_ids": file_ids, "sediment_ids": sediment_ids,
++                logger.info({"event": "image_poll_hit_pending_settle", "conversation_id": diagnostics.conversation_id,
++                             "file_count": len(file_ids), "sediment_count": len(sediment_ids),
+                              "settle_secs": config.image_settle_secs})
+                 wait = min(config.image_settle_secs, max(0.0, _remaining()))
+                 if wait > 0:
+                     time.sleep(wait)
+                     continue
++                diagnostics.finish("success")
+                 return file_ids, sediment_ids
+-            logger.debug({"event": "image_poll_wait", "conversation_id": conversation_id,
++            logger.debug({"event": "image_poll_wait", "conversation_id": diagnostics.conversation_id,
+                           "elapsed_secs": round(time.time() - start, 1)})
+             wait = min(interval, max(0.0, _remaining()))
+             if wait > 0:
+                 time.sleep(wait)
++        diagnostics.finish("timeout")
+         logger.info({
+             "event": "image_poll_timeout",
+-            "conversation_id": conversation_id,
++            "conversation_id": diagnostics.conversation_id,
+             "timeout_secs": timeout_secs,
+             "attempts_made": attempt,
+             # attempts_made == 0 means the initial_wait consumed the entire budget — no HTTP attempted.
+             "initial_wait_exhausted_budget": attempt == 0,
+-            "last_task_error": last_task_error if last_task_error else None,
++            "last_task_error_present": bool(last_task_error),
+         })
+         exc = ImagePollTimeoutError(
+             f"ChatGPT image generation timed out after waiting {timeout_secs} seconds. "
+--- a/services/protocol/conversation.py
++++ b/services/protocol/conversation.py
+@@ -975,18 +975,8 @@
+         image_urls = backend.resolve_conversation_image_urls(
+             conversation_id, file_ids, sediment_ids, poll_timeout_secs=poll_timeout,
+         )
+-    except (ImageContentPolicyError, ImagePollTimeoutError) as exc:
+-        # 当检测到文本回复时，task error 不应直接判定为内容策略违规，
+-        # 因为图片可能仍在后台异步生成中
+-        if is_text_reply and isinstance(exc, ImageContentPolicyError):
+-            logger.warning({
+-                "event": "image_text_reply_task_error_ignored",
+-                "conversation_id": conversation_id,
+-                "error": str(exc),
+-            })
+-            image_urls = []
+-        else:
+-            raise
++    except (ImageContentPolicyError, ImagePollTimeoutError):
++        raise
+     except Exception as exc:
+         # 当检测到文本回复时，首次轮询的临时网络错误不应直接中断，
+         # 因为图片可能仍在后台异步生成中，后续 retry poll 会继续尝试。
+@@ -1061,7 +1051,9 @@
+                     )
+                     file_ids.extend(item for item in polled_file_ids if item and item not in file_ids)
+                     sediment_ids.extend(item for item in polled_sediment_ids if item and item not in sediment_ids)
+-                    break  # 轮询成功，退出重试循环
++                    break
++                except ImageContentPolicyError:
++                    raise
+                 except Exception as exc:
+                     error_str = str(exc)
+                     is_transient = (
+@@ -1173,7 +1165,9 @@
+                 )
+                 file_ids.extend(item for item in polled_file_ids if item and item not in file_ids)
+                 sediment_ids.extend(item for item in polled_sediment_ids if item and item not in sediment_ids)
+-                break  # 轮询成功，退出重试循环
++                break
++            except ImageContentPolicyError:
++                raise
+             except Exception as exc:
+                 error_str = str(exc)
+                 is_transient = (
+@@ -1420,17 +1414,14 @@
+             account_service.mark_image_result(token, False)
+             logger.warning({
+                 "event": "image_stream_content_policy_error",
+-                "request_token": token,
+-                "account_email": account_email,
+-                "error": str(exc),
++                "conversation_id": getattr(exc, "conversation_id", ""),
+                 "index": index,
+             })
+             raise ImageGenerationError(
+-                str(exc) or "Image generation was rejected by upstream policy.",
++                "Image generation was rejected by upstream content policy.",
+                 status_code=400,
+                 error_type="invalid_request_error",
+                 code="content_policy_violation",
+-                account_email=account_email,
+                 conversation_id=getattr(exc, "conversation_id", ""),
+             ) from exc
+         except ImageGenerationError as exc:
+--- /dev/null
++++ b/services/image_poll_diagnostics.py
+@@ -0,0 +1,163 @@
++"""Allowlisted projections of untrusted image polling data; never log payloads."""
++from __future__ import annotations
++
++import re
++from collections.abc import Sequence
++from typing import Final, Literal, Protocol, TypedDict
++
++type JSONValue = None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]
++type Fields = dict[str, str | int | bool | None | dict[str, int]]
++
++STATUSES: Final = (
++    "pending", "queued", "running", "in_progress", "completed", "success", "failed",
++    "error", "cancelled", "finished", "finished_successfully", "finished_partial_completion",
++)
++CONTENT_TYPES: Final = ("text", "multimodal_text", "image_asset_pointer", "image", "image_url", "code", "execution_output")
++ROLES: Final = ("system", "developer", "user", "assistant", "tool")
++ERROR_TYPES: Final = (
++    "UpstreamHTTPError", "RequestException", "RequestsError", "HTTPError", "Timeout",
++    "ConnectTimeout", "ReadTimeout", "ConnectionError", "JSONDecodeError",
++    "ValueError", "TypeError", "KeyError", "AttributeError", "RuntimeError",
++)
++
++
++class EventLogger(Protocol):
++    def info(self, message: Fields) -> None: ...
++
++
++class ErrorFields(TypedDict):
++    error_type: str
++    status_code: int | None
++
++
++def _label(value: JSONValue, allowed: tuple[str, ...]) -> str:
++    return next((label for label in allowed if value == label), "other")
++
++
++def _mapping(value: JSONValue) -> dict[str, JSONValue]:
++    return value if isinstance(value, dict) else {}
++
++
++def _image_structure_count(value: JSONValue) -> int:
++    """Count known image-shaped dictionaries, not IDs or successful generations."""
++    pending = [value]
++    count = 0
++    while pending:
++        item = pending.pop()
++        if isinstance(item, dict):
++            count += int(
++                item.get("content_type") in ("image_asset_pointer", "image", "image_url")
++                or "asset_pointer" in item or "image_url" in item
++            )
++            pending.extend(item.values())
++        elif isinstance(item, list):
++            pending.extend(item)
++    return count
++
++
++class ImagePollDiagnostics:
++    """Per-poll mutable counters and safe snapshots, independent of policy decisions."""
++
++    def __init__(self, conversation_id: str, logger: EventLogger) -> None:
++        self.conversation_id = conversation_id if re.fullmatch(
++            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", conversation_id
++        ) else "other"
++        self.logger = logger
++        self.attempt = 0
++        self.file_count = 0
++        self.sediment_count = 0
++        self.task_query_failure_count = 0
++        self.task_check_failure_count = 0
++        self.task_error_observed_count = 0
++        self.conversation_query_failure_count = 0
++        self._states: dict[str, Fields] = {}
++
++    @staticmethod
++    def error_fields(exc: Exception) -> ErrorFields:
++        status = getattr(exc, "status_code", None)
++        return {
++            "error_type": _label(type(exc).__name__, ERROR_TYPES),
++            "status_code": status if type(status) is int and 100 <= status <= 599 else None,
++        }
++
++    def _state(self, stage: str, fields: Fields) -> None:
++        if self._states.get(stage) != fields:
++            self.logger.info({
++                "event": f"image_poll_{stage}_state", "conversation_id": self.conversation_id,
++                "attempt": self.attempt, **fields,
++            })
++        self._states[stage] = fields
++
++    def task_state(self, tasks: Sequence[JSONValue] | None, error_count: int, exc: Exception | None = None) -> None:
++        status_counts: dict[str, int] = {}
++        for task in tasks or []:
++            status = _label(_mapping(task).get("status"), STATUSES)
++            status_counts[status] = status_counts.get(status, 0) + 1
++        self.task_error_observed_count += error_count
++        fields: Fields = {
++            "task_query": "error" if tasks is None else "ok",
++            "matched_task_count": None if tasks is None else len(tasks),
++            "task_status_counts": status_counts, "task_error_count": error_count,
++        }
++        if exc is not None:
++            error = self.error_fields(exc)
++            fields["error_type"] = error["error_type"]
++            fields["status_code"] = error["status_code"]
++            fields["error_stage"] = "task_query" if tasks is None else "task_check"
++            self.task_query_failure_count += int(tasks is None)
++            self.task_check_failure_count += int(tasks is not None)
++        self._state("task", fields)
++
++    def conversation_state(self, data: JSONValue, record_count: int) -> None:
++        mapping = _mapping(_mapping(data).get("mapping"))
++        role_counts: dict[str, int] = {}
++        content_counts: dict[str, int] = {}
++        status_counts: dict[str, int] = {}
++        message_count = terminal_count = terminal_text_count = end_turn_count = image_count = 0
++        for node in mapping.values():
++            message = _mapping(_mapping(node).get("message"))
++            if not message:
++                continue
++            message_count += 1
++            role = _label(_mapping(message.get("author")).get("role"), ROLES)
++            content = _mapping(message.get("content"))
++            content_type = _label(content.get("content_type"), CONTENT_TYPES)
++            status = _label(message.get("status"), STATUSES)
++            for counts, label in ((role_counts, role), (content_counts, content_type), (status_counts, status)):
++                counts[label] = counts.get(label, 0) + 1
++            end_turn = message.get("end_turn") is True
++            terminal = end_turn or status in ("finished_successfully", "finished_partial_completion", "completed", "failed", "cancelled")
++            end_turn_count += int(role == "assistant" and end_turn)
++            terminal_count += int(role == "assistant" and terminal)
++            terminal_text_count += int(role == "assistant" and terminal and content_type == "text")
++            if role in ("assistant", "tool"):
++                image_count += _image_structure_count([message.get("content"), message.get("metadata")])
++        self._state("conversation", {
++            "conversation_query": "ok", "mapping_count": len(mapping), "message_count": message_count,
++            "role_counts": role_counts, "content_type_counts": content_counts, "message_status_counts": status_counts,
++            "assistant_end_turn_count": end_turn_count, "assistant_terminal_count": terminal_count,
++            "assistant_terminal_text_count": terminal_text_count, "image_structure_count": image_count,
++            "extracted_record_count": record_count, "file_count": self.file_count, "sediment_count": self.sediment_count,
++        })
++
++    def conversation_error(self, exc: Exception) -> None:
++        self.conversation_query_failure_count += 1
++        error = self.error_fields(exc)
++        self._state("conversation", {
++            "conversation_query": "error", "error_type": error["error_type"], "status_code": error["status_code"],
++        })
++
++    def finish(self, outcome: Literal["success", "timeout", "policy", "upstream_error"]) -> None:
++        self.logger.info({
++            **{f"task_{key}" if key in ("error_type", "status_code", "error_stage") else key: value
++               for key, value in self._states.get("task", {}).items()},
++            **{f"conversation_{key}" if key in ("error_type", "status_code") else key: value
++               for key, value in self._states.get("conversation", {}).items()},
++            "event": "image_poll_summary", "conversation_id": self.conversation_id,
++            "outcome": outcome, "attempts_made": self.attempt,
++            "file_count": self.file_count, "sediment_count": self.sediment_count,
++            "task_query_failure_count": self.task_query_failure_count,
++            "task_check_failure_count": self.task_check_failure_count,
++            "task_error_observed_count": self.task_error_observed_count,
++            "conversation_query_failure_count": self.conversation_query_failure_count,
++        })
+--- /dev/null
++++ b/test/image_poll_harness.py
+@@ -0,0 +1,133 @@
++"""Credential-free execution of real polling definitions with a virtual clock."""
++from __future__ import annotations
++
++import ast
++import json
++import logging
++import re
++from pathlib import Path
++from types import ModuleType, SimpleNamespace
++from unittest import mock
++
++from utils.log import Logger
++
++type JSONValue = None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]
++
++ROOT = Path(__file__).resolve().parents[1]
++CONVERSATION_ID = "12345678-1234-4234-8234-123456789abc"
++
++
++class Clock:
++    """Advance only when polling requests a sleep; record the exact schedule."""
++
++    def __init__(self) -> None:
++        self.now = 0.0
++        self.sleeps: list[float] = []
++
++    def time(self) -> float:
++        return self.now
++
++    def sleep(self, seconds: float) -> None:
++        self.sleeps.append(seconds)
++        self.now += seconds
++
++
++class EventSink(logging.Handler):
++    """Capture the real logger's serialized output without printing payloads."""
++
++    def __init__(self) -> None:
++        super().__init__()
++        self.events: list[dict[str, JSONValue]] = []
++        self.levels: list[int] = []
++
++    def emit(self, record: logging.LogRecord) -> None:
++        self.events.append(json.loads(record.getMessage()))
++        self.levels.append(record.levelno)
++
++
++def load_runtime(logger: Logger, clock: Clock) -> ModuleType:
++    """Compile source AST, excluding all authenticated imports and constructors."""
++    runtime = ModuleType("offline_image_poll")
++    runtime.__dict__.update(
++        json=json, re=re, logger=logger, time=clock,
++        random=SimpleNamespace(uniform=lambda _low, _high: 0.0),
++        config=SimpleNamespace(
++            image_poll_initial_wait_secs=0.0, image_poll_interval_secs=1.0,
++            image_settle_enabled=False, image_settle_secs=1.0,
++            image_check_before_hit_enabled=False,
++        ),
++        requests=SimpleNamespace(exceptions=SimpleNamespace(RequestException=ConnectionError)),
++        _UPSTREAM_BODY_LOG_LIMIT=500,
++    )
++    helper = ast.parse((ROOT / "utils/helper.py").read_text(encoding="utf-8"))
++    nodes: list[ast.stmt] = [
++        node for node in helper.body
++        if isinstance(node, (ast.ClassDef, ast.FunctionDef))
++        and node.name in {"UpstreamHTTPError", "ensure_ok"}
++    ]
++    source = ast.parse((ROOT / "services/openai_backend_api.py").read_text(encoding="utf-8"))
++    methods = {
++        "_add_unique", "_extract_image_reference_ids", "_has_image_asset_pointer",
++        "_extract_image_tool_records", "_find_content_policy_error_in_conversation",
++        "_poll_image_results", "_query_backend_tasks", "check_task_error",
++        "resolve_conversation_image_urls",
++    }
++    constants = {"FILE_SERVICE_ID_RE", "REAL_IMAGE_FILE_ID_RE", "SEDIMENT_ID_RE", "_CONTENT_POLICY_KEYWORDS"}
++    for node in source.body:
++        if isinstance(node, ast.ImportFrom) and node.module == "services.image_poll_diagnostics":
++            nodes.append(node)
++        elif isinstance(node, ast.Assign) and any(
++            isinstance(target, ast.Name) and target.id in constants for target in node.targets
++        ):
++            nodes.append(node)
++        elif isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name in {
++            "ImageTaskError", "ImagePollTimeoutError", "ImageContentPolicyError", "_is_content_policy_error",
++        }:
++            nodes.append(node)
++        elif isinstance(node, ast.ClassDef) and node.name == "OpenAIBackendAPI":
++            node.body = [item for item in node.body if isinstance(item, ast.FunctionDef) and item.name in methods]
++            nodes.append(node)
++    exec(compile(ast.Module(body=nodes, type_ignores=[]), "<offline-image-poll>", "exec"), runtime.__dict__)
++    return runtime
++
++
++def conversation(content: dict[str, JSONValue], *, role: str = "assistant") -> dict[str, JSONValue]:
++    return {"mapping": {"node": {"message": {
++        "author": {"role": role}, "status": "finished_successfully", "end_turn": True,
++        "content": content, "metadata": {},
++    }}}}
++
++
++class PollDriver:
++    """Drive real task filtering, record extraction, polling and log serialization."""
++
++    def __init__(self) -> None:
++        self.clock = Clock()
++        self.timeout_error: RuntimeError | None = None
++        self.sink = EventSink()
++        self.logger = Logger("offline-image-poll")
++        self.runtime = load_runtime(self.logger, self.clock)
++        self.backend = self.runtime.OpenAIBackendAPI()
++        self.backend.base_url = "https://offline.invalid"
++        self.backend._headers = mock.Mock(return_value={})
++        self.response = mock.Mock(status_code=200)
++        self.response.json.return_value = {"tasks": []}
++        self.backend.session = SimpleNamespace(get=mock.Mock(return_value=self.response))
++        self.backend._get_conversation = mock.Mock(return_value={"mapping": {}})
++
++    def run(self, timeout: float = 3.0, **kwargs: list[str]) -> tuple[list[str], list[str]] | str:
++        # Both patches prevent configured sinks and configuration/credential reads.
++        with (
++            mock.patch.object(self.logger, "_enabled", return_value=True),
++            mock.patch.object(self.logger._logger, "handlers", [self.sink]),
++        ):
++            try:
++                return self.backend._poll_image_results(CONVERSATION_ID, timeout, **kwargs)
++            except self.runtime.ImagePollTimeoutError as exc:
++                self.timeout_error = exc
++                return "timeout"
++            except self.runtime.ImageContentPolicyError:
++                return "policy"
++
++    def events(self, name: str) -> list[dict[str, JSONValue]]:
++        return [event for event in self.sink.events if event.get("event") == name]
+--- /dev/null
++++ b/test/test_image_poll_diagnostics.py
+@@ -0,0 +1,264 @@
++"""Offline unittest regressions for safe, bounded image polling diagnostics."""
++from __future__ import annotations
++
++import json
++import logging
++import unittest
++
++from test.image_poll_harness import CONVERSATION_ID, JSONValue, PollDriver, conversation
++
++
++class ImagePollDiagnosticsTests(unittest.TestCase):
++    def test_absent_matching_task_when_other_conversations_have_tasks(self) -> None:
++        # Given: a successful task query containing only another conversation.
++        driver = PollDriver()
++        driver.response.json.return_value = {"tasks": [{"conversation_id": "different", "status": "pending"}]}
++        # When: three identical polls exhaust the budget.
++        result = driver.run()
++        # Then: absence is observable once, distinct from query failure.
++        states = driver.events("image_poll_task_state")
++        self.assertEqual(len(states), 1)
++        self.assertEqual(states[0]["task_query"], "ok")
++        self.assertEqual(states[0]["matched_task_count"], 0)
++        self.assertEqual(result, "timeout")
++        self.assertEqual(driver.backend.session.get.call_count, 3)
++        self.assertEqual(driver.clock.sleeps, [1.0, 1.0, 1.0])
++
++    def test_query_failure_when_upstream_rejects_task_lookup(self) -> None:
++        # Given: task HTTP failure, while conversation retrieval still works.
++        driver = PollDriver()
++        driver.backend.session.get.side_effect = driver.runtime.UpstreamHTTPError("fixture", 403, "private-fixture")
++        # When: polling continues to its unchanged timeout.
++        result = driver.run()
++        # Then: repeated lookup errors are INFO state + counted terminal history.
++        states = driver.events("image_poll_task_state")
++        self.assertEqual(len(states), 1)
++        self.assertEqual(states[0]["task_query"], "error")
++        self.assertIsNone(states[0]["matched_task_count"])
++        self.assertEqual(states[0]["error_type"], "UpstreamHTTPError")
++        self.assertEqual(states[0]["status_code"], 403)
++        self.assertEqual(driver.events("image_poll_summary")[0]["task_query_failure_count"], 3)
++        self.assertEqual(result, "timeout")
++        self.assertEqual(driver.backend._get_conversation.call_count, 3)
++
++    def test_text_completion_when_assistant_finishes_without_images(self) -> None:
++        # Given: a terminal assistant text message, not a policy refusal.
++        driver = PollDriver()
++        driver.backend._get_conversation.return_value = conversation({"content_type": "text", "parts": ["private-fixture"]})
++        # When: the unchanged poller waits for image IDs.
++        self.assertEqual(driver.run(), "timeout")
++        # Then: terminal text and zero image records are visible, without text.
++        states = driver.events("image_poll_conversation_state")
++        self.assertEqual(len(states), 1)
++        self.assertEqual(states[0]["mapping_count"], 1)
++        self.assertEqual(states[0]["message_count"], 1)
++        self.assertEqual(states[0]["assistant_terminal_text_count"], 1)
++        self.assertEqual(states[0]["extracted_record_count"], 0)
++        self.assertEqual(states[0]["file_count"], 0)
++
++    def test_image_structure_when_parser_cannot_extract_file_reference(self) -> None:
++        # Given: an image-shaped output with an unsupported URL pointer.
++        driver = PollDriver()
++        driver.backend._get_conversation.return_value = conversation({"content_type": "image_asset_pointer", "asset_pointer": "https://offline.invalid/private-fixture"})
++        # When: the existing parser cannot produce usable file IDs.
++        self.assertEqual(driver.run(), "timeout")
++        # Then: shape evidence is distinct from plain text, not asserted as a root cause.
++        state = driver.events("image_poll_conversation_state")[0]
++        self.assertEqual(state["image_structure_count"], 1)
++        self.assertEqual(state["extracted_record_count"], 1)
++        self.assertEqual(state["file_count"], 0)
++
++    def test_success_when_images_appear_after_text(self) -> None:
++        # Given: text followed by two usable image references.
++        driver = PollDriver()
++        driver.backend._get_conversation.side_effect = [
++            conversation({"content_type": "text", "parts": ["private-fixture"]}),
++            conversation({"content_type": "multimodal_text", "parts": [
++                {"content_type": "image_asset_pointer", "asset_pointer": "file-service://file-fixture"},
++                "sediment://sed-fixture",
++            ]}),
++        ]
++        # When: polling observes the changed state.
++        result = driver.run()
++        # Then: images are unchanged, state changes once, and success has a summary.
++        self.assertEqual(result, (["file-fixture"], ["sed-fixture"]))
++        self.assertEqual(len(driver.events("image_poll_conversation_state")), 2)
++        summary = driver.events("image_poll_summary")[0]
++        self.assertEqual(summary["outcome"], "success")
++        self.assertEqual(summary["file_count"], 1)
++        self.assertEqual(summary["sediment_count"], 1)
++        self.assertEqual(summary["attempts_made"], 2)
++
++    def test_task_error_history_when_last_attempt_has_no_error(self) -> None:
++        # Given: a task error only in the first successful query.
++        driver = PollDriver()
++        task = {"conversation_id": CONVERSATION_ID, "status": "failed", "image_gen_message": {
++            "metadata": {"is_error": True, "detail": "private-fixture"},
++            "content": {"content_type": "text", "parts": ["private-fixture"]},
++        }}
++        driver.response.json.side_effect = [{"tasks": [task]}, {"tasks": []}, {"tasks": []}]
++        # When: later polls clear the decision-making last_task_error.
++        self.assertEqual(driver.run(), "timeout")
++        # Then: history remains visible without changing timeout policy classification.
++        self.assertFalse(hasattr(driver.timeout_error, "task_error"))
++        self.assertEqual(driver.events("image_poll_summary")[0]["task_error_observed_count"], 1)
++        self.assertEqual(driver.events("image_poll_task_state")[0]["task_status_counts"], {"failed": 1})
++
++    def test_safe_serialized_logs_when_payload_fields_and_errors_are_untrusted(self) -> None:
++        # Given: arbitrary strings and unhashable status values throughout upstream data.
++        driver = PollDriver()
++        marker = "private-fixture"
++        driver.response.json.return_value = {"tasks": [{"conversation_id": CONVERSATION_ID, "status": [marker], "image_gen_message": {
++            "metadata": {"is_error": True, "detail": marker}, "content": {"content_type": "text", "parts": [marker]},
++        }}]}
++        driver.backend._get_conversation.return_value = conversation({"content_type": marker, "parts": [marker]}, role=marker)
++        # When: every level is serialized by the actual logger.
++        driver.run()
++        # Then: only allowlisted fields/counts and the correlation UUID survive.
++        encoded = json.dumps(driver.sink.events)
++        self.assertTrue(marker not in encoded, "polling logs exposed upstream payload")
++        self.assertEqual(driver.events("image_poll_task_state")[0]["task_status_counts"], {"other": 1})
++        self.assertEqual(driver.events("image_poll_conversation_state")[0]["role_counts"], {"other": 1})
++        self.assertTrue(all(level == logging.INFO for event, level in zip(driver.sink.events, driver.sink.levels) if event.get("event") in {"image_poll_task_state", "image_poll_conversation_state", "image_poll_summary"}))
++
++    def test_policy_when_conversation_contains_refusal(self) -> None:
++        # Given: an explicit policy refusal, with no generated assets.
++        driver = PollDriver()
++        driver.backend._get_conversation.return_value = conversation({"content_type": "text", "parts": ["policy private-fixture"]})
++        # When: the unchanged text policy detector runs.
++        result = driver.run()
++        # Then: refusal still stops immediately, with no refusal text in logs.
++        self.assertEqual(result, "policy")
++        self.assertEqual(driver.backend._get_conversation.call_count, 1)
++        self.assertEqual(driver.events("image_poll_summary")[0]["outcome"], "policy")
++        self.assertTrue("private-fixture" not in json.dumps(driver.sink.events), "refusal content leaked")
++
++    def test_terminal_summary_when_initial_wait_uses_entire_budget(self) -> None:
++        # Given: an initial wait larger than the caller's budget.
++        driver = PollDriver()
++        driver.runtime.config.image_poll_initial_wait_secs = 10.0
++        # When: the wait consumes the entire three-second budget.
++        self.assertEqual(driver.run(), "timeout")
++        # Then: no requests occur and the zero-attempt summary is explicit.
++        self.assertEqual(driver.backend.session.get.call_count, 0)
++        self.assertEqual(driver.backend._get_conversation.call_count, 0)
++        self.assertEqual(driver.events("image_poll_summary")[0]["attempts_made"], 0)
++        self.assertEqual(driver.clock.sleeps, [3.0])
++
++    def test_retry_schedule_when_conversation_returns_retryable_status(self) -> None:
++        # Given: repeated conversation HTTP 429 with a two-second Retry-After.
++        driver = PollDriver()
++        driver.backend._get_conversation.side_effect = driver.runtime.UpstreamHTTPError("fixture", 429, "private-fixture", retry_after=2)
++        # When: retries consume the same five-second budget.
++        self.assertEqual(driver.run(5.0), "timeout")
++        # Then: identical errors log one INFO state; retries and caps are unchanged.
++        self.assertEqual(driver.clock.sleeps, [2.0, 2.0, 1.0])
++        self.assertEqual(len(driver.events("image_poll_conversation_state")), 1)
++        self.assertEqual(driver.events("image_poll_summary")[0]["conversation_query_failure_count"], 3)
++        self.assertTrue("private-fixture" not in json.dumps(driver.sink.events), "exception content leaked")
++
++    def test_network_error_when_conversation_query_cannot_connect(self) -> None:
++        # Given: an exception with sensitive-looking text at the existing network seam.
++        driver = PollDriver()
++        driver.backend._get_conversation.side_effect = ConnectionError("private-fixture")
++        # When: the existing exponential backoff runs.
++        self.assertEqual(driver.run(7.0), "timeout")
++        # Then: the type, not its text, is visible and sleeps remain capped.
++        self.assertEqual(driver.clock.sleeps, [2.0, 4.0, 1.0])
++        self.assertEqual(driver.events("image_poll_conversation_state")[0]["error_type"], "ConnectionError")
++        self.assertTrue("private-fixture" not in json.dumps(driver.sink.events), "network error content leaked")
++
++    def test_nonretryable_error_when_conversation_is_forbidden(self) -> None:
++        # Given: a non-retryable conversation status.
++        driver = PollDriver()
++        driver.backend._get_conversation.side_effect = driver.runtime.UpstreamHTTPError("fixture", 403, "private-fixture")
++        # When: the same exception propagates.
++        with self.assertRaises(driver.runtime.UpstreamHTTPError):
++            driver.run()
++        # Then: propagation gains a terminal summary without sleeping or retrying.
++        self.assertEqual(driver.clock.sleeps, [])
++        self.assertEqual(driver.events("image_poll_summary")[0]["outcome"], "upstream_error")
++
++    def test_success_when_initial_assets_are_already_stable(self) -> None:
++        # Given: seed assets from SSE, with the original settling gates enabled.
++        driver = PollDriver()
++        driver.runtime.config.image_settle_enabled = True
++        driver.runtime.config.image_check_before_hit_enabled = True
++        # When: a conversation poll adds no extra IDs.
++        result = driver.run(initial_file_ids=["file-private-fixture"], initial_sediment_ids=["sed-private-fixture"])
++        # Then: the existing assets are returned after the original single wait.
++        self.assertEqual(result, (["file-private-fixture"], ["sed-private-fixture"]))
++        self.assertEqual(driver.clock.sleeps, [1.0])
++        self.assertEqual(driver.events("image_poll_summary")[0]["outcome"], "success")
++        self.assertTrue("private-fixture" not in json.dumps(driver.sink.events), "asset IDs leaked")
++
++    def test_settling_when_generated_image_count_increases(self) -> None:
++        # Given: one image, then two, then a stable result.
++        driver = PollDriver()
++        driver.runtime.config.image_settle_enabled = True
++        driver.runtime.config.image_check_before_hit_enabled = True
++        first: dict[str, JSONValue] = {"content_type": "image_asset_pointer", "asset_pointer": "file-service://file-one"}
++        second: dict[str, JSONValue] = {"content_type": "image_asset_pointer", "asset_pointer": "file-service://file-two"}
++        driver.backend._get_conversation.side_effect = [
++            conversation({"content_type": "multimodal_text", "parts": [first]}),
++            conversation({"content_type": "multimodal_text", "parts": [first, second]}),
++            conversation({"content_type": "multimodal_text", "parts": [first, second]}),
++        ]
++        # When: the original settling mechanism confirms the stable set.
++        result = driver.run()
++        # Then: all images survive and repeated stable state is suppressed.
++        self.assertEqual(result, (["file-one", "file-two"], []))
++        self.assertEqual(driver.clock.sleeps, [1.0, 1.0])
++        self.assertEqual(len(driver.events("image_poll_conversation_state")), 2)
++
++    def test_task_error_when_final_attempt_still_reports_error(self) -> None:
++        # Given: every task query reports a structured error.
++        driver = PollDriver()
++        driver.response.json.return_value = {"tasks": [{"conversation_id": CONVERSATION_ID, "image_gen_message": {
++            "metadata": {"is_error": True}, "content": {"content_type": "text", "parts": ["private-fixture"]},
++        }}]}
++        # When: the existing polling budget expires.
++        self.assertEqual(driver.run(), "timeout")
++        # Then: the last error remains available for the caller's existing policy classification.
++        self.assertTrue(getattr(driver.timeout_error, "task_error", None) == "private-fixture")
++        self.assertEqual(driver.events("image_poll_summary")[0]["task_error_observed_count"], 3)
++
++    def test_allowlist_when_exception_class_and_status_are_arbitrary(self) -> None:
++        # Given: an unknown exception name and a nonnumeric status field.
++        driver = PollDriver()
++        exc = type("private_fixture", (RuntimeError,), {"status_code": "private-fixture"})()
++        driver.backend.session.get.side_effect = exc
++        # When: task lookup failure remains non-blocking.
++        self.assertEqual(driver.run(), "timeout")
++        # Then: neither arbitrary class names nor status strings can escape.
++        state = driver.events("image_poll_task_state")[0]
++        self.assertEqual(state["error_type"], "other")
++        self.assertIsNone(state["status_code"])
++        self.assertTrue("private" not in json.dumps(driver.sink.events), "unallowlisted error fields leaked")
++
++    def test_summary_when_both_task_and_conversation_queries_fail(self) -> None:
++        # Given: distinct task and conversation HTTP errors in the same attempt.
++        driver = PollDriver()
++        driver.backend.session.get.side_effect = driver.runtime.UpstreamHTTPError("fixture", 403, "private-fixture")
++        driver.backend._get_conversation.side_effect = driver.runtime.UpstreamHTTPError("fixture", 429, "private-fixture")
++        # When: both failure states reach the terminal summary.
++        self.assertEqual(driver.run(), "timeout")
++        # Then: one stage's status cannot overwrite the other stage's evidence.
++        summary = driver.events("image_poll_summary")[0]
++        self.assertEqual(summary.get("task_status_code"), 403)
++        self.assertEqual(summary.get("conversation_status_code"), 429)
++
++    def test_image_shape_when_existing_parser_skips_the_output(self) -> None:
++        # Given: an image_url-shaped output not handled by the current record parser.
++        driver = PollDriver()
++        driver.backend._get_conversation.return_value = conversation({"content_type": "image_url", "image_url": {"url": "https://offline.invalid/private-fixture"}})
++        # When: image polling preserves the existing parser and timeout behavior.
++        self.assertEqual(driver.run(), "timeout")
++        # Then: image-shaped data and zero extracted records are separately observable.
++        state = driver.events("image_poll_conversation_state")[0]
++        self.assertEqual(state["image_structure_count"], 1)
++        self.assertEqual(state["extracted_record_count"], 0)
++
++
++if __name__ == "__main__":
++    unittest.main()
+--- /dev/null
++++ b/test/test_image_guardrail_refusal.py
+@@ -0,0 +1,142 @@
++from __future__ import annotations
++
++import os
++import unittest
++from types import SimpleNamespace
++from unittest.mock import patch
++
++os.environ.setdefault("CHATGPT2API_AUTH_KEY", "test-auth")
++
++from services.config import config
++from services.openai_backend_api import ImageContentPolicyError, OpenAIBackendAPI, _is_content_policy_error
++from services.protocol.conversation import ConversationRequest, stream_image_outputs
++from test.image_poll_harness import Clock
++
++
++REFUSAL = (
++    "We’re so sorry, but the image we created may violate our guardrails around "
++    "nudity, sexuality, or erotic content. If you think we got it wrong, please retry or edit your prompt."
++)
++
++
++class ImageGuardrailRefusalTests(unittest.TestCase):
++    def test_observed_guardrail_refusal_is_classified_as_policy_failure(self) -> None:
++        self.assertTrue(_is_content_policy_error(REFUSAL))
++
++    def test_ordinary_guardrail_description_is_not_a_policy_failure(self) -> None:
++        self.assertFalse(_is_content_policy_error("A roadside guardrail beside a quiet country road."))
++
++    def test_user_and_system_text_do_not_classify_an_upstream_refusal(self) -> None:
++        for role in ("user", "system"):
++            with self.subTest(role=role):
++                document = {"mapping": {"input": {"message": {
++                    "author": {"role": role}, "content": {"parts": [REFUSAL]},
++                }}}}
++                self.assertEqual(OpenAIBackendAPI._find_content_policy_error_in_conversation(document), "")
++
++    def test_confirmed_policy_failure_propagates_through_all_poll_paths(self) -> None:
++        for stage in ("initial", "text_retry", "fallback"):
++            with self.subTest(stage=stage):
++                backend = OpenAIBackendAPI.__new__(OpenAIBackendAPI)
++                refusal = ImageContentPolicyError(REFUSAL, "test-conversation")
++                event = {
++                    "type": "conversation.completed", "conversation_id": "test-conversation",
++                    "text": '{"size":"1024x1024","n":1}' if stage != "fallback" else "",
++                    "turn_use_case": "image gen",
++                }
++                with (
++                    patch("services.protocol.conversation.conversation_events", return_value=iter([event])),
++                    patch("services.protocol.conversation._get_detailed_error_from_tasks", return_value=""),
++                    patch.object(backend, "resolve_conversation_image_urls", side_effect=refusal if stage == "initial" else None, return_value=[]) as resolve,
++                    patch.object(backend, "_poll_image_results", side_effect=refusal) as poll,
++                    patch("services.protocol.conversation.time.sleep"),
++                    patch("services.protocol.conversation.logger"),
++                ):
++                    with self.assertRaises(ImageContentPolicyError):
++                        list(stream_image_outputs(backend, ConversationRequest(prompt="test", model="gpt-image-2")))
++                resolve.assert_called_once()
++                self.assertEqual(poll.call_count, 0 if stage == "initial" else 1)
++
++    def test_poll_stops_on_first_refusal_without_waiting_or_retrying(self) -> None:
++        document = {
++            "current_node": "refusal",
++            "mapping": {
++                "refusal": {
++                    "message": {
++                        "author": {"role": "assistant"},
++                        "status": "finished_successfully",
++                        "end_turn": True,
++                        "metadata": {"is_error": True},
++                        "content": {"content_type": "text", "parts": [REFUSAL]},
++                    }
++                }
++            },
++        }
++        backend = OpenAIBackendAPI.__new__(OpenAIBackendAPI)
++        with (
++            patch.dict(config.data, {"image_poll_initial_wait_secs": 0}),
++            patch.object(backend, "_query_backend_tasks", return_value=[]),
++            patch.object(backend, "_get_conversation", return_value=document) as get_conversation,
++            patch("services.openai_backend_api.time.time", side_effect=[0, 1, 301, 302, 303]),
++            patch("services.openai_backend_api.time.sleep") as sleep,
++            patch("services.openai_backend_api.logger"),
++        ):
++            with self.assertRaises(ImageContentPolicyError) as raised:
++                backend._poll_image_results("test-conversation", timeout_secs=300)
++        self.assertEqual(raised.exception.conversation_id, "test-conversation")
++        get_conversation.assert_called_once_with("test-conversation")
++        sleep.assert_not_called()
++
++    def test_http_returns_policy_error_without_second_generation_or_account(self) -> None:
++        from fastapi import FastAPI
++        from fastapi.testclient import TestClient
++        from api.ai import create_router
++
++        app = FastAPI()
++        app.include_router(create_router())
++        clock = Clock()
++        document = {"mapping": {"refusal": {"message": {
++            "author": {"role": "assistant"}, "status": "finished_successfully",
++            "end_turn": True, "metadata": {"is_error": True},
++            "content": {"content_type": "text", "parts": [REFUSAL]},
++        }}}}
++        events = [
++            {"type": "conversation.delta", "delta": "", "conversation_id": "test-conversation"},
++            {"type": "conversation.completed", "conversation_id": "test-conversation", "turn_use_case": "image gen"},
++        ]
++        with (
++            patch("api.ai.require_identity", return_value={"id": "test", "role": "admin"}),
++            patch("services.log_service.LoggedCall.log") as call_log,
++            patch("services.protocol.conversation.account_service.get_available_access_token", return_value="test-only-token") as select_account,
++            patch("services.protocol.conversation.account_service.get_account", return_value={"email": "private-fixture@example.invalid"}),
++            patch("services.protocol.conversation.account_service.mark_image_result"),
++            patch("services.openai_backend_api.OpenAIBackendAPI.__init__", return_value=None),
++            patch("services.openai_backend_api.OpenAIBackendAPI.close"),
++            patch("services.protocol.conversation.conversation_events", return_value=iter(events)) as generate,
++            patch("services.protocol.conversation._get_detailed_error_from_tasks", return_value=""),
++            patch("services.openai_backend_api.OpenAIBackendAPI._query_backend_tasks", return_value=[]),
++            patch("services.openai_backend_api.OpenAIBackendAPI._get_conversation", return_value=document) as get_conversation,
++            patch("services.openai_backend_api.time", SimpleNamespace(time=clock.time, sleep=clock.sleep)),
++            patch.dict(config.data, {"image_poll_initial_wait_secs": 0, "image_remove_conversation_always": False, "image_remove_conversation_after_result": True}),
++            patch("services.openai_backend_api.OpenAIBackendAPI.delete_conversation") as delete_conversation,
++            patch("services.openai_backend_api.logger"),
++            patch("services.protocol.conversation.logger") as protocol_log,
++            TestClient(app) as client,
++        ):
++            response = client.post("/v1/images/generations", json={"model": "gpt-image-2", "prompt": "test", "n": 1})
++        self.assertEqual(response.status_code, 400)
++        self.assertEqual(response.json()["error"]["code"], "content_policy_violation")
++        self.assertEqual(response.json()["error"]["type"], "invalid_request_error")
++        generate.assert_called_once()
++        select_account.assert_called_once()
++        get_conversation.assert_called_once()
++        delete_conversation.assert_not_called()
++        self.assertEqual(clock.sleeps, [])
++        for recorded in (str(protocol_log.warning.call_args_list), str(call_log.call_args_list), response.text):
++            self.assertNotIn("private-fixture", recorded)
++            self.assertNotIn("test-only-token", recorded)
++            self.assertNotIn(REFUSAL, recorded)
++
++
++if __name__ == "__main__":
++    unittest.main()
+--- /dev/null
++++ b/test/run_image_poll_offline.py
+@@ -0,0 +1,101 @@
++# /// script
++# requires-python = ">=3.13"
++# dependencies = []
++# ///
++# Run from the snapshot root: .venv/bin/python -B -m test.run_image_poll_offline
++"""Run deterministic polling scenarios and existing tests without real auth storage."""
++from __future__ import annotations
++
++import json
++import os
++import shutil
++import subprocess
++import sys
++import tempfile
++from pathlib import Path
++
++from test.image_poll_harness import ROOT, PollDriver, conversation
++
++
++def run_scenarios() -> None:
++    absent = PollDriver()
++    lookup_error = PollDriver()
++    lookup_error.backend.session.get.side_effect = lookup_error.runtime.UpstreamHTTPError("fixture", 403, "private-fixture")
++    text_only = PollDriver()
++    text_only.backend._get_conversation.return_value = conversation({"content_type": "text", "parts": ["private-fixture"]})
++    unsupported = PollDriver()
++    unsupported.backend._get_conversation.return_value = conversation({"content_type": "image_url", "image_url": {"url": "https://offline.invalid/private-fixture"}})
++    image = PollDriver()
++    image.backend._get_conversation.return_value = conversation({"content_type": "image_asset_pointer", "asset_pointer": "file-service://file-private-fixture"})
++    cases = (
++        ("no_matching_task", absent, "timeout", 0, 0, 0),
++        ("task_lookup_error", lookup_error, "timeout", 3, 0, 0),
++        ("terminal_text", text_only, "timeout", 0, 1, 0),
++        ("image_shape_without_record", unsupported, "timeout", 0, 0, 1),
++        ("image_success", image, "success", 0, 0, 1),
++    )
++    for name, driver, outcome, failures, terminal_text, structures in cases:
++        result = driver.run()
++        summaries = driver.events("image_poll_summary")
++        assert len(summaries) == 1
++        summary = summaries[0]
++        assert summary["outcome"] == outcome
++        assert summary["task_query_failure_count"] == failures
++        assert summary["assistant_terminal_text_count"] == terminal_text
++        assert summary["image_structure_count"] == structures
++        assert "private-fixture" not in json.dumps(driver.sink.events), "unsafe event serialization"
++        if outcome == "success":
++            assert result == (["file-private-fixture"], [])
++        else:
++            assert result == "timeout"
++        print(json.dumps({"scenario": name, "result": "PASS", "summary": summary}))
++
++
++def run_sandbox_tests() -> int:
++    # Copy Python source only: never config.json, data/, credentials, or runtime state.
++    with tempfile.TemporaryDirectory(prefix="image-poll-offline-", dir="/tmp/opencode") as directory:
++        sandbox = Path(directory)
++        for name in ("api", "services", "utils", "test"):
++            for source in (ROOT / name).rglob("*.py"):
++                target = sandbox / source.relative_to(ROOT)
++                target.parent.mkdir(parents=True, exist_ok=True)
++                shutil.copyfile(source, target)
++        command = """
++import socket
++import unittest
++from unittest import mock
++from curl_cffi import requests
++with (
++    mock.patch.object(socket.socket, 'connect', side_effect=AssertionError('offline network forbidden')),
++    mock.patch.object(requests.Session, 'request', side_effect=AssertionError('offline HTTP forbidden')),
++):
++    suite = unittest.defaultTestLoader.loadTestsFromNames([
++        'test.test_image_poll_diagnostics',
++        'test.test_image_guardrail_refusal',
++        'test.test_multi_image_results',
++        'test.test_image_remove_conversation',
++        'test.test_english_request_locale',
++    ])
++    result = unittest.TextTestRunner(verbosity=1).run(suite)
++    raise SystemExit(not result.wasSuccessful())
++"""
++        result = subprocess.run(
++            [sys.executable, "-B", "-c", command], cwd=sandbox,
++            env={"PATH": os.defpath, "STORAGE_BACKEND": "json", "PYTHONDONTWRITEBYTECODE": "1",
++                 "CHATGPT2API_AUTH_KEY": "offline-test-only"},
++            capture_output=True, text=True, check=False,
++        )
++        # Existing tests emit synthetic fixture logs; retain only runner lines on success.
++        output = result.stdout + result.stderr
++        if result.returncode:
++            print(output)
++        else:
++            for line in output.splitlines():
++                if line.startswith("Ran ") or line == "OK":
++                    print(line)
++        return result.returncode
++
++
++if __name__ == "__main__":
++    run_scenarios()
++    raise SystemExit(run_sandbox_tests())

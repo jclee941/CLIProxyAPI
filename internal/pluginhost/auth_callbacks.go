@@ -296,7 +296,23 @@ func (h *Host) saveAuthFile(ctx context.Context, name string, data []byte) (stri
 	if errBuild != nil {
 		return "", errBuild
 	}
-	if errWrite := os.WriteFile(dst, data, 0o600); errWrite != nil {
+	fileData := data
+	if auth.Disabled {
+		var fields map[string]json.RawMessage
+		if errUnmarshal := json.Unmarshal(data, &fields); errUnmarshal != nil {
+			return "", fmt.Errorf("invalid auth file: %w", errUnmarshal)
+		}
+		if fields == nil {
+			fields = make(map[string]json.RawMessage)
+		}
+		fields["disabled"] = json.RawMessage("true")
+		var errMarshal error
+		fileData, errMarshal = json.Marshal(fields)
+		if errMarshal != nil {
+			return "", fmt.Errorf("marshal auth file: %w", errMarshal)
+		}
+	}
+	if errWrite := os.WriteFile(dst, fileData, 0o600); errWrite != nil {
 		return "", fmt.Errorf("failed to write auth file: %w", errWrite)
 	}
 	if errUpsert := h.upsertAuthRecord(ctx, auth); errUpsert != nil {
@@ -321,6 +337,14 @@ func (h *Host) buildAuthFromFileData(path string, data []byte) (*coreauth.Auth, 
 		return nil, fmt.Errorf("invalid auth file: %w", errUnmarshal)
 	}
 	coreauth.NormalizeCredentialMetadata(metadata)
+	disabled := false
+	if rawDisabled, exists := metadata["disabled"]; exists {
+		parsed, ok := rawDisabled.(bool)
+		if !ok {
+			return nil, fmt.Errorf("invalid auth disabled: must be a boolean")
+		}
+		disabled = parsed
+	}
 	provider, _ := metadata["type"].(string)
 	if strings.TrimSpace(provider) == "" {
 		provider = "unknown"
@@ -339,6 +363,7 @@ func (h *Host) buildAuthFromFileData(path string, data []byte) (*coreauth.Auth, 
 		FileName: filepath.Base(path),
 		Label:    label,
 		Status:   coreauth.StatusActive,
+		Disabled: disabled,
 		Attributes: map[string]string{
 			"path":   path,
 			"source": path,
@@ -349,11 +374,19 @@ func (h *Host) buildAuthFromFileData(path string, data []byte) (*coreauth.Auth, 
 	}
 	if manager := h.currentAuthManager(); manager != nil {
 		if existing, ok := manager.GetByID(authID); ok {
+			auth.Disabled = auth.Disabled || existing.Disabled
 			auth.CreatedAt = existing.CreatedAt
 			auth.LastRefreshedAt = existing.LastRefreshedAt
 			auth.NextRetryAfter = existing.NextRetryAfter
 			auth.Runtime = existing.Runtime
 		}
+	}
+	if auth.Disabled {
+		auth.Status = coreauth.StatusDisabled
+		if auth.Metadata == nil {
+			auth.Metadata = make(map[string]any)
+		}
+		auth.Metadata["disabled"] = true
 	}
 	if errWeight := coreauth.ValidateAuthWeight(auth); errWeight != nil {
 		return nil, fmt.Errorf("invalid auth weight: %w", errWeight)

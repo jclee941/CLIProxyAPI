@@ -3,6 +3,7 @@ package gemini
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -117,6 +118,33 @@ func (h *GeminiAPIHandler) Interactions(c *gin.Context) {
 	h.handleInteractionsNonStream(c, cliCtx, cliCancel, req)
 }
 
+// RetrieveInteraction handles the CPA Omni receipt surface. Retrieval is an
+// explicit executor operation, never a replay of the original create body.
+func (h *GeminiAPIHandler) RetrieveInteraction(c *gin.Context) {
+	stream := c.Query("stream")
+	if stream != "" && stream != "true" && stream != "false" {
+		c.JSON(http.StatusBadRequest, handlers.ErrorResponse{Error: handlers.ErrorDetail{Message: "stream must be a boolean", Type: "invalid_request_error"}})
+		return
+	}
+	cursor := c.Query("last_event_id")
+	if cursor == "" {
+		cursor = c.GetHeader("Last-Event-ID")
+	}
+	body, err := json.Marshal(map[string]any{"model": "gemini-omni-1.1-flash", "id": c.Param("id"), "stream": stream == "true", "last_event_id": cursor})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, handlers.ErrorResponse{Error: handlers.ErrorDetail{Message: err.Error(), Type: "server_error"}})
+		return
+	}
+	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+	defer cliCancel(nil)
+	req := buildInteractionsExecutionRequest(interactionsRequestTarget{Model: "gemini-omni-1.1-flash", Stream: stream == "true"}, "gemini-omni-1.1-flash", body, "interaction.get")
+	if req.Stream {
+		h.handleInteractionsStream(c, cliCtx, cliCancel, req)
+		return
+	}
+	h.handleInteractionsNonStream(c, cliCtx, cliCancel, req)
+}
+
 func (h *GeminiAPIHandler) handleInteractionsNonStream(c *gin.Context, cliCtx context.Context, cliCancel handlers.APIHandlerCancelFunc, req handlers.ProtocolExecutionRequest) {
 	c.Header("Content-Type", "application/json")
 	stopKeepAlive := h.StartNonStreamingKeepAlive(c, cliCtx)
@@ -159,7 +187,11 @@ func (h *GeminiAPIHandler) handleInteractionsStream(c *gin.Context, cliCtx conte
 				return
 			}
 			if len(chunk.Payload) > 0 {
-				data <- chunk.Payload
+				select {
+				case data <- chunk.Payload:
+				case <-cliCtx.Done():
+					return
+				}
 			}
 		}
 	}()
@@ -173,7 +205,7 @@ func (h *GeminiAPIHandler) forwardInteractionsStream(c *gin.Context, flusher htt
 				return
 			}
 			trimmed := bytes.TrimSpace(chunk)
-			if bytes.HasPrefix(trimmed, []byte("event:")) || bytes.HasPrefix(trimmed, []byte("data:")) {
+			if bytes.HasPrefix(trimmed, []byte("event:")) || bytes.HasPrefix(trimmed, []byte("data:")) || bytes.HasPrefix(trimmed, []byte("id:")) || bytes.HasPrefix(trimmed, []byte(":")) {
 				_, _ = c.Writer.Write(chunk)
 			} else {
 				_, _ = c.Writer.Write([]byte("data: "))

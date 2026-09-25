@@ -51,9 +51,10 @@ func TestRecordAPIRequestClonesDeferredBodyWhenRequestLogDisabled(t *testing.T) 
 	body := []byte(`{"model":"original"}`)
 
 	RecordAPIRequest(ctx, &config.Config{}, UpstreamRequestLog{
-		URL:    "https://api.example.com/v1/responses",
-		Method: http.MethodPost,
-		Body:   body,
+		URL:      "https://api.example.com/v1/responses",
+		Method:   http.MethodPost,
+		Body:     body,
+		Provider: "codex",
 	})
 	body[10] = 'X'
 
@@ -68,6 +69,12 @@ func TestRecordAPIRequestClonesDeferredBodyWhenRequestLogDisabled(t *testing.T) 
 	captured := string(requests[0]())
 	if !strings.Contains(captured, `{"model":"original"}`) {
 		t.Fatalf("captured API request = %q, want original body", captured)
+	}
+	if provider, exists := ginCtx.Get(logging.UpstreamProviderContextKey); !exists || provider != "codex" {
+		t.Fatalf("upstream provider = %#v", provider)
+	}
+	if model, exists := ginCtx.Get(logging.UpstreamModelContextKey); !exists || model != "original" {
+		t.Fatalf("upstream model = %#v", model)
 	}
 }
 

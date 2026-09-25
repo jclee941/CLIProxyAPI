@@ -177,6 +177,9 @@ func registerRPCPlugin(ctx context.Context, host *Host, id string, client plugin
 			identifier:       identifier,
 		}
 	}
+	if resp.Capabilities.FrontendHTTP {
+		plugin.Capabilities.FrontendHTTP = adapter
+	}
 	return plugin, nil
 }
 
@@ -186,9 +189,15 @@ func callPlugin[T any](ctx context.Context, client pluginClient, method string, 
 	if errMarshal != nil {
 		return zero, fmt.Errorf("marshal plugin request %s: %w", method, errMarshal)
 	}
+	if isFrontendHTTPMethod(method) && len(rawRequest) > pluginapi.FrontendHTTPMaxMessageBytes {
+		return zero, errFrontendHTTPRequestTooLarge
+	}
 	rawResp, errCall := client.Call(ctx, method, rawRequest)
 	if errCall != nil {
 		return zero, errCall
+	}
+	if isFrontendHTTPMethod(method) && len(rawResp) > pluginapi.FrontendHTTPMaxMessageBytes {
+		return zero, errFrontendHTTPResponseTooLarge
 	}
 	var envelope pluginabi.Envelope
 	if errUnmarshal := json.Unmarshal(rawResp, &envelope); errUnmarshal != nil {

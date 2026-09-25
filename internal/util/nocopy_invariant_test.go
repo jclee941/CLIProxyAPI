@@ -18,7 +18,32 @@ var inPlaceSJSONTokens = []string{"ReplaceInPlace", "Optimistic"}
 // from the same buffer can still be alive at that point.
 var inPlaceSJSONAllowlist = map[string]struct{}{}
 
-// forEachSourceFile visits every non-test Go file in the repository.
+func TestSourceWalkExcludesLocalCheckoutsAndScratchFiles(t *testing.T) {
+	root := t.TempDir()
+	paths := []string{
+		"internal/owned.go",
+		"deploy/gemini-web-plugin/owned.go",
+		".worktrees/other/internal/copied.go",
+		".qa/deploy/copied.go",
+		".omo/evidence/copied.go",
+	}
+	for _, rel := range paths {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package fixture\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var found []string
+	forEachSourceFile(t, root, func(rel string, _ []byte) { found = append(found, rel) })
+	if got := strings.Join(found, ","); got != "deploy/gemini-web-plugin/owned.go,internal/owned.go" {
+		t.Fatalf("source files = %q", got)
+	}
+}
+
+// forEachSourceFile visits repository source, not local scratch or other checkouts.
 func forEachSourceFile(t *testing.T, root string, visit func(rel string, data []byte)) {
 	t.Helper()
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -111,6 +136,8 @@ var reviewedInPlaceByteWrites = map[string]reviewedInPlaceByteWrite{
 	"internal/client/codex/live/tcp_proxy.go":               {1, "copies header and payload into a freshly allocated frame"},
 	"internal/home/client.go":                               {1, "zeroes a secret buffer after json.Unmarshal has copied every value out"},
 	"internal/pluginstore/auth.go":                          {1, "zeroes a locally built credential buffer after base64 encoding copied it out"},
+	"deploy/gemini-web-plugin/webgenerate.go":               {3, "sets integer protocol slots in a newly allocated []any request vector; no byte buffer or GJSON result is mutated"},
+	"deploy/gemini-web-plugin/webvideo.go":                  {3, "sets integer video slots in webGenerationFields' fresh []any request vector; no byte buffer or GJSON result is mutated"},
 }
 
 // TestInPlaceByteWritesAreReviewed keeps the set of in-place byte writes small

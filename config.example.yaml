@@ -68,6 +68,12 @@ discovery:
   #   exclude: []                     # Additional interface patterns to exclude
   # auth-required: true               # Advertise that credentials are required
 
+# Send error log notifications to a Telegram chat through a bot.
+telegram:
+  enabled: false
+  bot-token: ""
+  chat-id: ""
+
 # Credential concurrency is configured by Home in Home mode. The synthesized Home config is
 # authoritative and local values, including the values below, are ignored. Do not use local
 # configuration to override a Home concurrency policy.
@@ -132,6 +138,9 @@ commercial-mode: false
 
 # When true, write application logs to rotating files instead of stdout
 logging-to-file: false
+
+# Log encoding. Use "json" for ingestion by Elasticsearch/Logstash; defaults to "text".
+log-format: "text"
 
 # Maximum total size (MB) of log files under the logs directory. When exceeded, the oldest log
 # files are deleted until within the limit. Set to 0 to disable.

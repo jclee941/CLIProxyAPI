@@ -170,24 +170,43 @@ func (h *Host) callHostHTTPDoStream(ctx context.Context, request []byte) ([]byte
 		ctx = context.Background()
 	}
 	streamCtx, cancel := newStreamContext(ctx)
+	streamID := ""
+	transferred := false
+	defer func() {
+		// Until a usable receipt is returned, startup owns every failure path.
+		// On success the bridge owns cancellation, not this callback's return.
+		if !transferred {
+			cancel()
+			if streamID != "" {
+				h.httpStreams.close(streamID)
+			}
+		}
+	}()
 	resp, errDo := h.newHTTPClient(nil).DoStream(streamCtx, httpReq)
 	if errDo != nil {
-		cancel()
 		return nil, errDo
 	}
-	streamID := ""
 	if h != nil && h.httpStreams != nil {
 		streamID = h.httpStreams.open(resp.Chunks, cancel)
 	}
 	if streamID == "" {
-		cancel()
 		return nil, fmt.Errorf("host http stream bridge is unavailable")
 	}
-	return marshalRPCResult(rpcHostHTTPStreamResponse{
+	if callbackID != "" {
+		h.addCallbackCleanup(callbackID, func() {
+			h.httpStreams.close(streamID)
+		})
+	}
+	response, errMarshal := marshalRPCResult(rpcHostHTTPStreamResponse{
 		StatusCode: resp.StatusCode,
 		Headers:    httpHeader(resp.Headers),
 		StreamID:   streamID,
 	})
+	if errMarshal != nil {
+		return nil, errMarshal
+	}
+	transferred = true
+	return response, nil
 }
 
 func (h *Host) callHostHTTPStreamRead(ctx context.Context, request []byte) ([]byte, error) {

@@ -82,6 +82,8 @@ type Host struct {
 	commandLineHits        map[string]struct{}
 	managementRoutes       map[string]managementRouteRecord
 	resourceRoutes         map[string]resourceRouteRecord
+	frontendHTTPRoutes     []frontendHTTPRouteRecord
+	frontendHTTPGeneration uint64
 	streams                *streamBridge
 	httpStreams            *hostHTTPStreamBridge
 	modelStreams           *modelStreamBridge
@@ -219,6 +221,8 @@ func (h *Host) ApplyConfig(ctx context.Context, cfg *config.Config) {
 
 	if !rc.Enabled {
 		h.mu.Lock()
+		h.frontendHTTPRoutes = nil
+		h.frontendHTTPGeneration++
 		h.managementRoutes = make(map[string]managementRouteRecord)
 		h.resourceRoutes = make(map[string]resourceRouteRecord)
 		h.rebuildActivePluginMapsLocked(nil)
@@ -233,6 +237,8 @@ func (h *Host) ApplyConfig(ctx context.Context, cfg *config.Config) {
 	if errSelect != nil {
 		log.Warnf("pluginhost: failed to select plugin files: %v", errSelect)
 		h.mu.Lock()
+		h.frontendHTTPRoutes = nil
+		h.frontendHTTPGeneration++
 		h.managementRoutes = make(map[string]managementRouteRecord)
 		h.resourceRoutes = make(map[string]resourceRouteRecord)
 		h.rebuildActivePluginMapsLocked(nil)
@@ -395,6 +401,8 @@ func (h *Host) ApplyConfig(ctx context.Context, cfg *config.Config) {
 		h.cleanupFilesPending = false
 	}
 	h.rebuildActivePluginMapsLocked(records)
+	h.frontendHTTPRoutes = nil
+	h.frontendHTTPGeneration++
 	h.snapshot.Store(&Snapshot{enabled: true, records: records, quotaSupportedProviders: make(map[string][]string)})
 	h.mu.Unlock()
 	h.refreshThinkingProviders(records)
@@ -697,6 +705,8 @@ func (h *Host) ShutdownAllContext(ctx context.Context) {
 	h.executorProviders = make(map[string]struct{})
 	h.commandLineFlags = make(map[string]commandLineFlagRecord)
 	h.commandLineHits = make(map[string]struct{})
+	h.frontendHTTPRoutes = nil
+	h.frontendHTTPGeneration++
 	h.managementRoutes = make(map[string]managementRouteRecord)
 	h.resourceRoutes = make(map[string]resourceRouteRecord)
 	h.pluginFileVersions = make(map[string]string)
@@ -809,6 +819,13 @@ func (h *Host) snapshotWithoutPluginLocked(id string) ([]capabilityRecord, bool)
 }
 
 func (h *Host) removePluginRuntimeStateLocked(id string) {
+	remaining := make([]frontendHTTPRouteRecord, 0, len(h.frontendHTTPRoutes))
+	for _, record := range h.frontendHTTPRoutes {
+		if record.owner.id != id {
+			remaining = append(remaining, record)
+		}
+	}
+	h.frontendHTTPRoutes = remaining
 	for key, record := range h.managementRoutes {
 		if record.pluginID == id {
 			delete(h.managementRoutes, key)
@@ -1057,7 +1074,8 @@ func validPlugin(plugin pluginapi.Plugin) bool {
 		caps.UsagePlugin != nil ||
 		caps.CommandLinePlugin != nil ||
 		caps.ManagementAPI != nil ||
-		caps.QuotaProvider != nil
+		caps.QuotaProvider != nil ||
+		caps.FrontendHTTP != nil
 }
 
 func typeName(v any) string {

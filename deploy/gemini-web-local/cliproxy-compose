@@ -1,0 +1,3 @@
+#!/bin/sh
+set -eu
+exec docker compose -f /opt/dashboard/docker-compose.dashboard-only.yml --project-directory /opt/dashboard "$@"

@@ -45,6 +45,7 @@ type rpcCapabilities struct {
 	CommandLinePlugin             bool                         `json:"command_line_plugin"`
 	ManagementAPI                 bool                         `json:"management_api"`
 	QuotaProvider                 bool                         `json:"quota_provider"`
+	FrontendHTTP                  bool                         `json:"frontend_http"`
 }
 
 type rpcIdentifierResponse struct {
@@ -173,6 +174,7 @@ func rpcCapabilitiesFromPlugin(plugin pluginapi.Plugin) rpcCapabilities {
 		CommandLinePlugin:             caps.CommandLinePlugin != nil,
 		ManagementAPI:                 caps.ManagementAPI != nil,
 		QuotaProvider:                 caps.QuotaProvider != nil,
+		FrontendHTTP:                  caps.FrontendHTTP != nil,
 	}
 }
 
