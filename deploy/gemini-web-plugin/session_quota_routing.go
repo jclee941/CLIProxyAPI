@@ -22,40 +22,87 @@ type quotaSnapshot struct {
 	// still read below full then, since a video needs more units than are
 	// left, so no later observation may release the account before it passes.
 	limitedUntil int64
-	// roomUnits is what the five hour window has left when an observation names
-	// it. A native room pins every turn to the account that opens it, so this is
-	// all a new room can still spend there.
+	// videoCapUntil is when the product's video budget says the account may make
+	// videos again. The budget is the product answering that question directly,
+	// so, unlike a limit read out of a reply, its next reading moves or lifts it.
+	videoCapUntil int64
+	// roomUnits and weekUnits are what the five hour and weekly windows have
+	// left when an observation names them. A native room pins every turn to the
+	// account that opens it, so this is all a new room can still spend there.
 	roomUnits    float64
 	roomMeasured bool
+	weekUnits    float64
+	weekMeasured bool
+	// delivered counts the videos the account delivered since this reading; the
+	// next reading divides what the five hour window lost by it.
+	delivered int
 }
 
-// roomHeadroomUnits is the five hour allowance a new native room needs. A room is
-// three turns pinned to one account and a turn spent 3,000 to 4,500 units on
-// 2026-09-25, so an account below this starts a room it cannot finish, and the
-// turns after its allowance runs out come back as quota_exhausted or text answers.
-const roomHeadroomUnits = 15000
+// roomTurns is how many videos a native room makes on the account that opens
+// it: the clip and the two extensions a scene asks for.
+const roomTurns = 3
 
-// fitsARoom reports whether an account has the allowance to finish a new room.
-// An account with no observation stays eligible, as the rotation treats it.
-func (service *service) fitsARoom(id string) bool {
+// defaultGenerationUnits stands in for the cost of a video until one has been
+// measured. A turn spent 3,000 to 4,500 units on 2026-09-25, and a room was
+// held to need 15,000 before the cost was measured.
+const defaultGenerationUnits = 5000
+
+// generationSamples bounds how far back the cost of a video is remembered, so a
+// change in price reaches the scheduler within a few videos.
+const generationSamples = 8
+
+// sameWindowSlack is how far two readings of one five hour window may disagree
+// about when it turns over.
+const sameWindowSlack = 10 * time.Minute
+
+// generationUnits is what one video costs: what the five hour window lost
+// between two readings of an account, divided by the videos it delivered in
+// between. The dearest recent video sets the price, so a room is never opened
+// on the hope that its turns come cheap.
+func (service *service) generationUnits() float64 {
+	service.quota.mu.RLock()
+	defer service.quota.mu.RUnlock()
+	units := 0.0
+	for _, sample := range service.quota.samples {
+		units = max(units, sample)
+	}
+	if units == 0 {
+		return defaultGenerationUnits
+	}
+	return units
+}
+
+// affordsARoom reports whether an account can pay for a whole new room in both
+// windows. An account short of three videos starts a room it cannot finish, and
+// the turns after its allowance runs out fail where no other account can take
+// them, since the room stays pinned there. An account with no reading stays
+// eligible, as the rotation treats it.
+func (service *service) affordsARoom(id string) bool {
+	need := roomTurns * service.generationUnits()
 	service.quota.mu.RLock()
 	snapshot, found := service.quota.entries[id]
 	service.quota.mu.RUnlock()
-	return !found || !snapshot.roomMeasured || snapshot.roomUnits >= roomHeadroomUnits
+	if !found {
+		return true
+	}
+	return (!snapshot.roomMeasured || snapshot.roomUnits >= need) && (!snapshot.weekMeasured || snapshot.weekUnits >= need)
 }
 
 type quotaCache struct {
 	mu      sync.RWMutex
 	entries map[string]quotaSnapshot
+	// samples is the cost of the most recent videos, fleet wide.
+	samples []float64
 }
 
-// observeQuota keeps what the account listing and the keep-alive sweep already
-// fetch. The scheduler must answer without a round trip, so routing reads this
-// instead of asking Google per request.
+// observeQuota keeps what the account listing, the keep-alive sweep and every
+// video turn read. The scheduler must answer without a round trip, so routing
+// reads this instead of asking Google per request.
 func (service *service) observeQuota(id string, usage *usageView) {
 	if usage == nil {
 		return
 	}
+	now := service.now().Unix()
 	snapshot := quotaSnapshot{}
 	unknownReset := false
 	for _, metric := range usage.Metrics {
@@ -68,6 +115,10 @@ func (service *service) observeQuota(id string, usage *usageView) {
 		if metric.WindowKind == "5h" && metric.RemainingUnits != nil {
 			snapshot.roomUnits = *metric.RemainingUnits
 			snapshot.roomMeasured = true
+		}
+		if metric.WindowKind == "weekly" && metric.RemainingUnits != nil {
+			snapshot.weekUnits = *metric.RemainingUnits
+			snapshot.weekMeasured = true
 		}
 		if metric.UsageFraction != nil && *metric.UsageFraction >= 1 ||
 			metric.UsagePercent != nil && *metric.UsagePercent >= 100 ||
@@ -88,8 +139,57 @@ func (service *service) observeQuota(id string, usage *usageView) {
 	if service.quota.entries == nil {
 		service.quota.entries = make(map[string]quotaSnapshot)
 	}
-	snapshot.limitedUntil = service.quota.entries[id].limitedUntil
+	previous := service.quota.entries[id]
+	snapshot.limitedUntil = previous.limitedUntil
+	snapshot.videoCapUntil = previous.videoCapUntil
+	if usage.VideoCapped != nil {
+		snapshot.videoCapUntil = 0
+		if *usage.VideoCapped {
+			snapshot.videoCapUntil = now + int64(videoLimitHold/time.Second)
+			if usage.VideoAvailableAt != nil && int64(*usage.VideoAvailableAt) > now {
+				snapshot.videoCapUntil = int64(*usage.VideoAvailableAt)
+			}
+		}
+	}
+	// A window that turned over in between says nothing about what the videos
+	// cost, and neither does a reading with no video behind it.
+	slack := int64(sameWindowSlack / time.Second)
+	sameWindow := previous.turnover-snapshot.turnover < slack && snapshot.turnover-previous.turnover < slack
+	if previous.delivered > 0 && previous.roomMeasured && snapshot.roomMeasured && sameWindow {
+		if spent := previous.roomUnits - snapshot.roomUnits; spent > 0 {
+			service.quota.samples = append(service.quota.samples, spent/float64(previous.delivered))
+			if len(service.quota.samples) > generationSamples {
+				service.quota.samples = service.quota.samples[len(service.quota.samples)-generationSamples:]
+			}
+		}
+	}
 	service.quota.entries[id] = snapshot
+}
+
+// noteVideoDelivered counts a video against the account's next reading, which
+// is how the cost of a video is measured.
+func (service *service) noteVideoDelivered(id string) {
+	service.quota.mu.Lock()
+	defer service.quota.mu.Unlock()
+	if service.quota.entries == nil {
+		service.quota.entries = make(map[string]quotaSnapshot)
+	}
+	snapshot := service.quota.entries[id]
+	snapshot.delivered++
+	service.quota.entries[id] = snapshot
+}
+
+// observeTurn reads the windows and the video budget on the session that just
+// ran a video turn. Nothing else reads them in production - the sweep is off
+// and the listing only runs when someone opens it - so the scheduler routed on
+// readings hours old, and learned an account was out of videos only from the
+// turn it wasted there. A reading that fails leaves the last one standing.
+func (service *service) observeTurn(ctx context.Context, id string, session *webSession) {
+	usage, err := service.webUsage(ctx, session)
+	if err != nil {
+		return
+	}
+	service.observeQuota(id, usage)
 }
 
 // noteVideoRefusal takes the product at its word when it answers a video turn
@@ -119,8 +219,9 @@ func (service *service) noteVideoRefusal(id string, err error) {
 }
 
 // Exhaustion remains authoritative until reset or a new observation. A cache
-// age limit must not put a still-exhausted account back into rotation, and a
-// limit the product reported holds until the window it named turns over.
+// age limit must not put a still-exhausted account back into rotation, a limit
+// the product reported holds until the window it named turns over, and a video
+// cap holds until the budget says videos are back.
 func (service *service) quotaAvailable(id string) bool {
 	service.quota.mu.RLock()
 	snapshot, found := service.quota.entries[id]
@@ -129,7 +230,7 @@ func (service *service) quotaAvailable(id string) bool {
 	if !found {
 		return true
 	}
-	if now < snapshot.limitedUntil {
+	if now < snapshot.limitedUntil || now < snapshot.videoCapUntil {
 		return false
 	}
 	return !snapshot.exhausted || snapshot.resetAt > 0 && now >= snapshot.resetAt

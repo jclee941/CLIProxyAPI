@@ -46,7 +46,11 @@ type continuationWebFixture struct {
 	pending        bool
 	wrongReply     bool
 	// answer is the prose a non-video candidate carries; empty keeps "answer".
-	answer       string
+	answer string
+	// usage and budget are the jSf9Qc and CheckGxuBudget bodies a turn reads
+	// after it ends; nil answers with no windows and no cap.
+	usage        []any
+	budget       []any
 	beforeSubmit func()
 	duringModels func()
 }
@@ -134,7 +138,23 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 				writeFixture(t, writer, rpcEnvelope(t, accountCapabilityRPC, slots(16, map[int]any{14: 1000, 15: []any{slots(18, map[int]any{0: "cap-flash", 11: "3.8 Flash", 17: 1})}})))
 				return
 			}
-			if request.URL.Query().Get("rpcids") != webVideoTurnsRPC {
+			switch request.URL.Query().Get("rpcids") {
+			case webUsageRPC:
+				usage := fixture.usage
+				if usage == nil {
+					usage = []any{float64(3), []any{}, false}
+				}
+				writeFixture(t, writer, rpcEnvelope(t, webUsageRPC, usage))
+				return
+			case webGxuBudgetRPC:
+				budget := fixture.budget
+				if budget == nil {
+					budget = []any{false}
+				}
+				writeFixture(t, writer, rpcEnvelope(t, webGxuBudgetRPC, budget))
+				return
+			case webVideoTurnsRPC:
+			default:
 				t.Error("unexpected RPC")
 				return
 			}

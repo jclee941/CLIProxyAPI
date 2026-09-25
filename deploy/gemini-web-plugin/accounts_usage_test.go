@@ -117,6 +117,8 @@ func TestNativeUsageListsFiveHourBeforeWeeklyWithDisplayablePercent(t *testing.T
 			_, err = writer.Write([]byte(`{"SNlM0e":"xsrf-token","cfb2h":"build-id","FdrFJe":"session-id"}`))
 		case strings.Contains(request.URL.Path, "batchexecute") && request.URL.Query().Get("rpcids") == webUsageRPC:
 			_, err = writer.Write([]byte(rpcEnvelope(t, webUsageRPC, []any{float64(3), []any{weekly, fiveHour}, false})))
+		case strings.Contains(request.URL.Path, "batchexecute") && request.URL.Query().Get("rpcids") == webGxuBudgetRPC:
+			_, err = writer.Write([]byte(rpcEnvelope(t, webGxuBudgetRPC, videoCapBudget(1790400000))))
 		default:
 			t.Errorf("unexpected request %s", request.URL)
 		}
@@ -140,5 +142,8 @@ func TestNativeUsageListsFiveHourBeforeWeeklyWithDisplayablePercent(t *testing.T
 	}
 	if fraction := usage.Metrics[1].UsageFraction; fraction == nil || *fraction != 0.4520772 {
 		t.Fatalf("the reported fraction was altered: %v", fraction)
+	}
+	if usage.VideoCapped == nil || !*usage.VideoCapped || usage.VideoAvailableAt == nil || *usage.VideoAvailableAt != 1790400000 {
+		t.Fatalf("video budget = %v until %v, want capped until 1790400000", usage.VideoCapped, usage.VideoAvailableAt)
 	}
 }

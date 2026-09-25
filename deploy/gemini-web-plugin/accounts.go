@@ -27,6 +27,11 @@ type usageView struct {
 	Source     string        `json:"source"`
 	Estimated  bool          `json:"estimated"`
 	ObservedAt float64       `json:"observed_at"`
+	// VideoCapped is the product's own answer to whether the account may make a
+	// video now, absent when it could not be read. VideoAvailableAt is when it
+	// says videos come back, when it says so.
+	VideoCapped      *bool    `json:"video_capped,omitempty"`
+	VideoAvailableAt *float64 `json:"video_available_at,omitempty"`
 }
 type accountView struct {
 	ID             string             `json:"id"`
@@ -50,6 +55,9 @@ type accountActivity struct {
 type accountListResponse struct {
 	Accounts []accountView `json:"accounts"`
 	Provider string        `json:"provider"`
+	// GenerationUnits is what the scheduler takes one video to cost; a new room
+	// needs three of them left in both windows.
+	GenerationUnits float64 `json:"generation_units"`
 }
 
 func (service *service) callback(method string, request callbackRequest, output interface{}) error {
@@ -197,6 +205,47 @@ const webUsageRPC = "jSf9Qc"
 // what each number means.
 var usageWindows = map[int]string{1: "5h", 2: "weekly", 3: "ai_credit"}
 
+// webVideoBudgetRPC is CheckGxuBudget, what the web app asks before it lets the
+// video tool send. The windows do not answer that: an account read 96% of its
+// week left and was still out of videos, and the product then took every turn
+// and answered it as a text model instead of saying so.
+const webGxuBudgetRPC = "MyzX6c"
+
+// webVideoCap reads the video cap out of a CheckGxuBudget body the way the web
+// app does: an entry with action 5 in state 3 is its "You're out of videos for
+// now" notice, and the entry's timestamp is when videos come back. A body with
+// no such entry is an account that may make videos. ok is false when the body
+// is not a budget at all.
+func webVideoCap(body any) (capped bool, until *float64, ok bool) {
+	if _, message := body.([]any); !message {
+		return false, nil, false
+	}
+	entries, _ := webJSPBField(body, 1).([]any)
+	for _, entry := range entries {
+		action, _ := jsonInteger(webJSPBField(entry, 0))
+		state, _ := jsonInteger(webJSPBField(entry, 5))
+		if action == 5 && state == 3 {
+			return true, jsonNumber(jsonField(webJSPBField(entry, 4), 0)), true
+		}
+	}
+	return false, nil, true
+}
+
+// videoCap asks the product whether the account may make a video now. A budget
+// that could not be read is unknown rather than open, so the scheduler keeps
+// what it last knew.
+func (session *webSession) videoCap(ctx context.Context) (*bool, *float64) {
+	body, err := session.rpc(ctx, webGxuBudgetRPC, []any{})
+	if err != nil {
+		return nil, nil
+	}
+	capped, until, ok := webVideoCap(body)
+	if !ok {
+		return nil, nil
+	}
+	return &capped, until
+}
+
 // nativeUsage reads the quota windows from the web product. The sidecar answered
 // this once and was the last thing the plugin could not do for itself.
 func (service *service) nativeUsage(ctx context.Context, reference string, token sessionToken) (*usageView, error) {
@@ -207,10 +256,26 @@ func (service *service) nativeUsage(ctx context.Context, reference string, token
 	session := service.newSession(credential)
 	service.trackJar(reference, session)
 	defer service.persistJar(reference, session)
+	return service.webUsage(ctx, session)
+}
+
+// webUsage reads the windows and the video budget on a session already open, so
+// a turn can read what it spent on the session that spent it.
+func (service *service) webUsage(ctx context.Context, session *webSession) (*usageView, error) {
 	body, err := session.rpc(ctx, webUsageRPC, []any{})
 	if err != nil {
 		return nil, err
 	}
+	result, err := service.webWindows(body)
+	if err != nil {
+		return nil, err
+	}
+	result.VideoCapped, result.VideoAvailableAt = session.videoCap(ctx)
+	return result, nil
+}
+
+// webWindows decodes the quota windows jSf9Qc reports.
+func (service *service) webWindows(body any) (*usageView, error) {
 	rows, ok := body.([]any)
 	if !ok || len(rows) == 0 {
 		return nil, failure(502, "usage_response_invalid")

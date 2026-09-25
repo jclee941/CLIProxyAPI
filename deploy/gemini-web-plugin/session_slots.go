@@ -41,13 +41,10 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 		}
 		eligible = append(eligible, candidate.ID)
 	}
-	// A video room stays on the account that opens it, so open it where the whole
-	// room fits; with no such account the rotation below decides as before.
+	// A video room stays on the account that opens it, so it only opens where the
+	// whole room is paid for; with no such account there is no room to open.
 	if model == omniModel || model == interactionOmniModel {
-		roomy := slices.DeleteFunc(slices.Clone(eligible), func(id string) bool { return !service.fitsARoom(id) })
-		if len(roomy) > 0 {
-			eligible = roomy
-		}
+		eligible = slices.DeleteFunc(eligible, func(id string) bool { return !service.affordsARoom(id) })
 	}
 	var idle, busy []string
 	for _, id := range eligible {

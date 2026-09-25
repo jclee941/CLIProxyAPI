@@ -353,19 +353,24 @@ func TestSchedulerOpensAVideoRoomOnlyWhereTheWholeRoomFits(t *testing.T) {
 	}
 }
 
-func TestSchedulerKeepsRotating_whenNoAccountFitsAWholeRoom(t *testing.T) {
+// A room opened on an account that cannot pay for three videos fails on its
+// second or third turn, where no other account can take it over.
+func TestSchedulerOpensNoRoom_whenNoAccountAffordsOne(t *testing.T) {
 	service, local := continuationFixture(t)
 	other := recordFixture(t, "b")
 	seedSession(t, service, other, sessionToken{encodedToken("second")})
 	service.observeQuota(local.Target.ID, roomUsage(1826))
 	service.observeQuota(other.ID, roomUsage(10561))
 
-	chosen := map[string]int{}
-	for range 4 {
-		chosen[service.pickServableAccount(omniModel, slotCandidates(local.Target.ID, other.ID)).AuthID]++
+	if pick := service.pickServableAccount(omniModel, slotCandidates(local.Target.ID, other.ID)); pick.Handled {
+		t.Fatalf("a room opened where three videos do not fit: %+v", pick)
 	}
-	if chosen[local.Target.ID] != 2 || chosen[other.ID] != 2 {
-		t.Fatalf("with no roomy account the rotation must stay as it was: %+v", chosen)
+	_, err := service.pickContinuation(jsonFixture(t, map[string]any{
+		"Provider": provider, "Model": interactionOmniModel,
+		"Candidates": slotCandidates(local.Target.ID, other.ID),
+	}))
+	if safeCredentialCode(err) != "account_unavailable" {
+		t.Fatalf("scheduler error = %v, want account_unavailable", err)
 	}
 }
 

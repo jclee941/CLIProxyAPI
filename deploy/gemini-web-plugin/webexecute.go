@@ -114,8 +114,13 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	video, err := session.generateVideo(ctx, prompt, account, model, options.framing(), attachments)
 	if err != nil {
 		service.noteVideoRefusal(record.ID, err)
+		if safeCredentialCode(err) == "no_video_generated" {
+			service.observeTurn(ctx, record.ID, session)
+		}
 		return httpResponse{}, err
 	}
+	service.noteVideoDelivered(record.ID)
+	service.observeTurn(ctx, record.ID, session)
 	body, err := json.Marshal(map[string]any{
 		"modelVersion": omniModel,
 		"candidates": []any{map[string]any{

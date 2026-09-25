@@ -75,7 +75,7 @@ func (service *service) managementOperation(ctx context.Context, request managem
 		// cached under the set of accounts it covers instead.
 		scope := accountsScope(entries)
 		if cached, fresh := service.cachedAccounts(scope); fresh {
-			return accountListResponse{cached, provider}, nil
+			return accountListResponse{cached, provider, service.generationUnits()}, nil
 		}
 		// Accounts are inspected concurrently because each one costs two
 		// independent upstream round trips; the indexed slice keeps the response
@@ -96,7 +96,7 @@ func (service *service) managementOperation(ctx context.Context, request managem
 		}
 		inspections.Wait()
 		service.storeAccounts(scope, accounts)
-		return accountListResponse{accounts, provider}, nil
+		return accountListResponse{accounts, provider, service.generationUnits()}, nil
 	case request.Method == "POST" && request.Path == "/v0/management"+maintainPath:
 		return service.maintain(ctx, request)
 	case request.Method == "POST" && request.Path == resolvePath:

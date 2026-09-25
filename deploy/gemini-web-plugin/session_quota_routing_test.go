@@ -228,3 +228,145 @@ func TestEmptyRepliesToTurnsKeepTheirAccountInNewRooms(t *testing.T) {
 		t.Fatalf("replies without a video took the account out of new rooms: %+v", chosen)
 	}
 }
+
+// videoCapBudget is a CheckGxuBudget body carrying the web app's "You're out of
+// videos for now" entry: action 5, state 3, and when videos come back.
+func videoCapBudget(until float64) []any {
+	return []any{false, []any{slots(6, map[int]any{0: float64(5), 4: []any{until, float64(0)}, 5: float64(3)})}}
+}
+
+func windowsUsage(fiveHour, week float64) *usageView {
+	return &usageView{Metrics: []usageMetric{
+		{RemainingUnits: &fiveHour, WindowKind: "5h", Unit: "provider_compute_unit"},
+		{RemainingUnits: &week, WindowKind: "weekly", Unit: "provider_compute_unit"},
+	}}
+}
+
+func TestWebVideoCapReadsTheNoticeTheWebAppShows(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		body   any
+		capped bool
+		until  float64
+		ok     bool
+	}{
+		{"out of videos", videoCapBudget(1790400000), true, 1790400000, true},
+		{"another budget spent", []any{true, []any{slots(6, map[int]any{0: float64(1), 5: float64(3)})}}, false, 0, true},
+		{"videos not spent", []any{false, []any{slots(6, map[int]any{0: float64(5), 5: float64(2)})}}, false, 0, true},
+		{"nothing spent", []any{false}, false, 0, true},
+		{"not a budget", "denied", false, 0, false},
+	} {
+		capped, until, ok := webVideoCap(test.body)
+		if capped != test.capped || ok != test.ok || (until != nil) != (test.until != 0) || until != nil && *until != test.until {
+			t.Errorf("%s: capped=%v until=%v ok=%v", test.name, capped, until, ok)
+		}
+	}
+}
+
+// qwer941a read 96% of its week left while the product had cut it off from
+// video, and it answered every video turn as a text model until the cap lifted.
+func TestTheVideoBudgetKeepsAnAccountOutUntilVideosAreBack(t *testing.T) {
+	service, local := continuationFixture(t)
+	now := service.now()
+	service.now = func() time.Time { return now }
+	back := float64(now.Add(3 * time.Hour).Unix())
+	capped, open := true, false
+
+	service.observeQuota(local.Target.ID, &usageView{VideoCapped: &capped, VideoAvailableAt: &back})
+	if service.quotaAvailable(local.Target.ID) {
+		t.Fatal("an account out of videos stayed in rotation")
+	}
+	service.observeQuota(local.Target.ID, windowsUsage(47725, 928701))
+	if service.quotaAvailable(local.Target.ID) {
+		t.Fatal("a reading without the budget released the cap")
+	}
+	now = time.Unix(int64(back), 0)
+	if !service.quotaAvailable(local.Target.ID) {
+		t.Fatal("the account stayed out after videos came back")
+	}
+
+	now = now.Add(-time.Hour)
+	service.observeQuota(local.Target.ID, &usageView{VideoCapped: &capped, VideoAvailableAt: &back})
+	service.observeQuota(local.Target.ID, &usageView{VideoCapped: &open})
+	if !service.quotaAvailable(local.Target.ID) {
+		t.Fatal("the budget reopening video did not release the account")
+	}
+}
+
+// A video cost 3,500 to 5,200 units on 2026-09-26, and a room is three of them
+// pinned to the account that opens it.
+func TestARoomNeedsThreeMeasuredVideosInBothWindows(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("other")})
+	service.observeQuota(local.Target.ID, windowsUsage(48000, 900000))
+	service.noteVideoDelivered(local.Target.ID)
+	service.noteVideoDelivered(local.Target.ID)
+	service.observeQuota(local.Target.ID, windowsUsage(37600, 889600))
+
+	if units := service.generationUnits(); units != 5200 {
+		t.Fatalf("a video costs %v, want the 5,200 measured", units)
+	}
+	for _, test := range []struct {
+		name           string
+		fiveHour, week float64
+		affords        bool
+	}{
+		{"both windows hold three", 15600, 15600, true},
+		{"five hours short", 15599, 900000, false},
+		{"week short", 48000, 15599, false},
+	} {
+		service.observeQuota(other.ID, windowsUsage(test.fiveHour, test.week))
+		if service.affordsARoom(other.ID) != test.affords {
+			t.Errorf("%s: affords a room = %v", test.name, !test.affords)
+		}
+	}
+}
+
+// A window that turned over between two readings hides what was spent in it.
+func TestAWindowThatTurnedOverPricesNoVideo(t *testing.T) {
+	service, local := continuationFixture(t)
+	before, after := 46000.0, 44000.0
+	first, second := float64(1790400000), float64(1790418000)
+	service.observeQuota(local.Target.ID, &usageView{Metrics: []usageMetric{{RemainingUnits: &before, WindowKind: "5h", ResetUnixSeconds: &first}}})
+	service.noteVideoDelivered(local.Target.ID)
+	service.observeQuota(local.Target.ID, &usageView{Metrics: []usageMetric{{RemainingUnits: &after, WindowKind: "5h", ResetUnixSeconds: &second}}})
+
+	if units := service.generationUnits(); units != defaultGenerationUnits {
+		t.Fatalf("a video was priced across a window turnover: %v", units)
+	}
+}
+
+// The product cut the account off from video and the turn came back as a text
+// answer; the next room has to know that without spending a turn to learn it.
+func TestATurnWithoutAVideoReadsTheVideoBudgetOnItsSession(t *testing.T) {
+	service, local := continuationFixture(t)
+	back := float64(service.now().Add(2 * time.Hour).Unix())
+	continuationWeb(t, service, &continuationWebFixture{answer: "저는 단지 언어 모델일 뿐이고, 그것을 이해하고 응답하는 능력이 없기 때문에 도와드릴 수가 없습니다.", budget: videoCapBudget(back)})
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+
+	result := interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`)
+
+	if result.OK || result.Error.Code != "gemini_web_omni:no_video_generated" {
+		t.Fatalf("turn: %+v", result.Error)
+	}
+	if service.quotaAvailable(local.Target.ID) {
+		t.Fatal("the account its own budget called out of video stayed in rotation")
+	}
+}
+
+// A delivered video is priced from the reading its own turn takes afterwards.
+func TestADeliveredVideoIsPricedFromItsTurnsReading(t *testing.T) {
+	service, local := continuationFixture(t)
+	fiveHour := slots(4, map[int]any{0: float64(43200), 1: 0.1, 2: float64(1)})
+	week := slots(4, map[int]any{0: float64(900000), 1: 0.07, 2: float64(2)})
+	continuationWeb(t, service, &continuationWebFixture{video: true, usage: []any{float64(3), []any{week, fiveHour}, false}})
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+	service.observeQuota(local.Target.ID, windowsUsage(48000, 904800))
+
+	interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`))
+
+	if units := service.generationUnits(); units != 4800 {
+		t.Fatalf("a video costs %v, want the 4,800 its turn spent", units)
+	}
+}

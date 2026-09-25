@@ -238,6 +238,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 				return nil, releaseErr
 			}
 			if refusal != nil {
+				service.observeTurn(ctx, execution.local.Target.ID, session)
 				return nil, refusal
 			}
 		}
@@ -265,6 +266,9 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 				return nil, releaseErr
 			}
 			service.noteVideoRefusal(execution.local.Target.ID, err)
+			if safeCredentialCode(err) == "no_video_generated" {
+				service.observeTurn(ctx, execution.local.Target.ID, session)
+			}
 			return nil, err
 		}
 		if !state.Ready {
@@ -280,6 +284,8 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		if status != http.StatusOK || len(video) < 8 || string(video[4:8]) != "ftyp" {
 			return nil, failure(502, "invalid_video_download")
 		}
+		service.noteVideoDelivered(execution.local.Target.ID)
+		service.observeTurn(ctx, execution.local.Target.ID, session)
 		body, err = json.Marshal(map[string]any{"candidates": []any{map[string]any{"index": 0, "finishReason": "STOP", "content": map[string]any{"role": "model", "parts": []any{map[string]any{"inlineData": map[string]string{"mimeType": "video/mp4", "data": base64.StdEncoding.EncodeToString(video)}}}}}}})
 		if err != nil {
 			return nil, err
