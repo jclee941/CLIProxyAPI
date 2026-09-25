@@ -178,3 +178,62 @@ func TestExhaustedFiveHourObservationDoesNotExpireBeforeReset(t *testing.T) {
 		t.Fatalf("exhausted fleet delegated back to host: pick=%+v err=%v", pick, err)
 	}
 }
+
+// One account answered sixteen video turns in four hours as a text model while
+// its allowance stayed full, and the rotation kept opening rooms on it.
+func TestATextAnswerKeepsItsAccountOutOfNewRoomsForAWhile(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("other")})
+	now := service.now()
+	service.now = func() time.Time { return now }
+
+	service.noteVideoRefusal(local.Target.ID, webNoVideo("저는 언어 모델이고 그것을 도와드릴 능력이 없습니다."))
+
+	if !service.quotaAvailable(local.Target.ID) {
+		t.Fatal("a text answer closed the account to the room already pinned there")
+	}
+	for range 4 {
+		if pick := service.pickServableAccount(interactionOmniModel, slotCandidates(local.Target.ID, other.ID)); pick.AuthID != other.ID {
+			t.Fatalf("a new room opened on an account that just answered as text: %+v", pick)
+		}
+	}
+	now = now.Add(textAnswerHold)
+	chosen := map[string]int{}
+	for range 4 {
+		chosen[service.pickServableAccount(interactionOmniModel, slotCandidates(local.Target.ID, other.ID)).AuthID]++
+	}
+	if chosen[local.Target.ID] != 2 {
+		t.Fatalf("the account stayed out of new rooms past the hold: %+v", chosen)
+	}
+}
+
+func TestATextAnswerHoldSurvivesTheNextQuotaObservation(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("other")})
+
+	service.noteVideoRefusal(local.Target.ID, webNoVideo("저는 오로지 텍스트를 처리하고 생성하도록 설계되었기 때문에 그것은 도와드릴 수가 없습니다."))
+	service.observeQuota(local.Target.ID, roomUsage(45655))
+
+	if pick := service.pickServableAccount(interactionOmniModel, slotCandidates(local.Target.ID, other.ID)); pick.AuthID != other.ID {
+		t.Fatalf("a quota refresh put the account back into new rooms: %+v", pick)
+	}
+}
+
+func TestNewRoomsKeepRotating_whenEveryAccountAnsweredAsText(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("other")})
+	for _, id := range []string{local.Target.ID, other.ID} {
+		service.noteVideoRefusal(id, webNoVideo("저는 언어 모델일 뿐이라서 그것을 도와드릴 수가 없습니다."))
+	}
+
+	chosen := map[string]int{}
+	for range 4 {
+		chosen[service.pickServableAccount(interactionOmniModel, slotCandidates(local.Target.ID, other.ID)).AuthID]++
+	}
+	if chosen[local.Target.ID] != 2 || chosen[other.ID] != 2 {
+		t.Fatalf("benching every account starved new rooms: %+v", chosen)
+	}
+}

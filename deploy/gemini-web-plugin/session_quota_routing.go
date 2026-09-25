@@ -27,7 +27,17 @@ type quotaSnapshot struct {
 	// all a new room can still spend there.
 	roomUnits    float64
 	roomMeasured bool
+	// textAnswerUntil keeps an account out of new rooms after it answered a
+	// video turn as a text model. Its pinned room and its quota are untouched.
+	textAnswerUntil int64
 }
+
+// textAnswerHold is how long an account that answered a video turn as a text
+// model sits out of new rooms. On 2026-09-25 one account took sixteen video
+// turns in four hours and spent almost none of its allowance, answering each of
+// them that way while the rotation kept opening rooms on it. The hold is short
+// because accounts that do make video give the same answer now and then.
+const textAnswerHold = 30 * time.Minute
 
 // roomHeadroomUnits is the five hour allowance a new native room needs. A room is
 // three turns pinned to one account and a turn spent 3,000 to 4,500 units on
@@ -35,13 +45,20 @@ type quotaSnapshot struct {
 // turns after its allowance runs out come back as quota_exhausted or text answers.
 const roomHeadroomUnits = 15000
 
-// fitsARoom reports whether an account can still finish a new room. An account
-// with no observation stays eligible, as the rotation treats it.
+// fitsARoom reports whether an account can still finish a new room: it has the
+// allowance for one and has not just answered a video turn as a text model. An
+// account with no observation stays eligible, as the rotation treats it.
 func (service *service) fitsARoom(id string) bool {
 	service.quota.mu.RLock()
 	snapshot, found := service.quota.entries[id]
 	service.quota.mu.RUnlock()
-	return !found || !snapshot.roomMeasured || snapshot.roomUnits >= roomHeadroomUnits
+	if !found {
+		return true
+	}
+	if service.now().Unix() < snapshot.textAnswerUntil {
+		return false
+	}
+	return !snapshot.roomMeasured || snapshot.roomUnits >= roomHeadroomUnits
 }
 
 type quotaCache struct {
@@ -89,6 +106,7 @@ func (service *service) observeQuota(id string, usage *usageView) {
 		service.quota.entries = make(map[string]quotaSnapshot)
 	}
 	snapshot.limitedUntil = service.quota.entries[id].limitedUntil
+	snapshot.textAnswerUntil = service.quota.entries[id].textAnswerUntil
 	service.quota.entries[id] = snapshot
 }
 
@@ -98,7 +116,14 @@ func (service *service) observeQuota(id string, usage *usageView) {
 // turns kept landing on it, each spending twenty seconds to hear it again.
 func (service *service) noteVideoRefusal(id string, err error) {
 	var public *publicError
-	if !errors.As(err, &public) || public.Code != "no_video_generated" || !webVideoLimitReply(public.Message) {
+	if !errors.As(err, &public) || public.Code != "no_video_generated" {
+		return
+	}
+	if webTextModelReply(public.Message) {
+		service.noteTextAnswer(id)
+		return
+	}
+	if !webVideoLimitReply(public.Message) {
 		return
 	}
 	now := service.now().Unix()
@@ -112,6 +137,20 @@ func (service *service) noteVideoRefusal(id string, err error) {
 	if snapshot.limitedUntil <= now {
 		snapshot.limitedUntil = now + int64(videoLimitHold/time.Second)
 	}
+	service.quota.entries[id] = snapshot
+}
+
+// noteTextAnswer takes an account out of new rooms for textAnswerHold. It does
+// not touch quota availability, so a room already pinned there keeps its turns.
+func (service *service) noteTextAnswer(id string) {
+	now := service.now().Unix()
+	service.quota.mu.Lock()
+	defer service.quota.mu.Unlock()
+	if service.quota.entries == nil {
+		service.quota.entries = make(map[string]quotaSnapshot)
+	}
+	snapshot := service.quota.entries[id]
+	snapshot.textAnswerUntil = now + int64(textAnswerHold/time.Second)
 	service.quota.entries[id] = snapshot
 }
 

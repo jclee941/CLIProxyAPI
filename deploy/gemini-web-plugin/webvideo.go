@@ -226,6 +226,25 @@ func webVideoLimitReply(text string) bool {
 	return false
 }
 
+// webTextModelReplies are how the product answers a video turn as a text
+// assistant, neither making the video nor declining the scene. They are the
+// clauses the pipeline already treats as capability answers.
+var webTextModelReplies = []string{
+	"언어 모델",
+	"텍스트 기반 AI",
+	"텍스트를 처리하고 생성하도록",
+	"그렇게 하도록 프로그램되지",
+}
+
+func webTextModelReply(text string) bool {
+	for _, reply := range webTextModelReplies {
+		if strings.Contains(text, reply) {
+			return true
+		}
+	}
+	return false
+}
+
 // webResponseFrames decodes every payload frame in a generation stream, which is
 // not length-prefixed and so is filtered by shape.
 func webResponseFrames(raw []byte) ([]any, error) {
