@@ -31,20 +31,31 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 		}
 		servable[local.Target.ID] = local.Target.TokenRef
 	}
-	var idle, busy []string
+	eligible := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		reference, ok := servable[candidate.ID]
-		if !ok || candidate.Provider != provider {
+		if _, ok := servable[candidate.ID]; !ok || candidate.Provider != provider {
 			continue
 		}
 		if !service.quotaAvailable(candidate.ID) {
 			continue
 		}
-		if !service.slotIsIdle(reference) {
-			busy = append(busy, candidate.ID)
+		eligible = append(eligible, candidate.ID)
+	}
+	// A video room stays on the account that opens it, so open it where the whole
+	// room fits; with no such account the rotation below decides as before.
+	if model == omniModel || model == interactionOmniModel {
+		roomy := slices.DeleteFunc(slices.Clone(eligible), func(id string) bool { return !service.fitsARoom(id) })
+		if len(roomy) > 0 {
+			eligible = roomy
+		}
+	}
+	var idle, busy []string
+	for _, id := range eligible {
+		if !service.slotIsIdle(servable[id]) {
+			busy = append(busy, id)
 			continue
 		}
-		idle = append(idle, candidate.ID)
+		idle = append(idle, id)
 	}
 	if len(idle) == 0 {
 		idle = busy

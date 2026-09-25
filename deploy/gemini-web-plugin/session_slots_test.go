@@ -334,3 +334,53 @@ func TestSchedulerReleasesAnExhaustedAccountAfterTheReset(t *testing.T) {
 		t.Fatalf("a reset window stayed closed: %+v", pick)
 	}
 }
+
+func roomUsage(remaining float64) *usageView {
+	return &usageView{Metrics: []usageMetric{{RemainingUnits: &remaining, WindowKind: "5h", Unit: "provider_compute_unit"}}}
+}
+
+func TestSchedulerOpensAVideoRoomOnlyWhereTheWholeRoomFits(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("second")})
+	service.observeQuota(local.Target.ID, roomUsage(1826))
+	service.observeQuota(other.ID, roomUsage(45655))
+
+	for range 4 {
+		if pick := service.pickServableAccount(omniModel, slotCandidates(local.Target.ID, other.ID)); pick.AuthID != other.ID {
+			t.Fatalf("a room opened where it cannot finish: %+v", pick)
+		}
+	}
+}
+
+func TestSchedulerKeepsRotating_whenNoAccountFitsAWholeRoom(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("second")})
+	service.observeQuota(local.Target.ID, roomUsage(1826))
+	service.observeQuota(other.ID, roomUsage(10561))
+
+	chosen := map[string]int{}
+	for range 4 {
+		chosen[service.pickServableAccount(omniModel, slotCandidates(local.Target.ID, other.ID)).AuthID]++
+	}
+	if chosen[local.Target.ID] != 2 || chosen[other.ID] != 2 {
+		t.Fatalf("with no roomy account the rotation must stay as it was: %+v", chosen)
+	}
+}
+
+func TestSchedulerLeavesTextTurnsOnTheRotation(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("second")})
+	service.observeQuota(local.Target.ID, roomUsage(1826))
+	service.observeQuota(other.ID, roomUsage(45655))
+
+	chosen := map[string]int{}
+	for range 4 {
+		chosen[service.pickServableAccount(flashModel, slotCandidates(local.Target.ID, other.ID)).AuthID]++
+	}
+	if chosen[local.Target.ID] != 2 || chosen[other.ID] != 2 {
+		t.Fatalf("a text turn is not a room: %+v", chosen)
+	}
+}

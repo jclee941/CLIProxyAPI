@@ -22,6 +22,26 @@ type quotaSnapshot struct {
 	// still read below full then, since a video needs more units than are
 	// left, so no later observation may release the account before it passes.
 	limitedUntil int64
+	// roomUnits is what the five hour window has left when an observation names
+	// it. A native room pins every turn to the account that opens it, so this is
+	// all a new room can still spend there.
+	roomUnits    float64
+	roomMeasured bool
+}
+
+// roomHeadroomUnits is the five hour allowance a new native room needs. A room is
+// three turns pinned to one account and a turn spent 3,000 to 4,500 units on
+// 2026-09-25, so an account below this starts a room it cannot finish, and the
+// turns after its allowance runs out come back as quota_exhausted or text answers.
+const roomHeadroomUnits = 15000
+
+// fitsARoom reports whether an account can still finish a new room. An account
+// with no observation stays eligible, as the rotation treats it.
+func (service *service) fitsARoom(id string) bool {
+	service.quota.mu.RLock()
+	snapshot, found := service.quota.entries[id]
+	service.quota.mu.RUnlock()
+	return !found || !snapshot.roomMeasured || snapshot.roomUnits >= roomHeadroomUnits
 }
 
 type quotaCache struct {
@@ -44,6 +64,10 @@ func (service *service) observeQuota(id string, usage *usageView) {
 		}
 		if metric.WindowKind == "5h" && metric.ResetUnixSeconds != nil {
 			snapshot.turnover = int64(*metric.ResetUnixSeconds)
+		}
+		if metric.WindowKind == "5h" && metric.RemainingUnits != nil {
+			snapshot.roomUnits = *metric.RemainingUnits
+			snapshot.roomMeasured = true
 		}
 		if metric.UsageFraction != nil && *metric.UsageFraction >= 1 ||
 			metric.UsagePercent != nil && *metric.UsagePercent >= 100 ||
