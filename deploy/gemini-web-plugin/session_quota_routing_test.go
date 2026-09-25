@@ -179,9 +179,10 @@ func TestExhaustedFiveHourObservationDoesNotExpireBeforeReset(t *testing.T) {
 	}
 }
 
-// One account answered sixteen video turns in four hours as a text model while
-// its allowance stayed full, and the rotation kept opening rooms on it.
-func TestATextAnswerKeepsItsAccountOutOfNewRoomsForAWhile(t *testing.T) {
+// Two accounts answered every video turn for ten hours as a text model or with
+// an empty reply, with allowance left in both windows, while new rooms kept
+// opening on them.
+func TestAnswersWithoutAVideoInARowKeepTheAccountOutOfNewRoomsForLongerEachTime(t *testing.T) {
 	service, local := continuationFixture(t)
 	other := recordFixture(t, "b")
 	seedSession(t, service, other, sessionToken{encodedToken("other")})
@@ -189,44 +190,73 @@ func TestATextAnswerKeepsItsAccountOutOfNewRoomsForAWhile(t *testing.T) {
 	service.now = func() time.Time { return now }
 
 	service.noteVideoRefusal(local.Target.ID, webNoVideo("저는 언어 모델이고 그것을 도와드릴 능력이 없습니다."))
-
-	if !service.quotaAvailable(local.Target.ID) {
-		t.Fatal("a text answer closed the account to the room already pinned there")
+	if !service.answersVideo(local.Target.ID) {
+		t.Fatal("one answer without a video held the account")
 	}
-	for range 4 {
+	for _, hold := range []time.Duration{15 * time.Minute, 30 * time.Minute, time.Hour, 2 * time.Hour, 2 * time.Hour} {
+		service.noteVideoRefusal(local.Target.ID, webNoVideo(""))
+		if !service.quotaAvailable(local.Target.ID) {
+			t.Fatal("an answer without a video closed the account to the room already pinned there")
+		}
 		if pick := service.pickServableAccount(interactionOmniModel, slotCandidates(local.Target.ID, other.ID)); pick.AuthID != other.ID {
-			t.Fatalf("a new room opened on an account that just answered as text: %+v", pick)
+			t.Fatalf("a new room opened on an account on a run of answers without a video: %+v", pick)
+		}
+		now = now.Add(hold - time.Second)
+		if service.answersVideo(local.Target.ID) {
+			t.Fatalf("released before the %s hold passed", hold)
+		}
+		now = now.Add(time.Second)
+		if !service.answersVideo(local.Target.ID) {
+			t.Fatalf("held past the %s hold", hold)
 		}
 	}
-	now = now.Add(textAnswerHold)
-	chosen := map[string]int{}
-	for range 4 {
-		chosen[service.pickServableAccount(interactionOmniModel, slotCandidates(local.Target.ID, other.ID)).AuthID]++
-	}
-	if chosen[local.Target.ID] != 2 {
-		t.Fatalf("the account stayed out of new rooms past the hold: %+v", chosen)
-	}
 }
 
-func TestATextAnswerHoldSurvivesTheNextQuotaObservation(t *testing.T) {
+func TestAVideoEndsTheRunOfAnswersWithoutOne(t *testing.T) {
 	service, local := continuationFixture(t)
-	other := recordFixture(t, "b")
-	seedSession(t, service, other, sessionToken{encodedToken("other")})
+	for range 3 {
+		service.noteVideoRefusal(local.Target.ID, webNoVideo("저는 텍스트 기반 AI라서 그것을 도와드릴 수가 없습니다."))
+	}
 
-	service.noteVideoRefusal(local.Target.ID, webNoVideo("저는 오로지 텍스트를 처리하고 생성하도록 설계되었기 때문에 그것은 도와드릴 수가 없습니다."))
-	service.observeQuota(local.Target.ID, roomUsage(45655))
+	service.noteVideoDelivered(local.Target.ID)
 
-	if pick := service.pickServableAccount(interactionOmniModel, slotCandidates(local.Target.ID, other.ID)); pick.AuthID != other.ID {
-		t.Fatalf("a quota refresh put the account back into new rooms: %+v", pick)
+	if !service.answersVideo(local.Target.ID) {
+		t.Fatal("the account stayed out of new rooms after it made a video")
+	}
+	service.noteVideoRefusal(local.Target.ID, webNoVideo("저는 텍스트 기반 AI라서 그것을 도와드릴 수가 없습니다."))
+	if !service.answersVideo(local.Target.ID) {
+		t.Fatal("the run of answers without a video carried over a video")
 	}
 }
 
-func TestNewRoomsKeepRotating_whenEveryAccountAnsweredAsText(t *testing.T) {
+func TestTheRunOfAnswersWithoutAVideoSurvivesTheNextQuotaObservation(t *testing.T) {
+	service, local := continuationFixture(t)
+	now := service.now()
+	service.now = func() time.Time { return now }
+	for range 2 {
+		service.noteVideoRefusal(local.Target.ID, webNoVideo("저는 오로지 텍스트를 처리하고 생성하도록 설계되었기 때문에 그것은 도와드릴 수가 없습니다."))
+	}
+
+	service.observeQuota(local.Target.ID, roomUsage(48000))
+
+	if service.answersVideo(local.Target.ID) {
+		t.Fatal("a quota refresh put the account back into new rooms")
+	}
+	service.noteVideoRefusal(local.Target.ID, webNoVideo(""))
+	now = now.Add(30*time.Minute - time.Second)
+	if service.answersVideo(local.Target.ID) {
+		t.Fatal("a quota refresh restarted the run of answers without a video")
+	}
+}
+
+func TestNewRoomsKeepRotating_whenEveryAccountIsSittingOut(t *testing.T) {
 	service, local := continuationFixture(t)
 	other := recordFixture(t, "b")
 	seedSession(t, service, other, sessionToken{encodedToken("other")})
 	for _, id := range []string{local.Target.ID, other.ID} {
-		service.noteVideoRefusal(id, webNoVideo("저는 언어 모델일 뿐이라서 그것을 도와드릴 수가 없습니다."))
+		for range 2 {
+			service.noteVideoRefusal(id, webNoVideo("저는 언어 모델일 뿐이라서 그것을 도와드릴 수가 없습니다."))
+		}
 	}
 
 	chosen := map[string]int{}
@@ -238,35 +268,57 @@ func TestNewRoomsKeepRotating_whenEveryAccountAnsweredAsText(t *testing.T) {
 	}
 }
 
-func TestANewRoomPrefersAnAccountThatStillAnswersVideo_overOneThatAnsweredAsText(t *testing.T) {
+func TestANewRoomPrefersAnAccountThatStillAnswersVideo_overOneSittingOut(t *testing.T) {
 	service, local := continuationFixture(t)
 	other := recordFixture(t, "b")
 	seedSession(t, service, other, sessionToken{encodedToken("other")})
-	service.observeQuota(local.Target.ID, roomUsage(45655))
+	service.observeQuota(local.Target.ID, roomUsage(48000))
 	service.observeQuota(other.ID, roomUsage(3093))
 
-	service.noteVideoRefusal(local.Target.ID, webNoVideo("저는 언어 모델이고 그것을 도와드릴 능력이 없습니다."))
+	for range 2 {
+		service.noteVideoRefusal(local.Target.ID, webNoVideo(""))
+	}
 
 	for range 4 {
 		if pick := service.pickServableAccount(interactionOmniModel, slotCandidates(local.Target.ID, other.ID)); pick.AuthID != other.ID {
-			t.Fatalf("a new room went back to the account that answered as text: %+v", pick)
+			t.Fatalf("a new room went back to the account that keeps answering without a video: %+v", pick)
 		}
 	}
 }
 
-func TestTheTextAnswerHoldEndsWhenTheFiveHourWindowTurnsOver(t *testing.T) {
+// A turn the product will not start a video on comes back as a reply with no
+// conversation, and only the executor sees it.
+func TestEmptyRepliesToTurnsTakeTheirAccountOutOfNewRooms(t *testing.T) {
 	service, local := continuationFixture(t)
-	now := service.now()
-	service.now = func() time.Time { return now }
-	used, reset := 0.58, float64(now.Add(6*time.Minute).Unix())
-	service.observeQuota(local.Target.ID, &usageView{Metrics: []usageMetric{{WindowKind: "5h", UsageFraction: &used, ResetUnixSeconds: &reset}}})
+	continuationWeb(t, service, &continuationWebFixture{replyOnly: true})
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
 
-	service.noteVideoRefusal(local.Target.ID, webNoVideo("저는 텍스트 기반 AI라서 그 요청은 도와드릴 수 없습니다."))
-	if service.answersVideo(local.Target.ID) {
-		t.Fatal("the account was not held after answering as text")
+	for _, input := range []string{"first", "second"} {
+		result := interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"`+input+`"}`)
+		if result.OK || result.Error.Code != "gemini_web_omni:no_video_generated" {
+			t.Fatalf("turn: %+v", result.Error)
+		}
 	}
-	now = time.Unix(int64(reset), 0)
+
+	if service.answersVideo(local.Target.ID) {
+		t.Fatal("an account that twice replied without a video stayed open to new rooms")
+	}
+	if !service.quotaAvailable(local.Target.ID) {
+		t.Fatal("replies without a video closed the account's quota")
+	}
+}
+
+func TestAVideoFromATurnReopensItsAccountToNewRooms(t *testing.T) {
+	service, local := continuationFixture(t)
+	continuationWeb(t, service, &continuationWebFixture{video: true})
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+	for range 2 {
+		service.noteVideoRefusal(local.Target.ID, webNoVideo("저는 언어 모델일 뿐이라서 그것을 도와드릴 수가 없습니다."))
+	}
+
+	interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`))
+
 	if !service.answersVideo(local.Target.ID) {
-		t.Fatal("the hold outlived the five hour window it was noted in")
+		t.Fatal("the account stayed out of new rooms after one of its turns made a video")
 	}
 }

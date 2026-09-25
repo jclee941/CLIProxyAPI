@@ -69,7 +69,8 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 }
 
 // roomCandidates narrows where a new video room may open: accounts that can
-// finish one, else accounts that have not just answered video as text, else all.
+// finish one, else accounts not sitting out for answering without a video, else
+// all.
 func (service *service) roomCandidates(eligible []string) []string {
 	var roomy, answering []string
 	for _, id := range eligible {

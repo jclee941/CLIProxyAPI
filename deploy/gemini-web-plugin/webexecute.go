@@ -116,6 +116,7 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 		service.noteVideoRefusal(record.ID, err)
 		return httpResponse{}, err
 	}
+	service.noteVideoDelivered(record.ID)
 	body, err := json.Marshal(map[string]any{
 		"modelVersion": omniModel,
 		"candidates": []any{map[string]any{

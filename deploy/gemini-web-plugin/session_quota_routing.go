@@ -27,19 +27,29 @@ type quotaSnapshot struct {
 	// all a new room can still spend there.
 	roomUnits    float64
 	roomMeasured bool
-	// textAnswerUntil keeps an account out of new rooms after it answered a
-	// video turn as a text model. Its pinned room and its quota are untouched.
-	textAnswerUntil int64
+	// noVideoStreak counts the video turns in a row the account answered without
+	// starting a video, as a text model or with an empty reply. noVideoUntil keeps
+	// it out of new rooms for as long as that run warrants; its pinned room and
+	// its quota are untouched.
+	noVideoStreak int
+	noVideoUntil  int64
 }
 
-// textAnswerHold is how long an account that answered a video turn as a text
-// model sits out of new rooms. On 2026-09-25 one account took sixteen video
-// turns in four hours and spent almost none of its allowance, answering each of
-// them that way while the rotation kept opening rooms on it. The hold is short,
-// and ends early when the five hour window turns over, because accounts that do
-// make video give the same answer now and then and a fresh window is when an
-// account that had stopped came back.
-const textAnswerHold = 30 * time.Minute
+// noVideoHold is how long an account sits out of new rooms after answering
+// streak video turns in a row without starting a video. Over 1,184 production
+// turns from 2026-09-18 to 09-25 the next turn on the same account made a video
+// 45% of the time after one such answer, 36% after two, 29% after three and 10%
+// after six or more, against 38% for any turn. On 09-25 two accounts answered
+// every turn that way for ten hours with allowance left in both windows, and a
+// fresh five hour window brought neither back. One answer holds nothing; from
+// the second the hold doubles from fifteen minutes up to two hours, and a video
+// ends it.
+func noVideoHold(streak int) time.Duration {
+	if streak < 2 {
+		return 0
+	}
+	return 15 * time.Minute << min(streak-2, 3)
+}
 
 // roomHeadroomUnits is the five hour allowance a new native room needs. A room is
 // three turns pinned to one account and a turn spent 3,000 to 4,500 units on
@@ -47,13 +57,13 @@ const textAnswerHold = 30 * time.Minute
 // turns after its allowance runs out come back as quota_exhausted or text answers.
 const roomHeadroomUnits = 15000
 
-// answersVideo reports whether an account has not just answered a video turn as
-// a text model.
+// answersVideo reports whether an account is not sitting out new rooms for
+// answering video turns without starting a video.
 func (service *service) answersVideo(id string) bool {
 	service.quota.mu.RLock()
 	snapshot, found := service.quota.entries[id]
 	service.quota.mu.RUnlock()
-	return !found || service.now().Unix() >= snapshot.textAnswerUntil
+	return !found || service.now().Unix() >= snapshot.noVideoUntil
 }
 
 // fitsARoom reports whether an account has the allowance to finish a new room.
@@ -109,8 +119,9 @@ func (service *service) observeQuota(id string, usage *usageView) {
 	if service.quota.entries == nil {
 		service.quota.entries = make(map[string]quotaSnapshot)
 	}
-	snapshot.limitedUntil = service.quota.entries[id].limitedUntil
-	snapshot.textAnswerUntil = service.quota.entries[id].textAnswerUntil
+	previous := service.quota.entries[id]
+	snapshot.limitedUntil = previous.limitedUntil
+	snapshot.noVideoStreak, snapshot.noVideoUntil = previous.noVideoStreak, previous.noVideoUntil
 	service.quota.entries[id] = snapshot
 }
 
@@ -123,8 +134,10 @@ func (service *service) noteVideoRefusal(id string, err error) {
 	if !errors.As(err, &public) || public.Code != "no_video_generated" {
 		return
 	}
-	if webTextModelReply(public.Message) {
-		service.noteTextAnswer(id)
+	// An empty reply carries only the code, and like an answer written as a text
+	// model it says the product never started a video on the turn.
+	if public.Message == public.Code || webTextModelReply(public.Message) {
+		service.noteNoVideo(id)
 		return
 	}
 	if !webVideoLimitReply(public.Message) {
@@ -144,20 +157,32 @@ func (service *service) noteVideoRefusal(id string, err error) {
 	service.quota.entries[id] = snapshot
 }
 
-// noteTextAnswer takes an account out of new rooms for textAnswerHold. It does
-// not touch quota availability, so a room already pinned there keeps its turns.
-func (service *service) noteTextAnswer(id string) {
-	now := service.now().Unix()
+// noteNoVideo extends an account's run of video turns answered without a video
+// and holds it out of new rooms for noVideoHold. It does not touch quota
+// availability, so a room already pinned there keeps its turns.
+func (service *service) noteNoVideo(id string) {
+	now := service.now()
 	service.quota.mu.Lock()
 	defer service.quota.mu.Unlock()
 	if service.quota.entries == nil {
 		service.quota.entries = make(map[string]quotaSnapshot)
 	}
 	snapshot := service.quota.entries[id]
-	snapshot.textAnswerUntil = now + int64(textAnswerHold/time.Second)
-	if snapshot.turnover > now && snapshot.turnover < snapshot.textAnswerUntil {
-		snapshot.textAnswerUntil = snapshot.turnover
+	snapshot.noVideoStreak++
+	snapshot.noVideoUntil = now.Add(noVideoHold(snapshot.noVideoStreak)).Unix()
+	service.quota.entries[id] = snapshot
+}
+
+// noteVideoDelivered ends an account's run of answers without a video, and the
+// hold that run put on it.
+func (service *service) noteVideoDelivered(id string) {
+	service.quota.mu.Lock()
+	defer service.quota.mu.Unlock()
+	snapshot, found := service.quota.entries[id]
+	if !found {
+		return
 	}
+	snapshot.noVideoStreak, snapshot.noVideoUntil = 0, 0
 	service.quota.entries[id] = snapshot
 }
 
