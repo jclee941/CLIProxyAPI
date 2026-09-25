@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>ChatGPT Web</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --font: -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px; --space-6: 24px;
+  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-pill: 999px;
+  --bg: #f7f8fa; --surface: #fff; --surface-muted: #f1f3f5; --input-bg: #f8fafc;
+  --line: #e3e6ea; --line-hover: #cbd2d9;
+  --text: #16191d; --text-muted: #6b7280;
+  --accent: #2563eb;
+  --info-bg: #eff6ff; --info-text: #1d4ed8; --info-line: #bfdbfe;
+  --ok: #15803d; --ok-bg: #f0fdf4; --ok-line: #bbf7d0;
+  --warn: #b45309; --warn-bg: #fffbeb; --warn-line: #fde68a;
+  --bad: #b42318; --bad-bg: #fef2f2; --bad-line: #fecaca;
+  --track: #e5e7eb;
+  --nav-width: 15rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115; --surface: #161a20; --surface-muted: #1c2128; --input-bg: #11151a;
+    --line: #262c34; --line-hover: #39414b;
+    --text: #e6e9ee; --text-muted: #9aa4b2;
+    --accent: #60a5fa;
+    --info-bg: rgba(96, 165, 250, .14); --info-text: #93c5fd; --info-line: rgba(96, 165, 250, .35);
+    --ok: #4ade80; --ok-bg: rgba(74, 222, 128, .12); --ok-line: rgba(74, 222, 128, .3);
+    --warn: #fbbf24; --warn-bg: rgba(251, 191, 36, .12); --warn-line: rgba(251, 191, 36, .3);
+    --bad: #f87171; --bad-bg: rgba(248, 113, 113, .12); --bad-line: rgba(248, 113, 113, .3);
+    --track: #2a313a;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 var(--font); word-break: keep-all; overflow-wrap: anywhere; }
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: 20px; font-weight: 700; }
+h2 { font-size: 15px; font-weight: 700; }
+h3 { font-size: 13px; font-weight: 600; }
+code { padding: 0 4px; border-radius: var(--radius-sm); background: var(--surface-muted); font-family: var(--mono); }
+.hint { color: var(--text-muted); font-size: 13px; }
+.cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+
+.shell { display: grid; grid-template-columns: var(--nav-width) minmax(0, 1fr); min-height: 100vh; }
+.view-switch { position: absolute; width: 1px; height: 1px; margin: -1px; border: 0; padding: 0; overflow: hidden; clip-path: inset(50%); }
+.sidenav { position: sticky; top: 0; align-self: start; display: flex; flex-direction: column; gap: var(--space-1); height: 100vh; padding: var(--space-5) var(--space-3); border-right: 1px solid var(--line); background: var(--surface); }
+.sidenav-brand { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-4); padding: 0 var(--space-2); font-weight: 700; }
+.sidenav-mark { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: var(--radius-sm); background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; }
+.nav-item { display: flex; align-items: center; min-height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-md); color: var(--text-muted); font-size: 13px; cursor: pointer; transition: background .15s, color .15s; }
+.nav-item:hover { background: var(--surface-muted); color: var(--text); }
+.sidenav-foot { margin-top: auto; padding: 0 var(--space-3); color: var(--text-muted); font-size: 12px; }
+.shell-main { min-width: 0; }
+.shell-main > .view { display: none; }
+#view-usage:checked ~ .shell-main .view-usage, #view-api:checked ~ .shell-main .view-api { display: grid; }
+#view-usage:checked ~ .sidenav .nav-item[for="view-usage"], #view-api:checked ~ .sidenav .nav-item[for="view-api"] { background: var(--info-bg); color: var(--info-text); font-weight: 600; }
+#view-usage:focus-visible ~ .sidenav .nav-item[for="view-usage"], #view-api:focus-visible ~ .sidenav .nav-item[for="view-api"] { outline: 2px solid var(--accent); outline-offset: 2px; }
+.view { gap: var(--space-4); align-content: start; padding: var(--space-6); }
+@media (max-width: 760px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .sidenav { position: static; flex-direction: row; align-items: center; gap: var(--space-2); height: auto; padding: var(--space-3) var(--space-4); border-right: none; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .sidenav-brand { margin: 0 var(--space-2) 0 0; }
+  .sidenav-foot { display: none; }
+  .nav-item { white-space: nowrap; }
+}
+
+.page-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.heading-copy { display: grid; gap: var(--space-2); }
+button { font: inherit; min-height: 36px; padding: 0 var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; }
+button:hover { border-color: var(--line-hover); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--input-bg); color: var(--text); min-width: 260px; }
+
+.card-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr)); }
+.card { display: grid; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); align-content: start; }
+.card-head { display: grid; gap: var(--space-2); }
+.card-id { color: var(--text-muted); font-family: var(--mono); font-size: 12px; }
+.badge { display: inline-flex; align-items: center; padding: 1px var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-pill); font-size: 12px; font-weight: 600; }
+.badge-ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok-line); }
+.badge-warn { color: var(--warn); background: var(--warn-bg); border-color: var(--warn-line); }
+.badge-bad { color: var(--bad); background: var(--bad-bg); border-color: var(--bad-line); }
+.notice { padding: var(--space-3); border: 1px solid var(--bad-line); border-radius: var(--radius-md); background: var(--bad-bg); color: var(--bad); font-size: 13px; }
+.group { display: grid; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--line); }
+.group-empty { color: var(--text-muted); font-size: 13px; }
+.meter { display: grid; gap: var(--space-1); }
+.meter-label { display: flex; justify-content: space-between; gap: var(--space-2); font-size: 13px; }
+.meter-name { font-weight: 600; }
+.track { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.fill { height: 100%; border-radius: 3px; background: currentColor; }
+.meter-ok { color: var(--ok); } .meter-warn { color: var(--warn); } .meter-bad { color: var(--bad); }
+.meter-foot { color: var(--text-muted); font-size: 12px; }
+
+.api-endpoint { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); overflow: hidden; }
+.api-endpoint > summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); cursor: pointer; list-style: none; }
+.api-endpoint > summary::-webkit-details-marker { display: none; }
+.api-endpoint > summary::after { content: "▸"; margin-left: auto; color: var(--text-muted); transition: transform .15s; }
+.api-endpoint[open] > summary::after { transform: rotate(90deg); }
+.api-endpoint > summary:hover { background: var(--surface-muted); }
+.api-method { padding: 2px var(--space-2); border: 1px solid var(--info-line); border-radius: var(--radius-pill); background: var(--info-bg); color: var(--info-text); font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+.api-method-error { border-color: var(--bad-line); background: var(--bad-bg); color: var(--bad); }
+.api-tag { color: var(--text-muted); font-size: 12px; }
+.api-tag-cost { color: var(--warn); font-weight: 600; }
+.api-body { display: grid; gap: var(--space-2); padding: 0 var(--space-4) var(--space-4); border-top: 1px solid var(--line); }
+.api-body h3 { margin-top: var(--space-3); color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.api-sample { margin: 0; padding: var(--space-3); border-radius: var(--radius-sm); background: var(--input-bg); font-family: var(--mono); font-size: 13px; line-height: 1.55; overflow-x: auto; white-space: pre; user-select: all; }
+.api-sample code { padding: 0; background: none; }
+.api-scroll { overflow-x: auto; }
+.api-table { width: 100%; min-width: 30rem; border-collapse: collapse; font-size: 13px; }
+.api-table th, .api-table td { padding: var(--space-2); border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.api-table td code { white-space: nowrap; }
+.api-table th { color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.api-table tr:last-child td { border-bottom: none; }
+.api-limits { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-4); color: var(--text-muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <input class="view-switch" type="radio" name="view" id="view-usage" checked>
+  <input class="view-switch" type="radio" name="view" id="view-api">
+  <nav class="sidenav" aria-label="화면 전환">
+    <p class="sidenav-brand"><span class="sidenav-mark" aria-hidden="true">CW</span>ChatGPT Web</p>
+    <label class="nav-item" for="view-usage">사용량</label>
+    <label class="nav-item" for="view-api">API 레퍼런스</label>
+    <p class="sidenav-foot">CLIProxyAPI 플러그인</p>
+  </nav>
+  <main class="shell-main">
+    <section class="view view-usage">
+      <header class="page-heading">
+        <div class="heading-copy">
+          <h1>ChatGPT Web</h1>
+          <p class="hint">자격증명별 ChatGPT Web 한도와 Codex 사용량을 따로 보여줍니다. 조회만 하며 생성이나 토큰 갱신은 하지 않습니다.</p>
+          <p class="hint"><code>gpt-web-chat</code>, <code>gpt-6-pro</code>, <code>gpt-web-image</code> 호출은 웹 세션 한도를 쓰고, Codex 사용량은 API 한도라 따로 집계됩니다.</p>
+        </div>
+        <div class="cluster">
+          <button id="refresh" type="button">새로고침</button>
+        </div>
+      </header>
+      <p id="state" class="hint"></p>
+      <div id="auth" class="cluster" hidden>
+        <input id="key" type="password" placeholder="Manager Admin Key" autocomplete="off" spellcheck="false" aria-label="Manager Admin Key">
+        <button id="connect" type="button">키로 연결</button>
+      </div>
+      <div id="list" class="card-grid"></div>
+    </section>
+
+    <section class="view view-api">
+      <header class="heading-copy">
+        <h1>API 레퍼런스</h1>
+        <p class="hint">이 플러그인이 제공하는 모델의 호출 방법입니다. <code>$CLIPROXY</code>는 이 프록시의 베이스 URL, <code>$CLIPROXY_KEY</code>는 발급받은 API 키입니다.</p>
+      </header>
+
+      <details class="api-endpoint" open>
+        <summary><span class="api-method">POST</span><code>/v1/chat/completions</code><span class="api-tag api-tag-cost">웹 세션 한도 소비</span></summary>
+        <div class="api-body">
+          <h3>요청</h3>
+          <pre class="api-sample"><code>curl -N -X POST "$CLIPROXY/v1/chat/completions" \
+  -H "Authorization: Bearer $CLIPROXY_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-web-chat",
+    "reasoning_effort": "xhigh",
+    "stream": true,
+    "messages": [{ "role": "user", "content": "한 문장으로 자기소개 해줘" }]
+  }'</code></pre>
+
+          <h3>지원 필드</h3>
+          <div class="api-scroll"><table class="api-table">
+            <thead><tr><th>필드</th><th>설명</th></tr></thead>
+            <tbody>
+              <tr><td><code>model</code></td><td><code>gpt-web-chat</code>은 ChatGPT 웹 모델 선택기의 프리셋을 <code>reasoning_effort</code>로 고릅니다. <code>gpt-6-pro</code>는 GPT-6 Pro이며 추론 수준 지정은 무시됩니다. <code>gpt-web-chat(xhigh)</code>처럼 모델 이름 뒤 괄호로도 수준을 줄 수 있고, 괄호 값이 본문보다 우선합니다.</td></tr>
+              <tr><td><code>reasoning_effort</code></td><td>생략하거나 <code>auto</code>면 웹 기본 자동 라우팅입니다. <code>none</code> → Instant, <code>minimal</code>·<code>low</code> → Light, <code>medium</code>(<code>m</code>) → Medium, <code>high</code>(<code>h</code>) → High, <code>xhigh</code>(<code>xh</code>) → Extra High, <code>pro</code>(<code>p</code>) → Pro. <code>/v1/responses</code>의 <code>reasoning.effort</code>도 같은 값으로 받습니다. 그 밖의 값은 <code>400 unsupported_reasoning_effort</code>입니다.</td></tr>
+              <tr><td><code>stream</code></td><td><code>true</code>면 답을 받는 대로 <code>chat.completion.chunk</code>로 흘려보내고 <code>data: [DONE]</code>으로 끝냅니다. 첫 청크는 모델이 생각하는 동안 먼저 도착합니다. <code>/v1/responses</code> 스트리밍(Codex 등)도 같은 경로로 동작합니다.</td></tr>
+              <tr><td><code>messages</code></td><td>여러 턴을 보낼 수 있습니다. <code>tool</code> 역할과 이전 <code>tool_calls</code>도 이어붙여 대화 맥락으로 전달합니다.</td></tr>
+              <tr><td><code>tools</code></td><td>웹 제품에는 함수 호출이 없어, 도구 계약을 프롬프트로 지시하고 응답에서 호출 블록을 파싱해 <code>tool_calls</code>로 복원합니다. 스트리밍에서는 호출 블록이 시작되기 전까지의 본문만 먼저 보내고, 호출은 끝에서 <code>tool_calls</code> 청크로 보냅니다.</td></tr>
+              <tr><td><code>tool_choice</code></td><td>도구 사용 강제 여부를 같은 프롬프트 지시에 반영합니다. <code>required</code>는 프록시의 구조화 출력 검사가 답을 끝까지 모은 뒤 전달하므로 스트리밍이어도 한 번에 도착합니다.</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3>응답</h3>
+          <div class="api-scroll"><table class="api-table">
+            <thead><tr><th>필드</th><th>설명</th></tr></thead>
+            <tbody>
+              <tr><td><code>system_fingerprint</code></td><td>실제로 답한 웹 프리셋입니다. 예: <code>gpt-5-6-thinking/max</code>(Extra High), <code>gpt-6-pro</code>. 자동 라우팅이면 제품이 고른 모델이 들어갑니다. 스트리밍에서는 마지막 청크들에 실립니다.</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3>동작</h3>
+          <ul class="api-limits">
+            <li>요청마다 열린 ChatGPT 대화는 답을 받은 뒤 삭제되어 계정의 채팅 기록에 남지 않습니다.</li>
+            <li>텍스트 입출력만 지원합니다.</li>
+            <li>Codex API 한도가 아니라 브라우저 세션 한도를 소비합니다.</li>
+          </ul>
+
+          <h3>오류</h3>
+          <div class="api-scroll"><table class="api-table">
+            <thead><tr><th>코드</th><th>의미</th></tr></thead>
+            <tbody>
+              <tr><td><code>unsupported_reasoning_effort</code></td><td>400. 웹 프리셋에 없는 추론 수준입니다. 생성 전에 거부하므로 한도를 쓰지 않습니다.</td></tr>
+              <tr><td><code>web_reply_not_ready</code></td><td>504. 스트림이 완성된 답 없이 끝났고, 대화를 다시 읽어도 기다리는 동안 답이 완성되지 않았습니다. 일반 턴은 45초, 추론·Pro 턴은 20분까지 기다립니다.</td></tr>
+              <tr><td><code>web_transport_failed</code></td><td>업스트림 연결이 실패했습니다. 전송 전 실패는 자동으로 재시도합니다.</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      </details>
+
+      <details class="api-endpoint">
+        <summary><span class="api-method">POST</span><code>/v1/images/generations</code><span class="api-tag api-tag-cost">웹 image_gen 한도 소비</span></summary>
+        <div class="api-body">
+          <h3>요청</h3>
+          <pre class="api-sample"><code>curl -X POST "$CLIPROXY/v1/images/generations" \
+  -H "Authorization: Bearer $CLIPROXY_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-web-image",
+    "prompt": "수채화풍 바닷가 등대",
+    "size": "1024x1024",
+    "output_format": "png"
+  }'</code></pre>
+
+          <h3>지원 필드</h3>
+          <div class="api-scroll"><table class="api-table">
+            <thead><tr><th>필드</th><th>타입</th><th>설명</th></tr></thead>
+            <tbody>
+              <tr><td><code>prompt</code></td><td>string</td><td>생성할 이미지 설명입니다.</td></tr>
+              <tr><td><code>size</code></td><td>string</td><td>해상도. 웹 대화 경로에는 전송 필드가 없어 프롬프트 문장으로 실어 보냅니다. <code>1024x1536</code>(세로)·<code>1536x1024</code>(가로)·<code>1024x1024</code> 실측 확인.</td></tr>
+              <tr><td><code>quality</code></td><td>string</td><td>같은 방식으로 프롬프트에 실립니다. <code>auto</code>면 생략합니다.</td></tr>
+              <tr><td><code>output_format</code></td><td>string</td><td>응답에 붙는 형식 라벨입니다. 생략하면 <code>png</code>.</td></tr>
+              <tr><td><code>n</code> · <code>background</code></td><td>—</td><td>전달되지 않습니다. 한 번에 한 장만 생성됩니다.</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3>오류</h3>
+          <div class="api-scroll"><table class="api-table">
+            <thead><tr><th>코드</th><th>의미</th></tr></thead>
+            <tbody>
+              <tr><td><code>content_policy_violation</code></td><td>업스트림이 이미지 대신 거절로 답했습니다. 폴링을 기다리지 않고 즉시 돌려주며, 같은 프롬프트는 다른 자격증명으로도 재시도하지 않습니다.</td></tr>
+              <tr><td><code>web_image_not_ready</code></td><td>폴링 예산 안에 이미지가 나오지 않았습니다. 짧은 창의 생성 제한에 걸렸을 때 나타납니다.</td></tr>
+              <tr><td><code>web_transport_failed</code></td><td>업스트림 연결이 실패했습니다. 전송 전 실패는 자동으로 재시도합니다.</td></tr>
+            </tbody>
+          </table></div>
+          <p class="hint">실패해도 HTTP 상태는 <code>200</code>으로 도착할 수 있습니다. 성공·실패는 상태코드가 아니라 본문의 <code>error</code> 객체 유무로 판단하세요.</p>
+          <p class="hint">이미지를 받은 뒤 생성에 쓴 ChatGPT 대화는 삭제되어 계정의 채팅 기록에 남지 않습니다.</p>
+        </div>
+      </details>
+
+      <details class="api-endpoint">
+        <summary><span class="api-method">GET</span><code>/v0/management/plugins/chatgpt-web/accounts</code><span class="api-tag">이 화면이 쓰는 조회</span></summary>
+        <div class="api-body">
+          <h3>요청</h3>
+          <pre class="api-sample"><code>curl "$CLIPROXY/v0/management/plugins/chatgpt-web/accounts" \
+  -H "Authorization: Bearer $MANAGER_ADMIN_KEY"</code></pre>
+          <p class="hint">자격증명별 한도만 돌려주는 조회 전용 경로입니다. 생성도, 토큰 갱신도 하지 않습니다.</p>
+        </div>
+      </details>
+    </section>
+  </main>
+</div>
+<script>
+(function () {
+  var OPERATOR_KEY = 'chatgpt-web-operator-key';
+  var listNode = document.getElementById('list');
+  var stateNode = document.getElementById('state');
+  var authNode = document.getElementById('auth');
+  var keyNode = document.getElementById('key');
+
+  function storedManagementKey() {
+    try {
+      const host = window.parent;
+      if (host.location.origin !== window.location.origin) return '';
+      const raw = host.localStorage.getItem('cli-proxy-auth');
+      if (!raw) return '';
+      let decoded = raw;
+      if (raw.indexOf('enc::v1::') === 0) {
+        const binary = atob(raw.slice(9));
+        const salt = new TextEncoder().encode('cli-proxy-api-webui::secure-storage|' + host.location.host + '|' + host.navigator.userAgent);
+        const bytes = Uint8Array.from(binary, function (ch, i) { return ch.charCodeAt(0) ^ salt[i % salt.length]; });
+        decoded = new TextDecoder().decode(bytes);
+      }
+      const parsed = JSON.parse(decoded);
+      return (parsed && parsed.state && parsed.state.managementKey) || '';
+    } catch (error) { return ''; }
+  }
+
+  function operatorKey() {
+    try { return window.sessionStorage.getItem(OPERATOR_KEY) || ''; } catch (error) { return ''; }
+  }
+
+  function activeKey() { return storedManagementKey() || operatorKey(); }
+
+  function pluginHost() {
+    try {
+      const cap = window.__CPAMP_PLUGIN_HOST__;
+      if (!cap || cap.pluginID !== 'chatgpt-web' || typeof cap.request !== 'function') return null;
+      const resourcePath = new URL(cap.resourceURL, window.location.href).pathname;
+      if (resourcePath !== window.location.pathname) return null;
+      return cap.request;
+    } catch (error) { return null; }
+  }
+
+  function text(tag, className, value) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (value !== undefined) node.textContent = value;
+    return node;
+  }
+
+  function meter(bucket) {
+    var fraction = typeof bucket.remainingFraction === 'number' ? bucket.remainingFraction : 0;
+    var percent = Math.round(fraction * 100);
+    var tone = fraction === 0 ? 'meter-bad' : fraction < 0.2 ? 'meter-warn' : 'meter-ok';
+    var block = text('div', 'meter ' + tone);
+
+    var label = text('div', 'meter-label');
+    label.appendChild(text('span', 'meter-name', bucket.description || bucket.window || ''));
+    label.appendChild(text('span', '', percent + '% 남음'));
+    block.appendChild(label);
+
+    var track = text('div', 'track');
+    var fill = text('div', 'fill');
+    fill.style.width = percent + '%';
+    track.appendChild(fill);
+    block.appendChild(track);
+
+    var foot = [];
+    if (bucket.window) foot.push(bucket.window);
+    if (bucket.resetTime) foot.push('초기화 ' + new Date(bucket.resetTime).toLocaleString());
+    if (foot.length) block.appendChild(text('p', 'meter-foot', foot.join(' · ')));
+    return block;
+  }
+
+  function accountCard(account) {
+    var card = text('div', 'card');
+    var head = text('div', 'card-head');
+    head.appendChild(text('h2', '', account.label || account.id));
+
+    var badges = text('div', 'cluster');
+    badges.appendChild(text('span', 'badge ' + (account.status === 'ready' ? 'badge-ok' : account.status === 'expired' ? 'badge-warn' : 'badge-bad'),
+      account.status === 'ready' ? '조회 가능' : account.status === 'expired' ? '인증 만료' : '오류'));
+    if (account.plan) badges.appendChild(text('span', 'badge', account.plan));
+    head.appendChild(badges);
+    head.appendChild(text('p', 'card-id', account.id));
+    card.appendChild(head);
+
+    if (account.error) card.appendChild(text('p', 'notice', account.error));
+
+    (account.groups || []).forEach(function (group) {
+      var section = text('div', 'group');
+      section.appendChild(text('h3', '', group.displayName || ''));
+      var buckets = group.buckets || [];
+      if (!buckets.length) section.appendChild(text('p', 'group-empty', '표시할 한도가 없습니다.'));
+      buckets.forEach(function (bucket) { section.appendChild(meter(bucket)); });
+      card.appendChild(section);
+    });
+    return card;
+  }
+
+  function render(accounts) {
+    listNode.replaceChildren.apply(listNode, accounts.map(accountCard));
+  }
+
+  function load() {
+    var host = pluginHost();
+    var key = activeKey();
+    if (!host && !key) {
+      authNode.hidden = false;
+      stateNode.textContent = 'Manager 로그인 정보를 읽을 수 없습니다. Admin Key를 입력하면 이 탭에서만 사용합니다.';
+      listNode.replaceChildren();
+      return;
+    }
+    authNode.hidden = true;
+    stateNode.textContent = '불러오는 중…';
+    var pending = host
+      ? host({ path: '/v0/management/plugins/chatgpt-web/accounts', method: 'GET' }).then(function (result) {
+          var status = result && result.status;
+          if (status < 200 || status >= 300) throw new Error('HTTP ' + status);
+          return JSON.parse((result && result.body) || '{}');
+        })
+      : fetch('/v0/management/plugins/chatgpt-web/accounts', {
+          credentials: 'same-origin',
+          headers: { Authorization: 'Bearer ' + key, Accept: 'application/json' }
+        }).then(function (response) {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return response.json();
+        });
+    pending.then(function (payload) {
+      var accounts = (payload && payload.accounts) || [];
+      stateNode.textContent = accounts.length + '개 자격증명';
+      render(accounts);
+    }).catch(function (error) {
+      stateNode.textContent = '조회 실패: ' + error.message;
+      listNode.replaceChildren();
+      authNode.hidden = false;
+    });
+  }
+
+  document.getElementById('refresh').addEventListener('click', load);
+  document.getElementById('connect').addEventListener('click', function () {
+    var value = keyNode.value.trim();
+    if (!value) return;
+    try { window.sessionStorage.setItem(OPERATOR_KEY, value); } catch (error) { /* session storage unavailable */ }
+    keyNode.value = '';
+    load();
+  });
+  window.addEventListener('cpamp-plugin-request-ready', load);
+  load();
+})();
+</script>
+</body>
+</html>

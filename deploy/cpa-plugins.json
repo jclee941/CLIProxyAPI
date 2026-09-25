@@ -1,0 +1,10 @@
+{
+  "plugins": [
+    {"id": "gemini-web", "artifact": "deploy/gemini-web-plugin/gemini-web.so", "reload": "restart"},
+    {"id": "chatgpt-web", "artifact": "deploy/chatgpt-web-plugin/chatgpt-web.so", "reload": "hot"}
+  ],
+  "files": [
+    {"artifact": "deploy/gemini-web-plugin/web/index.html", "target": "gemini-web/index.html"},
+    {"artifact": "deploy/chatgpt-web-plugin/web/index.html", "target": "chatgpt-web/index.html"}
+  ]
+}

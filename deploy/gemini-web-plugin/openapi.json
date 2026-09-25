@@ -1,0 +1,1821 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Gemini Omni Video and Files API",
+    "version": "2026-09-22",
+    "summary": "Generate, extend, and retrieve videos, plus upload and manage files.",
+    "description": "Use a Bearer API key or x-goog-api-key. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait. Continuations retain the original account and conversation; an unavailable owner is not replaced by another account.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. Other resolutions and explicit duration controls are unsupported. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error."
+  },
+  "servers": [
+    {
+      "url": "{origin}/v1beta",
+      "variables": {
+        "origin": {
+          "default": "https://cliproxy.jclee.me",
+          "description": "Base origin URL for the proxy API"
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    },
+    {
+      "apiKeyAuth": []
+    }
+  ],
+  "paths": {
+    "/interactions": {
+      "post": {
+        "operationId": "createInteraction",
+        "summary": "Create a video interaction or extend a prior video.",
+        "description": "Creates one new turn. Send only the new prompt and media, not the conversation history. The complete request body is limited to 4 MiB; use Files references for larger media.\n\nTo extend, provide previous_interaction_id or a video input and generation_config.video_config.task=extend. Keep the same API key and retain the newest returned id. Continuations stay on their original account and conversation, without cross-account fallback. Extension length is not configurable or guaranteed.\n\nExplicit 720p is supported only for fresh text/image generation. Omit resolution for continuations and video inputs; otherwise the request is rejected with interaction_resolution_inherited.\n\nURI delivery returns a files/{id} reference on creation or SSE and requires writable storage. GET retrieves inline video data. background=true requires store=true and returns an id with in_progress before generation completes. After an uncertain POST, retrieve an assigned id rather than submitting again.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InteractionCreate"
+              },
+              "examples": {
+                "freshPrompt": {
+                  "summary": "Fresh video generation from text prompt",
+                  "value": {
+                    "model": "gemini-omni-1.1-flash",
+                    "input": "A yellow paper boat floating on calm blue water, static camera."
+                  }
+                },
+                "extendPreviousTurn": {
+                  "summary": "Extend a completed previous interaction",
+                  "value": {
+                    "model": "gemini-omni-1.1-flash",
+                    "input": "Continue the same shot smoothly, keeping the paper boat in frame.",
+                    "previous_interaction_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                    "generation_config": {
+                      "video_config": {
+                        "task": "extend"
+                      }
+                    }
+                  }
+                },
+                "extendUploadedVideo": {
+                  "summary": "Extend a video after uploading it with the Files API",
+                  "value": {
+                    "model": "gemini-omni-1.1-flash",
+                    "input": [
+                      {
+                        "type": "user_input",
+                        "content": [
+                          {
+                            "type": "video",
+                            "mime_type": "video/mp4",
+                            "uri": "files/uploaded-video"
+                          },
+                          {
+                            "type": "text",
+                            "text": "Continue the scene from its final frame."
+                          }
+                        ]
+                      }
+                    ],
+                    "generation_config": {
+                      "video_config": {
+                        "task": "extend"
+                      }
+                    }
+                  }
+                },
+                "uriDelivery": {
+                  "summary": "Generate video with URI delivery",
+                  "value": {
+                    "model": "gemini-omni-1.1-flash",
+                    "input": "Origami crane folding itself on wooden desk.",
+                    "response_format": {
+                      "type": "video",
+                      "delivery": "uri"
+                    }
+                  }
+                },
+                "backgroundAsync": {
+                  "summary": "Asynchronous background generation",
+                  "value": {
+                    "model": "gemini-omni-1.1-flash",
+                    "input": "Time-lapse of sunrise over a misty mountain ridge.",
+                    "background": true,
+                    "store": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Interaction status snapshot or completion. For status=completed, video data is in steps[].content[].data (or steps[].content[].uri if delivery=uri was chosen). When status=in_progress, retrieve the returned id later. If stream=true, streams server-sent events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Interaction"
+                },
+                "examples": {
+                  "completedInline": {
+                    "summary": "Completed turn with inline video",
+                    "value": {
+                      "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+                      "object": "interaction",
+                      "model": "gemini-omni-1.1-flash",
+                      "status": "completed",
+                      "steps": [
+                        {
+                          "type": "model_output",
+                          "content": [
+                            {
+                              "type": "video",
+                              "mime_type": "video/mp4",
+                              "data": "AAAAIGZ0eXBpc29t..."
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "completedUri": {
+                    "summary": "Completed turn with URI delivery",
+                    "value": {
+                      "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+                      "object": "interaction",
+                      "model": "gemini-omni-1.1-flash",
+                      "status": "completed",
+                      "steps": [
+                        {
+                          "type": "model_output",
+                          "content": [
+                            {
+                              "type": "video",
+                              "mime_type": "video/mp4",
+                              "uri": "files/3a4b5c6d7e8f90123456789abcdef012"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "inProgress": {
+                    "summary": "Background turn acknowledged as in_progress",
+                    "value": {
+                      "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+                      "object": "interaction",
+                      "model": "gemini-omni-1.1-flash",
+                      "status": "in_progress",
+                      "steps": []
+                    }
+                  }
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "Server-sent events for the turn. Emits interaction.created (id <token>:1), step.start (<token>:2), step.delta (<token>:3), step.stop (<token>:4), interaction.completed (<token>:5), and done (<token>:6 with [DONE]). On error, emits interaction.failed (<token>:2) followed by error."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request. Rejected on unknown fields, unsupported resolution (only 720p accepted for fresh non-video generations), tasks other than extend, background=true with store=false, duration parameters, missing source video on extend, or malformed media parts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                },
+                "example": {
+                  "error": {
+                    "code": "interaction_resolution_unsupported",
+                    "message": "interaction_resolution_unsupported"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Upstream access or authorization denied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Model or referenced file/interaction not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No account available or session busy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Stored interaction has expired and cannot be continued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request was processed but no usable video was generated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The upstream response could not be read or retrieved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                },
+                "example": {
+                  "error": {
+                    "code": "invalid_upstream_frame",
+                    "message": "invalid_upstream_frame"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Required storage or provider service is unavailable. URI output requires operator-configured writable storage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                },
+                "example": {
+                  "error": {
+                    "code": "files_requires_drive_write_oauth",
+                    "message": "files_requires_drive_write_oauth"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interactions/{interaction_id}": {
+      "get": {
+        "operationId": "retrieveInteraction",
+        "summary": "Retrieve a stored interaction.",
+        "description": "Retrieves an existing interaction with the same API key. Retrieval does not start a new generation. Completed GET responses contain inline base64 video data even when creation requested URI delivery. Set stream=true for events and last_event_id to resume an event cursor.",
+        "parameters": [
+          {
+            "name": "interaction_id",
+            "in": "path",
+            "required": true,
+            "description": "Unique 64-character hexadecimal interaction ID.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stream",
+            "in": "query",
+            "required": false,
+            "description": "Stream server-sent events for retrieval or completion replay.",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "last_event_id",
+            "in": "query",
+            "required": false,
+            "description": "Event cursor to resume SSE replay from (formatted as <interaction_id>:<index>).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stored interaction snapshot with inline video.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Interaction"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "Replayed or live interaction events when stream=true."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid retrieval parameters or malformed last_event_id cursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Interaction not found or owned by a different caller scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Account disabled or unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/upload/v1beta/files": {
+      "servers": [
+        {
+          "url": "{origin}",
+          "variables": {
+            "origin": {
+              "default": "https://cliproxy.jclee.me",
+              "description": "Base origin URL for upload endpoints"
+            }
+          }
+        }
+      ],
+      "post": {
+        "operationId": "startResumableFileUpload",
+        "summary": "Start a resumable media file upload.",
+        "description": "Starts a resumable upload for a file up to 100 MiB. Declare the total byte size and MIME type in the upload headers. Success returns X-Goog-Upload-URL: send chunks to that exact private URL. The session expires after 24 hours, with nonfinal chunks aligned to the returned 256 KiB granularity. Upload creation requires an API key and operator-configured writable storage; unavailable write authorization returns a named 503 error.",
+        "parameters": [
+          {
+            "name": "X-Goog-Upload-Protocol",
+            "in": "header",
+            "required": true,
+            "description": "Upload protocol indicator. Must equal resumable.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "resumable"
+              ]
+            }
+          },
+          {
+            "name": "X-Goog-Upload-Command",
+            "in": "header",
+            "required": true,
+            "description": "Command to run. Must equal start.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "start"
+              ]
+            }
+          },
+          {
+            "name": "X-Goog-Upload-Header-Content-Length",
+            "in": "header",
+            "required": true,
+            "description": "Total length of file in bytes. Maximum limit is 104,857,600 (100 MiB).",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 104857600
+            }
+          },
+          {
+            "name": "X-Goog-Upload-Header-Content-Type",
+            "in": "header",
+            "required": true,
+            "description": "Valid media MIME type of the upload (e.g. video/mp4, image/png).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Goog-Upload-File-Name",
+            "in": "header",
+            "required": false,
+            "description": "Optional fallback display name, bounded at 512 runes.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileStartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resumable session opened. Location provided in X-Goog-Upload-URL header.",
+            "headers": {
+              "X-Goog-Upload-URL": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Upload destination URL carrying the 24-hour scoped capability token."
+              },
+              "X-Goog-Upload-Status": {
+                "schema": {
+                  "type": "string",
+                  "example": "active"
+                }
+              },
+              "X-Goog-Upload-Chunk-Granularity": {
+                "schema": {
+                  "type": "string",
+                  "example": "262144"
+                },
+                "description": "Chunk step size (256 KiB). Intermediate chunks must align to this granularity."
+              },
+              "X-Goog-Upload-Size-Received": {
+                "schema": {
+                  "type": "string",
+                  "example": "0"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed protocol headers, negative size, unsupported MIME type, or metadata mismatch.",
+            "headers": {
+              "X-Goog-Upload-Status": {
+                "schema": {
+                  "type": "string",
+                  "example": "cancelled"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A file with the specified custom ID already exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "File exceeds the 100 MiB limit.",
+            "headers": {
+              "X-Goog-Upload-Status": {
+                "schema": {
+                  "type": "string",
+                  "example": "cancelled"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage is unavailable or its write authorization is missing.",
+            "headers": {
+              "X-Goog-Upload-Status": {
+                "schema": {
+                  "type": "string",
+                  "example": "cancelled"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                },
+                "example": {
+                  "error": {
+                    "code": 503,
+                    "message": "files_requires_drive_write_oauth",
+                    "status": "UNAVAILABLE"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/upload/v1beta/files/resumable": {
+      "servers": [
+        {
+          "url": "{origin}",
+          "variables": {
+            "origin": {
+              "default": "https://cliproxy.jclee.me",
+              "description": "Base origin URL for upload endpoints"
+            }
+          }
+        }
+      ],
+      "post": {
+        "operationId": "uploadFileChunk",
+        "summary": "Transfer chunks, query progress, or finalize an upload.",
+        "description": "Send chunks up to 16 MiB to the exact session URL returned at creation. Nonfinal chunks must be multiples of 256 KiB. The upload_id capability authenticates this route without an API-key header and always retains the original owner. Do not share it.\n\nUse upload for intermediate bytes, upload,finalize for the final chunk, finalize to finish, and query with an empty body to check the received offset. The supplied offset must match the received byte count. Finalized sessions may be queried until expiry but do not accept more bytes. Deleted or replaced files invalidate their session.",
+        "parameters": [
+          {
+            "name": "upload_id",
+            "in": "query",
+            "required": true,
+            "description": "Private opaque upload-session capability, valid for 24 hours.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Goog-Upload-Command",
+            "in": "header",
+            "required": true,
+            "description": "Transfer command name.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "upload",
+                "upload,finalize",
+                "finalize",
+                "query"
+              ]
+            }
+          },
+          {
+            "name": "X-Goog-Upload-Offset",
+            "in": "header",
+            "required": false,
+            "description": "Starting byte offset. Must match the exact received byte count on the server.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary",
+                "description": "Chunk bytes up to 16 MiB. Must be empty for query and standalone finalize."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Chunk accepted, status queried, or file finalized.",
+            "headers": {
+              "X-Goog-Upload-Status": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "final"
+                  ]
+                },
+                "description": "Status active while in progress; final when completed."
+              },
+              "X-Goog-Upload-Size-Received": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Total count of bytes successfully received so far."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "description": "Empty object returned while upload status remains active.",
+                      "additionalProperties": false
+                    },
+                    {
+                      "$ref": "#/components/schemas/FileFinalizeResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Offset mismatch, unaligned chunk size, or body provided on query/finalize.",
+            "headers": {
+              "X-Goog-Upload-Status": {
+                "schema": {
+                  "type": "string",
+                  "example": "cancelled"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, or invalid upload-session capability.",
+            "headers": {
+              "X-Goog-Upload-Status": {
+                "schema": {
+                  "type": "string",
+                  "example": "cancelled"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Upload already finalized or upload session unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Upload capability token has expired (lifetime is 24 hours).",
+            "headers": {
+              "X-Goog-Upload-Status": {
+                "schema": {
+                  "type": "string",
+                  "example": "cancelled"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Chunk exceeds the 16 MiB single-request limit.",
+            "headers": {
+              "X-Goog-Upload-Status": {
+                "schema": {
+                  "type": "string",
+                  "example": "cancelled"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Storage backend transfer or checksum mismatch error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage is unavailable or its write authorization is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "uploadIdAuth": []
+          }
+        ]
+      }
+    },
+    "/files": {
+      "get": {
+        "operationId": "listFiles",
+        "summary": "List stored files for the authenticated caller.",
+        "description": "Returns a paginated list of files belonging to the authenticated caller scope. Includes both uploaded reference files and generated videos created with delivery=uri.",
+        "parameters": [
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "description": "Maximum number of files to return (between 1 and 100, default 10).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10
+            }
+          },
+          {
+            "name": "pageToken",
+            "in": "query",
+            "required": false,
+            "description": "Opaque pagination token bound to the caller.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of files returned successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pageSize or foreign pageToken.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session store unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{id}": {
+      "get": {
+        "operationId": "getFile",
+        "summary": "Retrieve metadata for a specific file.",
+        "description": "Retrieves metadata for a file owned by the API key. Use the bare file ID in this URL path; SDK methods also accept the returned files/{id} resource name.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "File ID without the files/ prefix.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File metadata retrieved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileResource"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found, deleted, or owned by another caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "File metadata storage is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteFile",
+        "summary": "Delete a stored file.",
+        "description": "Marks the file for deletion and removes the underlying storage object. Deletion retries are idempotent.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "File ID without the files/ prefix.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File deleted successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found or owned by another caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Storage deletion failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage is unavailable or required write authorization is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{id}:download": {
+      "get": {
+        "operationId": "downloadGeneratedFile",
+        "summary": "Download generated media content.",
+        "description": "Streams the binary media bytes of a generated file (created via delivery=uri). The query parameter alt=media is required.\n\nOnly files with source=GENERATED and state=ACTIVE can be downloaded. Uploaded input files cannot be downloaded through this endpoint (rejected with HTTP 400 only_generated_files_can_be_downloaded).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "File ID without the files/ prefix.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+            }
+          },
+          {
+            "name": "alt",
+            "in": "query",
+            "required": true,
+            "description": "Media download specifier. Must equal media.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "media"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Binary media byte stream.",
+            "headers": {
+              "Content-Type": {
+                "schema": {
+                  "type": "string",
+                  "example": "video/mp4"
+                },
+                "description": "MIME type of the media file."
+              },
+              "Content-Length": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Size in bytes."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "example": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "example": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing alt=media parameter, file state is not ACTIVE, or attempted download of an UPLOADED source file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found or owned by another caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Storage backend media stream unavailable or size mismatch.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "File storage is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilesError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Bearer API key header (Authorization: Bearer YOUR_API_KEY)."
+      },
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-goog-api-key",
+        "description": "Alternative to Bearer authentication for Interactions, upload creation, and ordinary Files operations."
+      },
+      "uploadIdAuth": {
+        "type": "apiKey",
+        "in": "query",
+        "name": "upload_id",
+        "description": "Private 24-hour upload-session capability returned in X-Goog-Upload-URL. No API-key header is required on this session route; an API key does not replace the capability."
+      }
+    },
+    "schemas": {
+      "InteractionCreate": {
+        "type": "object",
+        "required": [
+          "model",
+          "input"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "type": "string",
+            "const": "gemini-omni-1.1-flash",
+            "description": "Target model. Only gemini-omni-1.1-flash is served by this endpoint."
+          },
+          "input": {
+            "description": "Prompt text, list of direct input parts, or an official SDK user_input wrapper.",
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 8000,
+                "description": "Plain text prompt, bounded at 8000 runes."
+              },
+              {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/components/schemas/InputPart"
+                }
+              },
+              {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "$ref": "#/components/schemas/UserInputStep"
+                }
+              }
+            ]
+          },
+          "previous_interaction_id": {
+            "type": "string",
+            "description": "Identifier of a completed, stored video interaction to extend."
+          },
+          "generation_config": {
+            "$ref": "#/components/schemas/GenerationConfig"
+          },
+          "response_format": {
+            "$ref": "#/components/schemas/ResponseFormat"
+          },
+          "store": {
+            "type": "boolean",
+            "default": true,
+            "description": "Retain the turn for later retrieval and extension. Background requests require store=true."
+          },
+          "background": {
+            "type": "boolean",
+            "default": false,
+            "description": "Asynchronous execution flag. When true, returns immediately with status=in_progress and the interaction id. Requires store=true."
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false,
+            "description": "Stream server-sent events for turn progress."
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "background"
+              ],
+              "properties": {
+                "background": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "store": {
+                  "const": true
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "anyOf": [
+                {
+                  "required": [
+                    "previous_interaction_id"
+                  ],
+                  "properties": {
+                    "previous_interaction_id": {
+                      "minLength": 1
+                    }
+                  }
+                },
+                {
+                  "required": [
+                    "input"
+                  ],
+                  "properties": {
+                    "input": {
+                      "type": "array",
+                      "contains": {
+                        "type": "object",
+                        "required": [
+                          "type"
+                        ],
+                        "properties": {
+                          "type": {
+                            "const": "video"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "required": [
+                    "input"
+                  ],
+                  "properties": {
+                    "input": {
+                      "type": "array",
+                      "contains": {
+                        "required": [
+                          "type",
+                          "content"
+                        ],
+                        "properties": {
+                          "type": {
+                            "const": "user_input"
+                          },
+                          "content": {
+                            "type": "array",
+                            "contains": {
+                              "type": "object",
+                              "required": [
+                                "type"
+                              ],
+                              "properties": {
+                                "type": {
+                                  "const": "video"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "then": {
+              "properties": {
+                "response_format": {
+                  "not": {
+                    "required": [
+                      "resolution"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "InputItem": {
+        "description": "An input element: either a direct media/text part or an SDK user_input step wrapper.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/InputPart"
+          },
+          {
+            "$ref": "#/components/schemas/UserInputStep"
+          }
+        ]
+      },
+      "InputPart": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "image",
+              "video"
+            ],
+            "description": "Part classification."
+          },
+          "text": {
+            "type": "string",
+            "description": "Text prompt content."
+          },
+          "mime_type": {
+            "type": "string",
+            "examples": [
+              "image/png",
+              "video/mp4"
+            ],
+            "description": "Media MIME type. Required when data is provided."
+          },
+          "data": {
+            "type": "string",
+            "contentEncoding": "base64",
+            "description": "Base64-encoded media bytes without data URL prefix."
+          },
+          "uri": {
+            "type": "string",
+            "description": "Supported Drive URI or Files API reference (files/{id})."
+          }
+        }
+      },
+      "UserInputStep": {
+        "type": "object",
+        "required": [
+          "type",
+          "content"
+        ],
+        "additionalProperties": false,
+        "description": "Wrapper structure emitted by google-genai 2.24.0 containing turn parts.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "user_input"
+          },
+          "content": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/InputPart"
+            },
+            "description": "Nested media and text parts."
+          }
+        }
+      },
+      "GenerationConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "video_config": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "task": {
+                "type": "string",
+                "enum": [
+                  "extend"
+                ],
+                "description": "Task instruction. Only extend is supported, used with previous_interaction_id or uploaded video input. Duration seconds cannot be configured or requested."
+              }
+            }
+          }
+        }
+      },
+      "ResponseFormat": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Output formatting controls. Unlisted settings remain unsupported.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "video"
+            ],
+            "description": "Output type."
+          },
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "inline",
+              "uri"
+            ],
+            "default": "inline",
+            "description": "inline returns base64 video data. uri requires writable storage and returns files/{id} in creation/SSE output. GET interactions returns inline data in either case."
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16"
+            ],
+            "default": "9:16",
+            "description": "Framing orientation. Default 9:16 yields 720x1280 portrait. Set 16:9 for 1280x720 landscape. Retain ratio when extending."
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "720p"
+            ],
+            "description": "720p is supported for fresh text/image generation only. Omit resolution with video inputs or previous_interaction_id; those requests inherit their source resolution and otherwise return interaction_resolution_inherited. Other resolutions are unsupported."
+          }
+        }
+      },
+      "Interaction": {
+        "type": "object",
+        "required": [
+          "id",
+          "object",
+          "model",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique 64-character hexadecimal interaction ID."
+          },
+          "object": {
+            "type": "string",
+            "const": "interaction"
+          },
+          "model": {
+            "type": "string",
+            "const": "gemini-omni-1.1-flash"
+          },
+          "account": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Optional diagnostic identifier. Do not use it to construct requests."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "in_progress",
+              "failed"
+            ],
+            "description": "Turn lifecycle status."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Step"
+            }
+          },
+          "error": {
+            "$ref": "#/components/schemas/InteractionError"
+          }
+        }
+      },
+      "Step": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "model_output",
+              "thought"
+            ]
+          },
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContentPart"
+            }
+          }
+        }
+      },
+      "ContentPart": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "video",
+              "text"
+            ]
+          },
+          "mime_type": {
+            "type": "string",
+            "examples": [
+              "video/mp4"
+            ]
+          },
+          "data": {
+            "type": "string",
+            "contentEncoding": "base64",
+            "description": "Base64-encoded video bytes. Omitted when URI delivery is selected on creation."
+          },
+          "uri": {
+            "type": "string",
+            "description": "Resource identifier (files/{id}) delivered when response_format.delivery=uri is set."
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "InteractionError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "examples": [
+              "no_video_generated",
+              "web_rpc_denied",
+              "interaction_background_requires_store"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "FileResource": {
+        "type": "object",
+        "required": [
+          "name",
+          "mimeType",
+          "sizeBytes",
+          "createTime",
+          "updateTime",
+          "uri",
+          "state",
+          "source"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Canonical resource identifier formatted as files/{id}."
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Human-readable label, up to 512 runes."
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "Media MIME type."
+          },
+          "sizeBytes": {
+            "type": "string",
+            "description": "Total size in bytes formatted as decimal string."
+          },
+          "createTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 creation timestamp in UTC."
+          },
+          "updateTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 last update timestamp in UTC."
+          },
+          "sha256Hash": {
+            "type": "string",
+            "description": "Base64-encoded SHA-256 checksum."
+          },
+          "uri": {
+            "type": "string",
+            "description": "File URI identifier matching name (files/{id})."
+          },
+          "downloadUri": {
+            "type": "string",
+            "description": "Relative download endpoint path (/v1beta/files/{id}:download?alt=media). Present only for GENERATED media files."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "PROCESSING",
+              "ACTIVE"
+            ],
+            "description": "Lifecycle state of the stored file."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "UPLOADED",
+              "GENERATED"
+            ],
+            "description": "Source origin of file: UPLOADED by caller or GENERATED by video interactions."
+          }
+        }
+      },
+      "FileStartRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Optional custom resource name formatted as files/{id}."
+              },
+              "displayName": {
+                "type": "string",
+                "description": "Human-readable label, up to 512 runes."
+              },
+              "display_name": {
+                "type": "string",
+                "description": "Snake_case alias for displayName."
+              },
+              "mimeType": {
+                "type": "string",
+                "description": "MIME type matching X-Goog-Upload-Header-Content-Type."
+              },
+              "mime_type": {
+                "type": "string",
+                "description": "Snake_case alias for mimeType."
+              },
+              "sizeBytes": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "description": "File size matching X-Goog-Upload-Header-Content-Length."
+              },
+              "size_bytes": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "description": "Snake_case alias for sizeBytes."
+              }
+            }
+          }
+        }
+      },
+      "FileFinalizeResponse": {
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "$ref": "#/components/schemas/FileResource"
+          }
+        }
+      },
+      "FileListResponse": {
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileResource"
+            }
+          },
+          "nextPageToken": {
+            "type": "string",
+            "description": "Pagination cursor for fetching the next page."
+          }
+        }
+      },
+      "FilesError": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "status"
+            ],
+            "properties": {
+              "code": {
+                "type": "integer",
+                "description": "HTTP status code.",
+                "examples": [
+                  400,
+                  401,
+                  404,
+                  409,
+                  410,
+                  413,
+                  502,
+                  503
+                ]
+              },
+              "message": {
+                "type": "string",
+                "description": "Machine error identifier.",
+                "examples": [
+                  "files_requires_drive_write_oauth",
+                  "files_drive_write_permission_required",
+                  "file_chunk_too_large",
+                  "only_generated_files_can_be_downloaded"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "description": "Canonical Google RPC status name.",
+                "examples": [
+                  "INVALID_ARGUMENT",
+                  "UNAUTHENTICATED",
+                  "NOT_FOUND",
+                  "FAILED_PRECONDITION",
+                  "RESOURCE_EXHAUSTED",
+                  "INTERNAL",
+                  "UNAVAILABLE"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "GeneralError": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "message"
+                ],
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "description": "Error description."
+                  },
+                  "code": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "integer"
+                      }
+                    ],
+                    "description": "Error code identifier."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Optional error classification."
+                  },
+                  "status": {
+                    "type": "string",
+                    "description": "Optional RPC status name."
+                  }
+                }
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

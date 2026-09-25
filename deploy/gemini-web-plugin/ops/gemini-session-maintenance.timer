@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Gemini Web maintenance five minutes after the previous cycle
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=5min
+Unit=gemini-session-maintenance.service
+
+[Install]
+WantedBy=timers.target

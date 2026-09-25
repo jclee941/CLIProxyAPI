@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Gemini Web 로그인 연결</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="popup.js"></script>
+</head>
+<body>
+  <main class="card stack">
+    <header class="stack heading">
+      <p class="caption">CLIProxy · 로그인 전용</p>
+      <h1>Gemini Web 연결</h1>
+      <p class="muted">전송할 Google 계정을 직접 선택하세요.</p>
+    </header>
+    <section class="destination stack" aria-labelledby="destination-label">
+      <h2 id="destination-label" class="section-label">세션을 받을 포털</h2>
+      <strong id="destination"></strong>
+      <p class="caption">Gemini Web 계정 관리 리소스로만 전달합니다.</p>
+    </section>
+    <p id="status" role="status" aria-live="polite">포털의 연결 요청을 확인하고 있습니다.</p>
+    <p id="error" class="notice" role="alert" hidden></p>
+    <section id="request" class="stack" hidden>
+      <div id="permission-panel" class="stack" hidden>
+        <p class="muted">Google 전체 사이트 쿠키 접근이 필요합니다. 일부 사이트만 허용하면 세션을 읽지 않습니다.</p>
+        <button id="grant" class="btn" type="button">필요한 사이트 접근 허용</button>
+      </div>
+      <fieldset id="tab-fieldset" class="stack">
+        <legend>Gemini 탭 선택</legend>
+        <div id="choices" class="stack choices"></div>
+        <p id="empty" class="muted" hidden>선택 가능한 Gemini 탭이 없습니다. Google에서 직접 로그인한 뒤 목록을 다시 확인하세요.</p>
+      </fieldset>
+      <div class="cluster">
+        <button id="open-gemini" class="btn" type="button">Google Gemini 열기</button>
+        <button id="refresh" class="btn" type="button">탭 목록 새로고침</button>
+      </div>
+      <label class="consent-row">
+        <input id="consent" type="checkbox">
+        <span>선택한 탭의 Google 웹 세션을 위 포털에 한 번 전송하는 데 동의합니다.</span>
+      </label>
+      <p class="caption">쿠키와 토큰 값은 표시하거나 저장하지 않습니다. Google 비밀번호·2단계 인증은 Google에서만 입력하세요.</p>
+    </section>
+    <footer class="cluster actions">
+      <button id="cancel" class="btn" type="button">취소</button>
+      <button id="approve" class="btn primary" type="button" disabled>선택한 계정 연결</button>
+    </footer>
+    <details class="installation">
+      <summary>확장 프로그램 ID</summary>
+      <code id="extension-id"></code>
+      <p class="caption">포털에 이 ID를 설정하세요. 로그인 연결은 포털에서 시작합니다.</p>
+    </details>
+  </main>
+</body>
+</html>

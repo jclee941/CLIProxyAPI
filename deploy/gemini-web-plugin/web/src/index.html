@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Gemini Web 계정의 웹 토큰, 모델 사용 가능 여부 및 Google 사용량을 관리합니다.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; font-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Gemini Web 계정 관리</title>
+  <link rel="icon" href="data:,">
+  <style>/* RESOURCE_STYLES */</style>
+</head>
+<body>
+  <div class="shell">
+    <input class="view-switch" type="radio" name="view" id="view-accounts" checked>
+    <input class="view-switch" type="radio" name="view" id="view-api">
+    <nav class="sidenav" aria-label="화면 전환">
+      <p class="sidenav-brand"><span class="sidenav-mark" aria-hidden="true">GW</span>Gemini Web</p>
+      <label class="nav-item" for="view-accounts">계정</label>
+      <label class="nav-item" for="view-api">API 레퍼런스</label>
+      <p class="sidenav-foot">CLIProxyAPI 플러그인</p>
+    </nav>
+    <main class="shell-main">
+  <div id="app" class="view view-accounts"><p class="view-placeholder">Gemini Web 계정 관리 화면을 준비하고 있습니다.</p></div>
+  <noscript>계정을 관리하려면 이 리소스 페이지의 JavaScript 실행을 허용하세요.</noscript>
+  <section class="view view-api usage-guide api-reference">
+    <div class="page-heading">
+      <div class="heading-copy">
+        <h2>OpenAPI 연동 가이드</h2>
+        <p class="hint">이 문서는 Gemini Omni Video API 연동을 위한 소비자용 요약 가이드입니다. <br>전체 명세는 <a href="https://cliproxy.jclee.me/openapi.json" target="_blank" rel="noopener noreferrer">https://cliproxy.jclee.me/openapi.json</a> 에서 확인할 수 있습니다.</p>
+      </div>
+    </div>
+
+    <details class="api-endpoint" open>
+      <summary><span class="api-method">POST</span><code>/v1beta/interactions</code><span class="api-tag">영상 생성 및 연장</span></summary>
+      <div class="api-body">
+        <h3>새 영상 생성 (Create)</h3>
+        <p class="hint">새로운 영상을 생성합니다. 기본 비율은 세로(9:16)이며, <code>response_format.aspect_ratio: "16:9"</code>를 지정해 가로로 생성할 수 있습니다.</p>
+        <p class="hint">신규 대화는 사용 가능한 계정에 라운드로빈으로 배정합니다. 5시간 또는 7일 사용률이 100%로 확인된 계정은 초기화되거나 사용 가능 상태가 다시 확인될 때까지 제외합니다.</p>
+        <pre class="api-sample"><code>curl -X POST "https://cliproxy.jclee.me/v1beta/interactions" \
+  -H "Authorization: Bearer $YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-omni-1.1-flash",
+    "input": "노을 지는 해변을 걷는 사람",
+    "store": true
+  }'</code></pre>
+
+        <h3>기존 영상 연장 (Extend)</h3>
+        <p class="hint">완료된 영상의 ID와 <code>generation_config.video_config.task = "extend"</code>를 사용해 영상을 연장할 수 있습니다. 약 10초 영상의 3회 연장(최대 약 40초)이 관측되었으나, 이는 보장된 길이 한계나 연장 단위가 아닙니다.</p>
+        <p class="hint">연속 요청은 같은 계정·같은 대화를 유지합니다. 원래 계정이 사용 불가하면 오류를 반환하며 다른 계정으로 자동 전환하지 않습니다.</p>
+        <pre class="api-sample"><code>curl -X POST "https://cliproxy.jclee.me/v1beta/interactions" \
+  -H "Authorization: Bearer $YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-omni-1.1-flash",
+    "input": "이전 장면에서 자연스럽게 이어지도록",
+    "previous_interaction_id": "COMPLETED_INTERACTION_ID",
+    "generation_config": {
+      "video_config": {
+        "task": "extend"
+      }
+    },
+    "store": true
+  }'</code></pre>
+
+        <h3>응답 처리</h3>
+        <p class="hint">생성은 수 분이 걸릴 수 있습니다. HTTP 200 응답만으로 성공을 단정할 수 없으며, <code>status: "completed"</code> 상태와 <code>steps[].content[].data</code>에 비디오 데이터가 있어야 사용 가능합니다.</p>
+        <p class="hint">네트워크 오류 등 불확실한 POST 결과에 대해 자동으로 재시도하지 마세요. 반환받은 ID를 사용해 <code>GET</code>으로 상태를 조회해야 합니다.</p>
+      </div>
+    </details>
+
+    <details class="api-endpoint">
+      <summary><span class="api-method">GET</span><code>/v1beta/interactions/{interaction_id}</code><span class="api-tag">상태 및 결과 조회 (Retrieve)</span></summary>
+      <div class="api-body">
+        <h3>요청</h3>
+        <p class="hint">불확실한 생성 상태를 확인하거나 완료된 결과를 가져옵니다. 추가 생성을 유발하지 않습니다.</p>
+        <pre class="api-sample"><code>curl "https://cliproxy.jclee.me/v1beta/interactions/$INTERACTION_ID" \
+  -H "Authorization: Bearer $YOUR_API_KEY"</code></pre>
+      </div>
+    </details>
+  </section>
+    </main>
+  </div>
+  <script>/* RESOURCE_SCRIPT */</script>
+</body>
+</html>

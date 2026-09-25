@@ -13,6 +13,8 @@
 #   GITOPS_COMPOSE_FILES   Space-separated compose files, relative to the
 #                          deploy dir, applied in order.
 #   GITOPS_LOCK_FILE       Lock file path. Default: sibling of the deploy dir.
+#   GITOPS_CPA_MANIFEST    Optional. CPA plugin manifest, relative to the deploy
+#                          dir, converged by deploy/cpa-converge.py every tick.
 
 set -eu
 
@@ -27,6 +29,15 @@ log() {
 fail() {
     printf '%s pull-deploy: error: %s\n' "$(timestamp)" "$*" >&2
     exit 1
+}
+
+# CPA's native plugins are not compose services. They converge through their
+# own reconciler on every tick, because a swap that has to wait for an idle
+# host outlives the tick that first saw it.
+converge_cpa() {
+    if [ -n "${GITOPS_CPA_MANIFEST:-}" ]; then
+        python3 deploy/cpa-converge.py "$GITOPS_CPA_MANIFEST"
+    fi
 }
 
 deploy_dir="${GITOPS_DEPLOY_DIR:-}"
@@ -76,6 +87,7 @@ target_head="$(git rev-parse FETCH_HEAD)"
 
 if [ "$current_head" = "$target_head" ] && [ "$fresh_clone" -eq 0 ]; then
     log "up to date at $current_head"
+    converge_cpa
     exit 0
 fi
 # A fresh clone already sits at the target; only an existing clone needs the reset.
@@ -98,4 +110,5 @@ for compose_file in $compose_files; do
     docker compose -f "$compose_file" up -d --build
 done
 
+converge_cpa
 log "converged at $target_head"
