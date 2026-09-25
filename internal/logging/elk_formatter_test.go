@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	log "github.com/sirupsen/logrus"
 )
@@ -71,8 +72,12 @@ func TestNewLogFormatterRejectsUnknownFormat(t *testing.T) {
 
 func TestConfigureLogOutputUsesJSONFormatFromConfig(t *testing.T) {
 	// Given
+	defaultWriter, defaultErrorWriter, debugPrintFunc := gin.DefaultWriter, gin.DefaultErrorWriter, gin.DebugPrintFunc
 	t.Cleanup(func() {
 		_ = ConfigureLogOutput(&config.Config{LogFormat: logFormatText})
+		// SetupBaseLogger routes gin through asynchronous logrus pipes, which would
+		// deliver later tests' gin output into whatever hook is capturing at the time.
+		gin.DefaultWriter, gin.DefaultErrorWriter, gin.DebugPrintFunc = defaultWriter, defaultErrorWriter, debugPrintFunc
 	})
 
 	// When
