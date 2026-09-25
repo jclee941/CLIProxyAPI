@@ -299,7 +299,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: var
       <div class="api-body">
         <h3>새 영상 생성 (Create)</h3>
         <p class="hint">새로운 영상을 생성합니다. 기본 비율은 세로(9:16)이며, <code>response_format.aspect_ratio: "16:9"</code>를 지정해 가로로 생성할 수 있습니다.</p>
-        <p class="hint">신규 대화는 사용 가능한 계정에 라운드로빈으로 배정합니다. 5시간 또는 7일 사용률이 100%로 확인된 계정은 초기화되거나 사용 가능 상태가 다시 확인될 때까지 제외합니다.</p>
+        <p class="hint">신규 대화는 영상 3회(생성과 연장 2회)를 끝낼 수 있는 계정에 라운드로빈으로 배정합니다. 5시간 또는 7일 사용량이 소진된 계정, 영상 생성 한도가 소진된 계정, 두 창 중 한 곳이라도 영상 3회분이 남지 않은 계정은 다시 가능해질 때까지 제외하며, 배정할 계정이 없으면 <code>409 account_unavailable</code>을 반환합니다.</p>
         <pre class="api-sample"><code>curl -X POST "https://cliproxy.jclee.me/v1beta/interactions" \
   -H "Authorization: Bearer $YOUR_API_KEY" \
   -H "Content-Type: application/json" \
