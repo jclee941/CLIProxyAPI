@@ -95,6 +95,8 @@ type accountModels struct {
 	StatusCode    *int         `json:"status_code"`
 	Models        []capability `json:"models"`
 	ObservedAt    float64      `json:"observed_at"`
+	CapacityFlags []int        `json:"capacity_flags,omitempty"`
+	Features      []int        `json:"features,omitempty"`
 }
 
 // accountModels reports what an account can serve. It asks the web product
@@ -121,7 +123,7 @@ func (service *service) nativeAccountModels(ctx context.Context, reference strin
 	if err != nil {
 		return accountModels{}, err
 	}
-	return accountModels{Available: true, Models: account.Capabilities, ObservedAt: float64(service.now().Unix())}, nil
+	return accountModels{Available: true, Models: account.Capabilities, ObservedAt: float64(service.now().Unix()), CapacityFlags: account.CapacityFlags, Features: account.Features}, nil
 }
 
 func (service *service) sidecarAccountModels(ctx context.Context, reference string, token sessionToken) (accountModels, error) {

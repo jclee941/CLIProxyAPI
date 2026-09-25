@@ -245,6 +245,25 @@ func TestWebCapabilitiesCarriesCapacityFlags(t *testing.T) {
 	}
 }
 
+// The web app opens its /veo page only for an account whose feature list
+// carries 140; the list is what tells accounts apart when the windows cannot.
+func TestWebCapabilitiesReadsTheFeatureList(t *testing.T) {
+	body := slots(18, map[int]any{
+		14: float64(1000),
+		15: []any{slots(18, map[int]any{0: "cap", 11: "3.8 Flash", 17: float64(1)})},
+		16: []any{float64(4)},
+		17: []any{float64(140), float64(221)},
+	})
+	session, _ := webAccountFixture(t, body)
+	account, err := session.webCapabilities(context.Background())
+	if err != nil {
+		t.Fatalf("capabilities: %v", err)
+	}
+	if fmt.Sprint(account.Features) != "[140 221]" || fmt.Sprint(account.CapacityFlags) != "[4]" {
+		t.Fatalf("features = %v, capacity flags = %v", account.Features, account.CapacityFlags)
+	}
+}
+
 // A body reporting one of these statuses carries no capability list, so the
 // fixture omits that slot: supplying an empty one hid that the list was read
 // first and answered web_response_invalid for a signed-out account.

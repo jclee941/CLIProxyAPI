@@ -388,6 +388,9 @@ func jsonInteger(value any) (int, bool) {
 type webAccount struct {
 	Capabilities  []capability
 	CapacityFlags []int
+	// Features are the product features the web app gates its UI on; its /veo
+	// page, for one, only opens for an account whose list carries 140.
+	Features []int
 }
 
 // webCapabilities reports the models the account may use, in the same shape the
@@ -427,6 +430,13 @@ func (session *webSession) webCapabilities(ctx context.Context) (webAccount, err
 		for _, flag := range flags {
 			if value, ok := jsonInteger(flag); ok {
 				account.CapacityFlags = append(account.CapacityFlags, value)
+			}
+		}
+	}
+	if features, present := jsonField(body, 17).([]any); present {
+		for _, feature := range features {
+			if value, ok := jsonInteger(feature); ok {
+				account.Features = append(account.Features, value)
 			}
 		}
 	}

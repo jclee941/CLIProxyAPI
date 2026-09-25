@@ -44,6 +44,11 @@ type accountView struct {
 	ObservedAt     float64            `json:"observed_at"`
 	AutoResolvedAt float64            `json:"auto_resolved_at,omitempty"`
 	Activity       *accountActivity   `json:"activity,omitempty"`
+	// CapacityFlags and Features are the two account lists GetUserStatus
+	// reports, shown as read so accounts can be told apart by what the
+	// product enables for them.
+	CapacityFlags []int `json:"capacity_flags,omitempty"`
+	Features      []int `json:"features,omitempty"`
 }
 
 type accountActivity struct {
@@ -163,6 +168,7 @@ func (service *service) inspectAccount(ctx context.Context, record storageRecord
 	if view.Activity != nil {
 		view.Status = "generating"
 	}
+	view.CapacityFlags, view.Features = account.CapacityFlags, account.Features
 	if account.ObservedAt > 0 {
 		view.ObservedAt = account.ObservedAt
 	}
