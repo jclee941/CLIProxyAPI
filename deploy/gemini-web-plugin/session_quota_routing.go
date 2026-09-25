@@ -35,8 +35,10 @@ type quotaSnapshot struct {
 // textAnswerHold is how long an account that answered a video turn as a text
 // model sits out of new rooms. On 2026-09-25 one account took sixteen video
 // turns in four hours and spent almost none of its allowance, answering each of
-// them that way while the rotation kept opening rooms on it. The hold is short
-// because accounts that do make video give the same answer now and then.
+// them that way while the rotation kept opening rooms on it. The hold is short,
+// and ends early when the five hour window turns over, because accounts that do
+// make video give the same answer now and then and a fresh window is when an
+// account that had stopped came back.
 const textAnswerHold = 30 * time.Minute
 
 // roomHeadroomUnits is the five hour allowance a new native room needs. A room is
@@ -45,20 +47,22 @@ const textAnswerHold = 30 * time.Minute
 // turns after its allowance runs out come back as quota_exhausted or text answers.
 const roomHeadroomUnits = 15000
 
-// fitsARoom reports whether an account can still finish a new room: it has the
-// allowance for one and has not just answered a video turn as a text model. An
-// account with no observation stays eligible, as the rotation treats it.
+// answersVideo reports whether an account has not just answered a video turn as
+// a text model.
+func (service *service) answersVideo(id string) bool {
+	service.quota.mu.RLock()
+	snapshot, found := service.quota.entries[id]
+	service.quota.mu.RUnlock()
+	return !found || service.now().Unix() >= snapshot.textAnswerUntil
+}
+
+// fitsARoom reports whether an account has the allowance to finish a new room.
+// An account with no observation stays eligible, as the rotation treats it.
 func (service *service) fitsARoom(id string) bool {
 	service.quota.mu.RLock()
 	snapshot, found := service.quota.entries[id]
 	service.quota.mu.RUnlock()
-	if !found {
-		return true
-	}
-	if service.now().Unix() < snapshot.textAnswerUntil {
-		return false
-	}
-	return !snapshot.roomMeasured || snapshot.roomUnits >= roomHeadroomUnits
+	return !found || !snapshot.roomMeasured || snapshot.roomUnits >= roomHeadroomUnits
 }
 
 type quotaCache struct {
@@ -151,6 +155,9 @@ func (service *service) noteTextAnswer(id string) {
 	}
 	snapshot := service.quota.entries[id]
 	snapshot.textAnswerUntil = now + int64(textAnswerHold/time.Second)
+	if snapshot.turnover > now && snapshot.turnover < snapshot.textAnswerUntil {
+		snapshot.textAnswerUntil = snapshot.turnover
+	}
 	service.quota.entries[id] = snapshot
 }
 

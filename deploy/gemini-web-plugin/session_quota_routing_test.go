@@ -237,3 +237,36 @@ func TestNewRoomsKeepRotating_whenEveryAccountAnsweredAsText(t *testing.T) {
 		t.Fatalf("benching every account starved new rooms: %+v", chosen)
 	}
 }
+
+func TestANewRoomPrefersAnAccountThatStillAnswersVideo_overOneThatAnsweredAsText(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("other")})
+	service.observeQuota(local.Target.ID, roomUsage(45655))
+	service.observeQuota(other.ID, roomUsage(3093))
+
+	service.noteVideoRefusal(local.Target.ID, webNoVideo("저는 언어 모델이고 그것을 도와드릴 능력이 없습니다."))
+
+	for range 4 {
+		if pick := service.pickServableAccount(interactionOmniModel, slotCandidates(local.Target.ID, other.ID)); pick.AuthID != other.ID {
+			t.Fatalf("a new room went back to the account that answered as text: %+v", pick)
+		}
+	}
+}
+
+func TestTheTextAnswerHoldEndsWhenTheFiveHourWindowTurnsOver(t *testing.T) {
+	service, local := continuationFixture(t)
+	now := service.now()
+	service.now = func() time.Time { return now }
+	used, reset := 0.58, float64(now.Add(6*time.Minute).Unix())
+	service.observeQuota(local.Target.ID, &usageView{Metrics: []usageMetric{{WindowKind: "5h", UsageFraction: &used, ResetUnixSeconds: &reset}}})
+
+	service.noteVideoRefusal(local.Target.ID, webNoVideo("저는 텍스트 기반 AI라서 그 요청은 도와드릴 수 없습니다."))
+	if service.answersVideo(local.Target.ID) {
+		t.Fatal("the account was not held after answering as text")
+	}
+	now = time.Unix(int64(reset), 0)
+	if !service.answersVideo(local.Target.ID) {
+		t.Fatal("the hold outlived the five hour window it was noted in")
+	}
+}

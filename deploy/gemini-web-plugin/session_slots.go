@@ -42,12 +42,10 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 		eligible = append(eligible, candidate.ID)
 	}
 	// A video room stays on the account that opens it, so open it where the whole
-	// room fits; with no such account the rotation below decides as before.
+	// room fits, else where video is still answered, else where the rotation
+	// would have gone before.
 	if model == omniModel || model == interactionOmniModel {
-		roomy := slices.DeleteFunc(slices.Clone(eligible), func(id string) bool { return !service.fitsARoom(id) })
-		if len(roomy) > 0 {
-			eligible = roomy
-		}
+		eligible = service.roomCandidates(eligible)
 	}
 	var idle, busy []string
 	for _, id := range eligible {
@@ -68,6 +66,29 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 	slices.Sort(idle)
 	index := (slotCursor.Add(1) - 1) % uint64(len(idle))
 	return continuationPick{AuthID: idle[index], Handled: true}
+}
+
+// roomCandidates narrows where a new video room may open: accounts that can
+// finish one, else accounts that have not just answered video as text, else all.
+func (service *service) roomCandidates(eligible []string) []string {
+	var roomy, answering []string
+	for _, id := range eligible {
+		if !service.answersVideo(id) {
+			continue
+		}
+		answering = append(answering, id)
+		if service.fitsARoom(id) {
+			roomy = append(roomy, id)
+		}
+	}
+	switch {
+	case len(roomy) > 0:
+		return roomy
+	case len(answering) > 0:
+		return answering
+	default:
+		return eligible
+	}
 }
 
 // slotIsIdle probes the exclusive guard a generation takes. It is a scheduling
