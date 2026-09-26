@@ -9,11 +9,12 @@ Sidecars and the GitOps convergence loop for this CLIProxyAPI fork.
 
 The fork's `main` branch is the single source of truth for what runs on the host.
 
-1. The [`upstream-sync`](../.github/workflows/upstream-sync.yml) workflow merges `router-for-me/CLIProxyAPI@main` into this fork's `main` every 30 minutes. It only runs on forks. On a merge conflict it aborts the merge and opens or updates one persistent issue labelled `upstream-sync`, then fails the run.
-2. The host converger [`pull-deploy.sh`](pull-deploy.sh) runs from cron, fetches the fork branch into a dedicated deploy clone, and rebuilds every compose project when the branch moved.
-3. When `GITOPS_CPA_MANIFEST` is set, every tick then runs [`cpa-converge.py`](cpa-converge.py) against the CPA native plugins; see [CPA native plugins](#cpa-native-plugins).
+1. The [`upstream-sync`](../.github/workflows/upstream-sync.yml) workflow merges `router-for-me/CLIProxyAPI@main` into this fork's `main` every 30 minutes. It only runs on forks. On a merge conflict it aborts the merge and opens or updates one persistent issue labelled `upstream-sync`, then fails the run. After a merge it dispatches `core-build`, because its own pushes start no workflow.
+2. The [`core-build`](../.github/workflows/core-build.yml) workflow tests and builds the CPA core whenever `main` changes it and publishes the build on the `cpa-core` release; see [CPA core](#cpa-core).
+3. The host converger [`pull-deploy.sh`](pull-deploy.sh) is run on the host after `main` moves; see [Running a deploy](#running-a-deploy). It fetches the fork branch into a dedicated deploy clone and rebuilds every compose project when the branch moved.
+4. When `GITOPS_CPA_MANIFEST` is set, each run then applies [`cpa-converge.py`](cpa-converge.py) to the CPA core and native plugins; see [CPA native plugins](#cpa-native-plugins).
 
-Nothing pushes to the host. The host pulls. To roll back, move `main` in the fork and wait for the next tick.
+Nothing pushes to the host. The host pulls. To roll back, move `main` in the fork and run `pull-deploy.sh` again.
 
 ## CPA native plugins
 
@@ -37,6 +38,7 @@ Configuration, all optional:
 | `CPA_CONTAINER` | `cliproxyapi` |
 | `CPA_API` | `http://127.0.0.1:18318` |
 | `CPA_CORE_ENV` | `/etc/cliproxy/gemini-web-local/core.env` (read for `MANAGEMENT_PASSWORD`) |
+| `CPA_CORE_BINARY` | `/opt/dashboard/gemini-web-local/CLIProxyAPI` |
 | `CPA_DRY_RUN` | unset; `1` prints the plan and changes nothing |
 
 Check a host before enabling it:
@@ -46,6 +48,16 @@ cd /opt/cliproxy && CPA_DRY_RUN=1 python3 deploy/cpa-converge.py deploy/cpa-plug
 ```
 
 Tests: `cd deploy && python3 -m unittest cpa_converge_test`.
+
+## CPA core
+
+The container bind-mounts the core executable from `/opt/dashboard/gemini-web-local/CLIProxyAPI`. `main` decides its version too, but the executable is too large to commit, so [`core-build`](../.github/workflows/core-build.yml) builds it and `cpa-converge.py` installs the build.
+
+The `core` entry of [`cpa-plugins.json`](cpa-plugins.json) names the core paths, the release the builds are published on, and the asset prefix. The core commit is the last first-parent `main` commit that touched those paths; the workflow and the converger resolve it with the same `git log` query.
+
+- `core-build` runs on pushes to `main` that touch the core paths, on dispatch from `upstream-sync`, and by hand. For a core commit without a published build, it runs `go test ./...` and builds `./cmd/server` with cgo on `golang:1.26-bookworm`, the container's Debian 12 base, with the commit stamped into the build. It publishes `CLIProxyAPI-<commit>` and `CLIProxyAPI-<commit>.sha256` on the `cpa-core` prerelease and keeps the newest ten builds. A commit whose tests fail is never published.
+- `cpa-converge.py` compares the published SHA-256 of that build with the live executable; builds are not byte-reproducible, so the published build decides. When they differ, it downloads and verifies the build before anything stops, then swaps it in the same idle-gated `docker stop -t 240` / `docker start` window as the restart plugins, so a core change and a plugin change share one restart. The host must then report the new commit in `X-CPA-COMMIT`, every manifest plugin loaded, and as many ready accounts as before. Otherwise it gets one `docker restart`, and the run fails without a rollback. The replaced executable stays as `CLIProxyAPI.prev`.
+- A core commit whose build is not published yet fails the run before anything changes. Run `pull-deploy.sh` again after `core-build` finishes.
 
 ## One-time host setup
 
@@ -63,13 +75,15 @@ Fill in the secrets in each `.env`. Both files are git-ignored, so the converger
 
 The deploy clone is reset with `git reset --hard` on every update. Use it only for deployment; never edit code inside it. The converger aborts if `git status --porcelain` is non-empty.
 
-## Cron
+## Running a deploy
 
-```cron
-*/5 * * * * GITOPS_DEPLOY_DIR=/srv/cliproxy /srv/cliproxy/deploy/pull-deploy.sh >> /srv/cliproxy/pull-deploy.log 2>&1
+There is no cron entry; deploys are explicit. After `main` moves, and after `core-build` has published any core change, run the converger on the host:
+
+```bash
+GITOPS_DEPLOY_DIR=/srv/cliproxy GITOPS_CPA_MANIFEST=deploy/cpa-plugins.json /srv/cliproxy/deploy/pull-deploy.sh >> /srv/cliproxy/pull-deploy.log 2>&1
 ```
 
-Install it with `crontab -e`. Overlapping ticks are safe: the script takes a non-blocking `flock` on a lock file next to the deploy directory and skips the tick if another run is active.
+A run that finds an Omni turn in flight leaves its restart to the next run. Overlapping runs are safe: the script takes a non-blocking `flock` on a lock file next to the deploy directory and skips the run if another one is active.
 
 ### Configuration
 
@@ -80,15 +94,6 @@ Install it with `crontab -e`. Overlapping ticks are safe: the script takes a non
 | `GITOPS_BRANCH` | `main` | Branch to converge on |
 | `GITOPS_COMPOSE_FILES` | `docker-compose.yml deploy/telegram-usage-bot/docker-compose.yml` | Space-separated compose files, applied in order |
 | `GITOPS_LOCK_FILE` | `<deploy dir>.pull-deploy.lock` | Lock file path |
-| `GITOPS_CPA_MANIFEST` | *(unset)* | CPA plugin manifest relative to the deploy clone, e.g. `deploy/cpa-plugins.json`; enables `cpa-converge.py` on every tick |
+| `GITOPS_CPA_MANIFEST` | *(unset)* | CPA manifest relative to the deploy clone, e.g. `deploy/cpa-plugins.json`; enables `cpa-converge.py` on every run |
 
 `pull-deploy.log` is not rotated by the script. Add a `logrotate` entry if it grows.
-
-### Remove the cron entry
-
-```bash
-crontab -e   # delete the pull-deploy.sh line, then save
-crontab -l   # confirm it is gone
-```
-
-Removing the cron entry stops future convergence only. Containers keep running; stop them with `docker compose -f <file> down` per project.
