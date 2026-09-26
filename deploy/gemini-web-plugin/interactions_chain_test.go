@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -192,13 +193,9 @@ func TestLocateChainedFindsACompletedInteractionOnAnotherAccount(t *testing.T) {
 	if err := service.sessions.write(other); err != nil {
 		t.Fatal(err)
 	}
-	service.host = (&loginHostFixture{
-		records: map[string]json.RawMessage{
-			local.Target.ID: jsonFixture(t, local.Target),
-			other.Target.ID: jsonFixture(t, other.Target),
-		},
-		service: service,
-	}).call
+	// A disabled owner is absent from the host's account list, so the search
+	// must not depend on the host at all.
+	service.host = func(string, []byte) ([]byte, error) { return nil, errors.New("host unavailable") }
 	currentAuth, err := authFromRecord(local.Target)
 	if err != nil {
 		t.Fatal(err)

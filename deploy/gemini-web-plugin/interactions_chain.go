@@ -45,7 +45,9 @@ func parseChainedReference(value string) (chainedLocation, bool) {
 // locateChained finds the account holding a previous interaction when it is not
 // the one serving this turn. The owner continues its own conversation, the only
 // extension with no length ceiling; another account serves only because the
-// owner is blocked, and it continues from the stored video instead.
+// owner is blocked, and it continues from the stored video instead. The search
+// reads the session store rather than the host's accounts, because a disabled
+// owner is one of the blocked owners whose video has to travel.
 func (service *service) locateChained(request executorRequest, previous string) (chainedLocation, bool, error) {
 	key := continuationKey(previous)
 	caller := request.Metadata.CallerScope
@@ -56,18 +58,14 @@ func (service *service) locateChained(request executorRequest, previous string) 
 	if service.holdsInteraction(record.TokenRef, key, caller) {
 		return chainedLocation{}, false, nil
 	}
-	entries, err := service.entries(request.HostCallbackID)
+	records, err := service.localStore().records()
 	if err != nil {
 		return chainedLocation{}, false, err
 	}
-	for _, entry := range entries {
-		other, found, recordErr := service.getRecord(request.HostCallbackID, entry)
-		// One unreadable account does not decide the answer for the rest.
-		if recordErr != nil || !found || other.TokenRef == record.TokenRef {
-			continue
-		}
-		if service.holdsInteraction(other.TokenRef, key, caller) {
-			return chainedLocation{Account: other.TokenRef, Key: key, Caller: caller}, true, nil
+	for _, local := range records {
+		account := local.Target.TokenRef
+		if account != record.TokenRef && service.holdsInteraction(account, key, caller) {
+			return chainedLocation{Account: account, Key: key, Caller: caller}, true, nil
 		}
 	}
 	// No account holds it, which is also what a caller presenting someone else's
