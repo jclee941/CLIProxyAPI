@@ -33,6 +33,9 @@ type quotaSnapshot struct {
 	roomMeasured bool
 	weekUnits    float64
 	weekMeasured bool
+	// weekTurnover is when the weekly window resets. Once a window has turned
+	// over, what it had left says nothing about the refilled one.
+	weekTurnover int64
 	// delivered counts the videos the account delivered since this reading; the
 	// next reading divides what the five hour window lost by it.
 	delivered int
@@ -85,7 +88,18 @@ func (service *service) affordsARoom(id string) bool {
 	if !found {
 		return true
 	}
-	return (!snapshot.roomMeasured || snapshot.roomUnits >= need) && (!snapshot.weekMeasured || snapshot.weekUnits >= need)
+	// Only a video turn or the account listing takes a new reading, and neither
+	// happens while no room opens: a reading from a window that has since turned
+	// over kept every account out of new rooms for two hours on 2026-09-26, each
+	// with a full window, until someone opened the listing.
+	now := service.now().Unix()
+	roomKnown := snapshot.roomMeasured && !turnedOver(snapshot.turnover, now)
+	weekKnown := snapshot.weekMeasured && !turnedOver(snapshot.weekTurnover, now)
+	return (!roomKnown || snapshot.roomUnits >= need) && (!weekKnown || snapshot.weekUnits >= need)
+}
+
+func turnedOver(reset, now int64) bool {
+	return reset > 0 && now >= reset
 }
 
 type quotaCache struct {
@@ -115,6 +129,9 @@ func (service *service) observeQuota(id string, usage *usageView) {
 		if metric.WindowKind == "5h" && metric.RemainingUnits != nil {
 			snapshot.roomUnits = *metric.RemainingUnits
 			snapshot.roomMeasured = true
+		}
+		if metric.WindowKind == "weekly" && metric.ResetUnixSeconds != nil {
+			snapshot.weekTurnover = int64(*metric.ResetUnixSeconds)
 		}
 		if metric.WindowKind == "weekly" && metric.RemainingUnits != nil {
 			snapshot.weekUnits = *metric.RemainingUnits

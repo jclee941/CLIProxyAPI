@@ -323,6 +323,41 @@ func TestARoomNeedsThreeMeasuredVideosInBothWindows(t *testing.T) {
 	}
 }
 
+// Nothing reads the windows while no room opens, so a short reading from a
+// window that has since turned over must not keep the account out.
+func TestAShortReadingFromAWindowThatTurnedOverKeepsNoAccountOut(t *testing.T) {
+	service, local := continuationFixture(t)
+	now := service.now()
+	service.now = func() time.Time { return now }
+	short, full := 10000.0, 900000.0
+	later := float64(now.Add(time.Hour).Unix())
+	muchLater := float64(now.Add(5 * time.Hour).Unix())
+	reading := func(fiveHour, week, fiveHourReset, weekReset float64) *usageView {
+		return &usageView{Metrics: []usageMetric{
+			{RemainingUnits: &fiveHour, WindowKind: "5h", ResetUnixSeconds: &fiveHourReset},
+			{RemainingUnits: &week, WindowKind: "weekly", ResetUnixSeconds: &weekReset},
+		}}
+	}
+
+	service.observeQuota(local.Target.ID, reading(short, full, later, muchLater))
+	if service.affordsARoom(local.Target.ID) {
+		t.Fatal("an account short of a room in its five hours opened one")
+	}
+	now = time.Unix(int64(later), 0)
+	if !service.affordsARoom(local.Target.ID) {
+		t.Fatal("a five hour window that turned over still kept the account out")
+	}
+
+	service.observeQuota(local.Target.ID, reading(full, short, muchLater, later+3600))
+	if service.affordsARoom(local.Target.ID) {
+		t.Fatal("an account short of a room in its week opened one")
+	}
+	now = time.Unix(int64(later+3600), 0)
+	if !service.affordsARoom(local.Target.ID) {
+		t.Fatal("a weekly window that turned over still kept the account out")
+	}
+}
+
 // A window that turned over between two readings hides what was spent in it.
 func TestAWindowThatTurnedOverPricesNoVideo(t *testing.T) {
 	service, local := continuationFixture(t)
