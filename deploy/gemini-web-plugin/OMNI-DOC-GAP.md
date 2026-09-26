@@ -43,8 +43,9 @@ one.
 | First and last frame interpolation | reachable, undocumented | `<FIRST_FRAME>`/`<LAST_FRAME>` in the prompt; nothing in the plugin blocks it. NOT yet measured here |
 | Subject reference | reachable, undocumented | `<IMAGE_REF_N>` in the prompt; images are uploaded in the order sent, which the tags index from 0. NOT yet measured here |
 | Tasks parameter (`generation_config.video_config.task`) | live for `extend` | the wire has no task slot, so `extend` is carried as the product's own `[# Sources <PREVIOUS_VIDEO>@Video1]` declaration; other tasks stay refused |
-| Stateful editing across turns | live | `previous_interaction_id` stays on the original account and conversation; an unavailable owner fails closed |
+| Stateful editing across turns | live | `previous_interaction_id` stays on the original account and conversation while it can serve; a blocked owner hands the stored video to another account, which extends it (10.005s -> 20.010s, measured 2026-09-27) |
 | Editing an uploaded video | tried, failed | `[# Sources <VIDEO_0>@Video1]` measured to spend the full budget and answer no video |
+| Extending an uploaded video | live | `[# Sources <VIDEO_0>@Video1]` with `task=extend`: 10.005s -> 20.000s cumulative, measured 2026-09-27; `[# References <VIDEO_REF_0>@Video1]` instead makes a new 10s clip |
 | Video extension | live | declared in its own conversation: 10.005s -> 20.010s -> 30.016s -> 40.000s, four for four, measured 2026-09-21 |
 | Cross-account attachment continuation | removed | prior clips are no longer uploaded to another account as a fallback |
 | URI delivery (`delivery:"uri"`) | refused | the download URL opens only with the session cookie, and there is no route here to serve it from |

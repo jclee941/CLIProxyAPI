@@ -32,7 +32,7 @@ Files API, but it does take a video as an ordinary attachment and read it: a
 three second clip attached to a text turn was described correctly. So video input
 works here by a different route than the SDK's, and only for callers who send the
 bytes inline.
-| Chaining | `previous_interaction_id` | live | prior video attached; follow-up may use another account |
+| Chaining | `previous_interaction_id` | live | continues the original conversation; a blocked owner hands the stored video to another account |
 | Storage opt-out | `store:false` | live | |
 | Background | `background:true` | unexpressible | web has no detached job handle |
 | Streaming | `stream:true` | partial | retrieval streams; submit is synchronous |

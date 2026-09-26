@@ -98,7 +98,7 @@ No `extra_body`, custom SDK, management generation route, Veo operation, or
 | --- | --- |
 | POST `/v1beta/interactions` | Supported subset below |
 | `input` string or list of `{type:"text", text:...}` | Supported; one new prompt, up to the existing 8000-character limit |
-| `previous_interaction_id` | Completed stored interaction only; the original account and conversation are required. If unavailable, the request fails without switching accounts or uploading the prior clip elsewhere |
+| `previous_interaction_id` | Completed stored interaction only. It continues in the original conversation while that account can serve; otherwise another account extends the stored video and returns a new id to continue from. Measured 2026-09-27: 10.005s -> 20.010s on the second account |
 | `generation_config.video_config.task` | `extend` only; continues the named interaction's video. Measured on one account and one conversation: 10.005s -> 20.010s -> 30.016s -> 40.000s, ten seconds per turn |
 | `store:true` or omitted | Keep the bounded local interaction receipt history |
 | `store:false` | Remove the completed receipt; later stateful editing with its ID fails before submission |
@@ -123,10 +123,13 @@ submission state are stored there, not accepted as client identifiers.
 Only a create without `previous_interaction_id` selects among eligible accounts
 using round-robin. Accounts with a known exhausted five-hour or weekly quota are
 excluded until their reset or a fresh usage observation restores availability.
-Continuations and retrieval stay on the original account and conversation.
-An unavailable continuation owner returns an error; there is no cross-account
-attachment fallback. Retrieval of an existing result remains allowed when that
-account's generation quota is exhausted.
+A continuation stays on the original account and conversation while that
+account can serve, a busy one included. When it is blocked - a spent window or
+video allowance, a session that cannot run a turn, or an account the host does
+not offer - the next eligible account uploads the stored video and extends it,
+and the new id belongs to that account. The request fails only when no account
+can take it or the previous turn has no finished video. Retrieval stays on the
+original account, and remains allowed when its generation quota is exhausted.
 The executor independently rejects wrong selected accounts, unknown/tampered
 IDs, stale projections, disabled accounts, and identity changes.
 
