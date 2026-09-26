@@ -55,9 +55,17 @@ func (service *service) mediaSources(ctx context.Context, media []webMedia, call
 	for _, item := range media {
 		var source webSource
 		var err error
-		if _, stored := filesReferenceID(item.Reference); stored {
+		location, chained := parseChainedReference(item.Reference)
+		_, stored := filesReferenceID(item.Reference)
+		switch {
+		case chained && location.Caller != caller:
+			// Only the caller that made the previous video may carry it.
+			err = failure(400, "attachment_reference_unsupported")
+		case chained:
+			source, err = service.chainedSource(location)
+		case stored:
 			source, err = service.resolveFileSource(caller, item.Reference)
-		} else {
+		default:
 			source, err = service.mediaSource(ctx, item)
 		}
 		if err != nil {

@@ -78,6 +78,20 @@ func (service *service) slotIsIdle(reference string) bool {
 	return true
 }
 
+// ownerServes reports whether the account holding a chain can take its next
+// turn. A busy owner still serves, since the turn waits for its slot; one with
+// spent windows or video allowance, or a session no process can run, is blocked.
+func (service *service) ownerServes(local localSession) bool {
+	if !service.quotaAvailable(local.Target.ID) {
+		return false
+	}
+	state := service.leases.get(local.Target.TokenRef).snapshot()
+	if state.state == maintenanceOperator || state.state == maintenanceFenced && service.now().Before(state.nextDue) {
+		return false
+	}
+	return local.State == localReady || !service.slotIsIdle(local.Target.TokenRef)
+}
+
 // runningTurn reports the generation an account is currently on. A submitted
 // turn locks the session, and the account listing used to render that lock as
 // needs_operator, which is the same thing a stranded account shows.

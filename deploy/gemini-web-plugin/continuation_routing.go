@@ -57,7 +57,7 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 		return interactionRejection(err)
 	}
 	response := requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader}}
-	// Continuations must stay on the account that owns the conversation.
+	// Continuations prefer the account that owns the conversation.
 	if body.Previous != "" {
 		response.Headers = http.Header{continuationHeader: {body.Previous}}
 	}
@@ -126,25 +126,36 @@ func (service *service) pickContinuation(raw []byte) (continuationPick, error) {
 		return continuationPick{}, err
 	}
 	key := continuationKey(token)
+	retrieval := request.Options.Headers.Get(interactionRetrieveHeader) == "true"
 	for _, local := range records {
 		turns, err := continuationTurns(local)
 		if err != nil {
 			return continuationPick{}, err
 		}
-		if turn, found := turns[key]; !found || turn.CallerScope != request.Options.Metadata.CallerScope {
+		turn, found := turns[key]
+		if !found || turn.CallerScope != request.Options.Metadata.CallerScope {
 			continue
 		}
+		owner := local.Target.ID
 		for _, candidate := range request.Candidates {
-			if candidate.ID == local.Target.ID && candidate.Provider == provider {
-				if request.Options.Headers.Get(interactionRetrieveHeader) != "true" && !service.quotaAvailable(candidate.ID) {
-					return continuationPick{}, failure(409, "continuation_account_unavailable")
-				}
-				return continuationPick{AuthID: candidate.ID, Handled: true}, nil
+			if candidate.ID == owner && candidate.Provider == provider && (retrieval || service.ownerServes(local)) {
+				return continuationPick{AuthID: owner, Handled: true}, nil
 			}
+		}
+		// A retrieval has to land on the owner, the only store holding its result.
+		// A create moves to another account only with a finished video to carry.
+		if retrieval || turn.State != "complete" || !turn.ResultStored {
+			return continuationPick{}, failure(409, "continuation_account_unavailable")
+		}
+		others := slices.DeleteFunc(slices.Clone(request.Candidates), func(candidate struct{ ID, Provider string }) bool {
+			return candidate.ID == owner
+		})
+		if pick := service.pickServableAccount(request.Model, others); pick.Handled {
+			return pick, nil
 		}
 		return continuationPick{}, failure(409, "continuation_account_unavailable")
 	}
-	if request.Options.Headers.Get(interactionRetrieveHeader) == "true" {
+	if retrieval {
 		return continuationPick{}, failure(404, "interaction_not_found")
 	}
 	return continuationPick{}, failure(400, "continuation_identity_mismatch")

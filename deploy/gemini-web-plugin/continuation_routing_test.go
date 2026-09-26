@@ -34,7 +34,7 @@ func continuationReceipt(t *testing.T, result envelope) continuationView {
 	}
 	return body.View
 }
-func TestInteractionContinuationRequiresTheOwner(t *testing.T) {
+func TestInteractionContinuationPrefersTheOwner(t *testing.T) {
 	// Given a receipt prepared on one account.
 	service, local := continuationFixture(t)
 	token := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`)).Token
@@ -67,7 +67,7 @@ func TestInteractionContinuationRequiresTheOwner(t *testing.T) {
 	if !choice.Handled || choice.AuthID != local.Target.ID {
 		t.Fatalf("choice: %+v", choice)
 	}
-	// An unavailable owner must fail, even when another account is eligible.
+	// An owner not offered cannot be replaced while it has no finished video to carry.
 	delegated := invoke(t, service, "scheduler.pick", map[string]any{"Provider": provider, "Model": flashModel, "Options": map[string]any{"Headers": response.Headers, "Metadata": map[string]string{"caller_scope": testCallerScope}}, "Candidates": []any{map[string]string{"ID": "other", "Provider": provider}}})
 	if delegated.OK || delegated.Error == nil || delegated.Error.HTTPStatus != 409 || !strings.Contains(delegated.Error.Code, "continuation_account_unavailable") {
 		t.Fatalf("an unavailable owner did not fail closed: %+v", delegated)

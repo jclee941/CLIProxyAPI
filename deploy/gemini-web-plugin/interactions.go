@@ -121,7 +121,7 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 		return request, nil, failure(400, "interaction_extend_requires_source")
 	}
 	if request.GenerationConfig.VideoConfig.Task == interactionExtendTask && request.Previous == "" && !webRoleDeclared(prompt) {
-		prompt = "[# Sources <VIDEO_0>@Video1] " + prompt
+		prompt = uploadedVideoDeclaration + prompt
 	}
 	parts := make([]any, 0, len(references)+1)
 	parts = append(parts, map[string]string{"text": prompt})
@@ -176,9 +176,22 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 	native.Stream = false
 	native.freshContinuation = true
 	previous := body.Previous
-	if previous != "" && body.GenerationConfig.VideoConfig.Task == interactionExtendTask {
-		if payload, err = withPreviousVideoDeclaration(payload); err != nil {
-			return nil, err
+	if previous != "" {
+		location, carried, errLocate := service.locateChained(request, previous)
+		if errLocate != nil {
+			return nil, errLocate
+		}
+		extend := body.GenerationConfig.VideoConfig.Task == interactionExtendTask
+		switch {
+		case carried:
+			if payload, err = withChainedReference(payload, location, extend); err != nil {
+				return nil, err
+			}
+			previous = ""
+		case extend:
+			if payload, err = withPreviousVideoDeclaration(payload); err != nil {
+				return nil, err
+			}
 		}
 	}
 	native.Payload, err = json.Marshal(map[string]any{continuationField: continuationControl{Action: "prepare", Token: previous}})
