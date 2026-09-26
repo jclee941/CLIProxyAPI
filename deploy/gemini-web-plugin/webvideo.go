@@ -183,6 +183,13 @@ func webParseVideoCandidate(candidate any) (webVideoState, error) {
 	if strings.Contains(text, webVideoChipMarker) {
 		return webVideoState{}, nil
 	}
+	// Accounts on the asynchronous video flow close the stream once the video is
+	// accepted, and until it is ready the reply carries no text and no chip, only
+	// the in-progress status. Read as a refusal, every video those accounts made
+	// was reported as no_video_generated while it finished unobserved.
+	if jsonField(candidate, 8, 0) == float64(1) {
+		return webVideoState{}, nil
+	}
 	return webVideoState{}, webNoVideo(text)
 }
 

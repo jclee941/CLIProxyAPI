@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -106,6 +107,28 @@ func TestWebParseVideoCandidateWaitsOnTheChip(t *testing.T) {
 	}
 	if state.Ready {
 		t.Fatalf("state = %+v, want pending", state)
+	}
+}
+
+// An account on the asynchronous video flow closes the stream once the video is
+// accepted, and until it is ready the reply has no text and no chip: only its
+// status says the turn is still running. Both candidates are what a live account
+// returned on 2026-09-26, trimmed; the second is a finished reply without a video.
+func TestWebParseVideoCandidateWaitsOnAnAsynchronousVideo(t *testing.T) {
+	decode := func(raw string) any {
+		var candidate any
+		if err := json.Unmarshal([]byte(raw), &candidate); err != nil {
+			t.Fatal(err)
+		}
+		return candidate
+	}
+	state, err := webParseVideoCandidate(decode(`["rc_d3a849f1d97af68a",[""],null,null,null,null,null,null,[1],null,null,null,[null,null,null,null,null,null,null,[]]]`))
+	if err != nil || state.Ready {
+		t.Fatalf("an accepted video still in progress read as state=%+v err=%v", state, err)
+	}
+	_, err = webParseVideoCandidate(decode(`["rc_200f6bba86f3d3b5",["저는 언어 모델일 뿐이라서 그것을 도와드릴 수가 없습니다."],null,null,null,null,null,null,[2],"ko"]`))
+	if safeCredentialCode(err) != "no_video_generated" {
+		t.Fatalf("a finished reply without a video answered %v", err)
 	}
 }
 
