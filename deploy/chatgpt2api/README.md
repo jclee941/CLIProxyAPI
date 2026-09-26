@@ -8,7 +8,7 @@ presence does not mean chatgpt2api is running.
 ## Retired launcher
 
 This directory's `cliproxy-compose` refuses to start services. The active CPA
-wrapper is maintained at `deploy/gemini-web-local/cliproxy-compose` and installed
+wrapper is maintained at `deploy/gemini-web/cliproxy-compose` and installed
 at `/usr/local/sbin/cliproxy-compose`. It uses only the current
 `docker-compose.dashboard-only.yml` (CPA and Postgres), without sidecar overlays
 or sidecar credential preparation. Do not recreate these retired services.

@@ -7,7 +7,7 @@ library; no external secret CLI or sidecar is started by this job.
 ## Credentials
 
 `run.sh` starts the runner, which reads `MANAGEMENT_PASSWORD` from
-`/etc/cliproxy/gemini-web-local/core.env` as data, without executing shell code
+`/etc/cliproxy/gemini-web/core.env` as data, without executing shell code
 or exporting the key. Preserve the existing key. The file must remain root-owned,
 mode `0600`, in a protected directory. `GEMINI_MAINTENANCE_ENV_FILE` can override
 the path for isolated checks.
@@ -29,26 +29,23 @@ IDs. Exit 0 means a valid cycle report, not that every account is ready.
 Exit 1 indicates HTTP, transport, or response failure; exit 2 indicates invalid
 arguments or credentials.
 
-## Scheduling and deployment
+## Running and deployment
 
-The oneshot service runs the same `run.sh` entry point as manual invocation.
-`Restart=no`, `OnBootSec=30s`, and `OnUnitInactiveSec=5min` prevent overlap and
-measure the interval from completion. `TimeoutStartSec=0` avoids terminating an
-active credential write. Installation must preserve the timer's current enabled
-or disabled state.
+Nothing schedules this job; an operator starts it. The plugin rotates each
+session's cookies itself. The oneshot service runs the same `run.sh` entry point
+as manual invocation, with `Restart=no`, and `TimeoutStartSec=0` avoids
+terminating an active credential write.
 
 ```sh
 install -d -m 0755 /opt/gemini-web-plugin/ops
 install -m 0644 deploy/gemini-web-plugin/ops/maintain.py /opt/gemini-web-plugin/ops/maintain.py
 install -m 0755 deploy/gemini-web-plugin/ops/run.sh /opt/gemini-web-plugin/ops/run.sh
 install -m 0644 deploy/gemini-web-plugin/ops/gemini-session-maintenance.service /etc/systemd/system/
-install -m 0644 deploy/gemini-web-plugin/ops/gemini-session-maintenance.timer /etc/systemd/system/
 systemctl daemon-reload
+systemctl start gemini-session-maintenance.service
 ```
 
-Only enable scheduling when maintenance ownership and account readiness have
-been verified. Before manual credential replacement, stop future scheduling and
-let active credential owners drain. Do not kill a running maintenance service,
+Before manual credential replacement, let active credential owners drain. Do not kill a running maintenance service,
 delete state files, clear fences, or restore stale session data to bypass an
 uncertain operation. Routine cookie rotation does not require a container restart.
 

@@ -50,7 +50,7 @@ def management_key() -> str:
     injected = os.getenv("GEMINI_MAINTENANCE_KEY")
     if injected is not None:
         return injected
-    path = Path(os.getenv("GEMINI_MAINTENANCE_ENV_FILE", "/etc/cliproxy/gemini-web-local/core.env"))
+    path = Path(os.getenv("GEMINI_MAINTENANCE_ENV_FILE", "/etc/cliproxy/gemini-web/core.env"))
     try:
         for line in path.read_text(encoding="utf-8").splitlines():
             name, separator, value = line.removeprefix("export ").partition("=")

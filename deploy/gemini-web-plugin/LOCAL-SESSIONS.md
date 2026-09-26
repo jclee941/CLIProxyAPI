@@ -17,7 +17,7 @@ Configure `session_dir` (a dedicated absolute directory with mode `0700`),
 `manager_origin` (the exact HTTPS origin, without a path), and
 `browser_extension_id` (the registered 32-character extension ID). Inject
 `GEMINI_WEB_SESSION_KEY` into the host process at bootstrap from the protected
-local `/etc/cliproxy/gemini-web-local/session.key` file. Its value must be canonical base64 encoding of
+local `/etc/cliproxy/gemini-web/session.key` file. Its value must be canonical base64 encoding of
 32 random bytes. The plugin never generates this key, accepts it in configuration,
 or returns it. Preserve the existing key and its protected backup: changing it
 would make existing encrypted sessions unreadable. No external secret CLI is required.

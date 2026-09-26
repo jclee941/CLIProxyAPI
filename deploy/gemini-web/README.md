@@ -41,7 +41,7 @@ are already supplied by its protected local mounts. The wrapper does not fetch
 secrets or prepare sidecar files.
 
 ```sh
-python3 -B deploy/gemini-web-local/test_startup.py -v
+python3 -B deploy/gemini-web/test_startup.py -v
 /usr/local/sbin/cliproxy-compose config --services
 ```
 
@@ -49,11 +49,11 @@ python3 -B deploy/gemini-web-local/test_startup.py -v
 
 - Compose: `/opt/dashboard/docker-compose.dashboard-only.yml`, project
   `dashboard`, service `cliproxyapi`; image pinned to the exact original image ID.
-- Persistent core/config/store: `/opt/dashboard/gemini-web-local/`.
-- Encrypted store: `/opt/dashboard/gemini-web-local/sessions`, `0700`; files `0600`.
-- Key: `/etc/cliproxy/gemini-web-local/session.key`, `0600` in a `0700` directory.
+- Persistent core/config/store: `/opt/dashboard/gemini-web/`.
+- Encrypted store: `/opt/dashboard/gemini-web/sessions`, `0700`; files `0600`.
+- Key: `/etc/cliproxy/gemini-web/session.key`, `0600` in a `0700` directory.
 - Existing non-external-secret runtime environment:
-  `/etc/cliproxy/gemini-web-local/core.env`, `0600`.
+  `/etc/cliproxy/gemini-web/core.env`, `0600`.
 - `start-production.sh` reads the mounted key at every process startup. Production
   retains its normal PATH. The `op` bind mount and `OP_SERVICE_ACCOUNT_TOKEN`
   were removed; other runtime environment values are byte-for-byte preserved.
@@ -61,13 +61,9 @@ python3 -B deploy/gemini-web-local/test_startup.py -v
   file hashes, both unrelated plugin hashes, core ports/networks/image, and all
   other container PIDs were verified unchanged. VNC/browser and CPA are healthy;
   both Cloudflare service PIDs are unchanged.
-- The old external maintenance timer is disabled/inactive. The installed local-only
-  timer is configured for 30 minutes and reads the running management key in memory. Its
-  account list explicitly excludes the uncertain account. Any maintenance failure
-  stops the new timer instead of blindly repeating an uncertain renewal. Unit
-  verification passed; its first scheduled run was not awaited. It is currently
-  paused for the unresolved renewal and the next credential-writer handoff. The
-  prior direct HTTP maintenance results are the runtime evidence.
+- No maintenance or reauth timer runs. The plugin rotates each session's cookies
+  itself; the timers and their scripts were removed from the host on 2026-09-20
+  and from this directory on 2026-09-27.
 - `gemini-web-importer` remains stopped. Do not resume it: its copied sessions and
   auths are now historical and production owns the current session lineage.
 
@@ -107,16 +103,14 @@ docker compose -p dashboard -f /opt/dashboard/docker-compose.dashboard-only.yml 
 
 Do not restart while any credential/generation operation is unresolved merely
 to clear a fence. The persistence restart recorded above happened before Omni.
-Stop scheduling with `systemctl stop gemini-web-local-maintenance.timer`.
 
 Rollback is an explicit legacy restoration, **not** recovery of the uncertain
 local credential. It would reintroduce the old external dependencies and was not
 executed. Preserve the current encrypted store/key and every receipt first. Stop
-the new timer and core, then restore only these snapshot paths:
+the core, then restore only these snapshot paths:
 
 ```sh
 backup=/root/.local/state/gemini-web-production-backup-296ca68a091f
-systemctl stop gemini-web-local-maintenance.timer
 docker stop cliproxyapi
 cp "$backup/gemini-web.so" /opt/dashboard/plugins/gemini-web.so
 cp "$backup/runtime-config.yaml" /run/cliproxy/config.yaml
@@ -130,9 +124,7 @@ docker compose -p dashboard -f /opt/dashboard/docker-compose.dashboard-only.yml 
 The private `rollback-compose.yml` already pins the snapshot image and loads the
 captured environment from the root-only `rollback-core.env`, without resolving
 new secrets. The unmodified original Compose is also retained as `compose.yml`.
-Restore the five original flags exactly. Leave
-the external maintenance timer stopped unless legacy external-secret operations
-are explicitly permitted. Never overwrite other providers' auth files, delete
+Restore the five original flags exactly. Never overwrite other providers' auth files, delete
 uncertain session records, or start both cores against the current local store.
 
 ## Historical Staging Preparation

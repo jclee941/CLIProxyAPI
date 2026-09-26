@@ -2,7 +2,7 @@
 Description=Gemini Web session maintenance through the authenticated local API
 After=docker.service network-online.target
 Wants=network-online.target
-ConditionPathExists=/etc/cliproxy/gemini-web-local/core.env
+ConditionPathExists=/etc/cliproxy/gemini-web/core.env
 ConditionFileIsExecutable=/usr/bin/python3
 ConditionPathExists=/opt/gemini-web-plugin/ops/maintain.py
 

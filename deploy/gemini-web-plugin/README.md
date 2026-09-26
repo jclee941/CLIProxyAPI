@@ -26,9 +26,9 @@ native_continuation: true
 ```
 
 The running process needs `GEMINI_WEB_SESSION_KEY`. On the deployed host,
-`deploy/gemini-web-local/start-production.sh` reads the mounted
-`/run/gemini-web-local/session.key`; its protected host source is
-`/etc/cliproxy/gemini-web-local/session.key`. Preserve this existing key and the
+`deploy/gemini-web/start-production.sh` reads the mounted
+`/run/gemini-web/session.key`; its protected host source is
+`/etc/cliproxy/gemini-web/session.key`. Preserve this existing key and the
 encrypted session directory together. Never generate a replacement key during an
 upgrade. Directory mode is `0700`; key and session file modes are `0600`.
 
@@ -82,6 +82,6 @@ lock: loading another plugin instance can fail with
 `session_store_already_owned`. Do not delete lock/session files. A coordinated
 container restart releases the old owner.
 
-For management checks, load `/etc/cliproxy/gemini-web-local/core.env` only on the
+For management checks, load `/etc/cliproxy/gemini-web/core.env` only on the
 host and use `MANAGEMENT_PASSWORD` in memory. Do not print the environment or put
 credentials in command arguments, documents, or logs.

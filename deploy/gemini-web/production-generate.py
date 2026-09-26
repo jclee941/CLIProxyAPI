@@ -24,7 +24,7 @@ def generate(model: str) -> None:
     receipt = root / ("production-" + model + ".json")
     with receipt.open("x") as stream:
         _ = stream.write(json.dumps({"model": model, "status": "submitting", "submissions": 1}))
-    config = narrow(cast(object, yaml.safe_load(Path("/opt/dashboard/gemini-web-local/config.yaml").read_text())), is_mapping)
+    config = narrow(cast(object, yaml.safe_load(Path("/opt/dashboard/gemini-web/config.yaml").read_text())), is_mapping)
     key = narrow(narrow(config["api-keys"], is_sequence)[0], is_text)
     prompt = "Reply with exactly OK." if model == "gemini-web-flash" else "Create a short video of a blue ball resting on a white table. Static camera."
     payload = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}

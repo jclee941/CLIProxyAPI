@@ -38,8 +38,8 @@ Configuration, all optional:
 | `CPA_PLUGIN_DIR` | `/opt/dashboard/plugins` |
 | `CPA_CONTAINER` | `cliproxyapi` |
 | `CPA_API` | `http://127.0.0.1:18318` |
-| `CPA_CORE_ENV` | `/etc/cliproxy/gemini-web-local/core.env` (read for `MANAGEMENT_PASSWORD`) |
-| `CPA_CORE_BINARY` | `/opt/dashboard/gemini-web-local/CLIProxyAPI` |
+| `CPA_CORE_ENV` | `/etc/cliproxy/gemini-web/core.env` (read for `MANAGEMENT_PASSWORD`) |
+| `CPA_CORE_BINARY` | `/opt/dashboard/gemini-web/CLIProxyAPI` |
 | `CPA_DRY_RUN` | unset; `1` prints the plan and changes nothing |
 
 Check a host before enabling it:
@@ -52,7 +52,7 @@ Tests: `cd deploy && python3 -m unittest cpa_converge_test`.
 
 ## CPA core
 
-The container bind-mounts the core executable from `/opt/dashboard/gemini-web-local/CLIProxyAPI`. `master` decides its version too, but the executable is too large to commit, so [`core-build`](../.github/workflows/core-build.yml) builds it and `cpa-converge.py` installs the build.
+The container bind-mounts the core executable from `/opt/dashboard/gemini-web/CLIProxyAPI`. `master` decides its version too, but the executable is too large to commit, so [`core-build`](../.github/workflows/core-build.yml) builds it and `cpa-converge.py` installs the build.
 
 The `core` entry of [`cpa-plugins.json`](cpa-plugins.json) names the core paths, the release the builds are published on, and the asset prefix. The core commit is the last first-parent `master` commit that touched those paths; the workflow and the converger resolve it with the same `git log` query.
 
