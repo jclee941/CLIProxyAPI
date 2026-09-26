@@ -9,7 +9,7 @@
 #   GITOPS_DEPLOY_DIR      Required. Dedicated clone used ONLY for deployment.
 #                          Never point this at a developer working tree.
 #   GITOPS_REMOTE          Git remote URL. Default: fork origin.
-#   GITOPS_BRANCH          Branch to converge on. Default: main.
+#   GITOPS_BRANCH          Branch to converge on. Default: master.
 #   GITOPS_COMPOSE_FILES   Space-separated compose files, relative to the
 #                          deploy dir, applied in order.
 #   GITOPS_LOCK_FILE       Lock file path. Default: sibling of the deploy dir.
@@ -46,7 +46,7 @@ if [ -z "$deploy_dir" ]; then
 fi
 
 remote="${GITOPS_REMOTE:-https://github.com/jclee941/CLIProxyAPI.git}"
-branch="${GITOPS_BRANCH:-main}"
+branch="${GITOPS_BRANCH:-master}"
 compose_files="${GITOPS_COMPOSE_FILES:-docker-compose.yml deploy/telegram-usage-bot/docker-compose.yml}"
 lock_file="${GITOPS_LOCK_FILE:-${deploy_dir%/}.pull-deploy.lock}"
 

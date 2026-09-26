@@ -17,7 +17,7 @@ concurrency:
 env:
   UPSTREAM_REMOTE: https://github.com/router-for-me/CLIProxyAPI.git
   UPSTREAM_BRANCH: main
-  TARGET_BRANCH: main
+  TARGET_BRANCH: master
   CONFLICT_ISSUE_TITLE: 'upstream-sync: merge conflict'
   CONFLICT_ISSUE_LABEL: upstream-sync
 
@@ -30,7 +30,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: master
           fetch-depth: 0
       - name: Configure git identity
         run: |

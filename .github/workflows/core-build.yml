@@ -3,7 +3,7 @@ name: core-build
 on:
   push:
     branches:
-      - main
+      - master
     # Mirrors core.paths in deploy/cpa-plugins.json.
     paths:
       - 'cmd/**'
@@ -34,7 +34,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: master
           fetch-depth: 0
 
       - name: Resolve the core commit
@@ -95,12 +95,12 @@ jobs:
         run: |
           set -euo pipefail
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --prerelease --target main \
+            gh release create "$TAG" --prerelease --target master \
               --title 'CPA core builds' \
-              --notes 'Core builds for the fork host, one per main commit that touched the core paths in deploy/cpa-plugins.json. deploy/cpa-converge.py installs them.'
+              --notes 'Core builds for the fork host, one per master commit that touched the core paths in deploy/cpa-plugins.json. deploy/cpa-converge.py installs them.'
           fi
           gh release upload "$TAG" "dist/$CORE_ASSET" "dist/$CORE_ASSET.sha256" --clobber
-          # Keep the newest builds. Moving main back to an older core rebuilds it
+          # Keep the newest builds. Moving master back to an older core rebuilds it
           # on the next run of this workflow.
           prefix="${CORE_ASSET%-*}"
           gh release view "$TAG" --json assets \

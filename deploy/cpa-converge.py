@@ -2,7 +2,7 @@
 """Converge the CPA core and native plugins on this host to what the deploy clone declares.
 
 pull-deploy.sh runs this from the deploy clone after moving the clone to the
-fork's main branch. deploy/cpa-plugins.json names every artifact the host
+fork's master branch. deploy/cpa-plugins.json names every artifact the host
 serves, and anything whose bytes differ from the live copy is replaced:
 
 - a dashboard file is replaced in place, since the host reads it per request;
@@ -11,11 +11,11 @@ serves, and anything whose bytes differ from the live copy is replaced:
   stopped container, and only while no Omni turn runs: a restart kills every
   generation in flight;
 - the core executable is the core-build workflow's published build of the last
-  main commit that touched the core paths, swapped with the restart plugins.
+  master commit that touched the core paths, swapped with the restart plugins.
 
 Every tick compares again, so a tick that finds the host busy leaves the swap
 to the next one. A swap the host does not come back from is followed by one
-container restart and never by a rollback: what runs is decided by moving main.
+container restart and never by a rollback: what runs is decided by moving master.
 Compose is never used here; the core image cannot be pulled on this host, and
 a compose run that fails to pull takes the container off its network.
 """
@@ -198,7 +198,7 @@ def ready(settings: Settings, key: str) -> int:
 
 
 def core_plan(settings: Settings, core: dict[str, Any]) -> CoreChange | None:
-    """The published build of the last main commit that touched the core, unless it is live.
+    """The published build of the last master commit that touched the core, unless it is live.
 
     Builds are not byte-reproducible, so the build's published sha256 decides.
     """
