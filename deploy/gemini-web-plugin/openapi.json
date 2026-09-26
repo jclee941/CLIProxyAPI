@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Gemini Omni Video and Files API",
-    "version": "2026-09-22",
+    "version": "2026-09-27",
     "summary": "Generate, extend, and retrieve videos, plus upload and manage files.",
-    "description": "Use a Bearer API key or x-goog-api-key. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait. A continuation runs in its original conversation while that account can serve; otherwise another account extends the stored video and returns a new id to continue from.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. Other resolutions and explicit duration controls are unsupported. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error."
+    "description": "Authenticate with an API key as a Bearer token, in the x-goog-api-key header, or in the key query parameter. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait, where the official default is 16:9. A new video goes to an account with enough video allowance left; when none has, creation fails with 409 account_unavailable until an allowance resets. A continuation runs in its original conversation while that account can serve; otherwise another account continues from the stored video and returns a new id to continue from.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. The other official resolutions (360p, 1080p, 4k), explicit duration controls, and tasks other than extend are rejected. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data. Each serving account keeps its 16 newest stored interactions; an older id can no longer be retrieved or continued.\n\nErrors are JSON under error. Read the identifier, such as account_unavailable, from the start of error.message: it may carry a gemini_web_omni: prefix, and a turn answered without a video continues after ': ' with the product's reply. error.code equals the identifier only for request validation errors; otherwise it is absent or a generic class such as internal_server_error. A missing or unknown API key returns 401.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error."
   },
   "servers": [
     {
@@ -23,6 +23,9 @@
     },
     {
       "apiKeyAuth": []
+    },
+    {
+      "apiKeyQuery": []
     }
   ],
   "paths": {
@@ -30,7 +33,7 @@
       "post": {
         "operationId": "createInteraction",
         "summary": "Create a video interaction or extend a prior video.",
-        "description": "Creates one new turn. Send only the new prompt and media, not the conversation history. The complete request body is limited to 4 MiB; use Files references for larger media.\n\nTo extend, provide previous_interaction_id or a video input and generation_config.video_config.task=extend. Keep the same API key and retain the newest returned id. A continuation runs in its original conversation while that account can serve; when it cannot, another account extends the stored video and the returned id continues from there. Extension length is not configurable or guaranteed.\n\nExplicit 720p is supported only for fresh text/image generation. Omit resolution for continuations and video inputs; otherwise the request is rejected with interaction_resolution_inherited.\n\nURI delivery returns a files/{id} reference on creation or SSE and requires writable storage. GET retrieves inline video data. background=true requires store=true and returns an id with in_progress before generation completes. After an uncertain POST, retrieve an assigned id rather than submitting again.",
+        "description": "Creates one new turn. Send only the new prompt and media, not the conversation history. The prompt is limited to 8000 characters and the complete request body to 4 MiB; use Files references for larger media.\n\nTo extend, provide previous_interaction_id or a video input and generation_config.video_config.task=extend. Keep the same API key and retain the newest returned id. The previous interaction must have completed with a video. A continuation runs in its original conversation while that account can serve; when it cannot, another account continues from the stored video and the returned id continues from there. Extension length is not configurable or guaranteed.\n\nExplicit 720p is supported only for fresh text/image generation. Omit resolution for continuations and video inputs; otherwise the request is rejected with interaction_resolution_inherited.\n\nURI delivery returns a files/{id} reference on creation or SSE and requires writable storage. GET retrieves inline video data. background=true requires store=true and returns an id with in_progress before generation completes. A synchronous turn that is still rendering when its wait ends also returns in_progress with its id. After an uncertain POST, retrieve an assigned id rather than submitting again.",
         "requestBody": {
           "required": true,
           "content": {
@@ -112,7 +115,7 @@
         },
         "responses": {
           "200": {
-            "description": "Interaction status snapshot or completion. For status=completed, video data is in steps[].content[].data (or steps[].content[].uri if delivery=uri was chosen). When status=in_progress, retrieve the returned id later. If stream=true, streams server-sent events.",
+            "description": "Interaction snapshot. status=completed carries the video in steps[0].content[0] as data, or as uri when delivery=uri. status=in_progress means the video is still rendering; retrieve the id later. An error beside in_progress reports why the latest check could not finish. status=failed carries the error that ended the turn. With stream=true the body is server-sent events.",
             "content": {
               "application/json": {
                 "schema": {
@@ -176,22 +179,36 @@
               "text/event-stream": {
                 "schema": {
                   "type": "string",
-                  "description": "Server-sent events for the turn. Emits interaction.created (id <token>:1), step.start (<token>:2), step.delta (<token>:3), step.stop (<token>:4), interaction.completed (<token>:5), and done (<token>:6 with [DONE]). On error, emits interaction.failed (<token>:2) followed by error."
+                  "description": "Server-sent events. Each event has event: and id: <interaction_id>:<n> lines, and its JSON data repeats event_type and event_id. A completed turn emits interaction.created (1), step.start (2), step.delta (3, the video content part), step.stop (4), interaction.completed (5, the full interaction), and done (6, data [DONE]). A turn answered without a video emits interaction.failed (2) with status=failed and error, then an error event whose data holds error and the same interaction. A turn still rendering when the wait ends emits only an error event with message interaction_pending_retrieve_receipt and the in_progress interaction; retrieve its id. Comment lines such as : keep-alive may appear. Resume with GET ?stream=true&last_event_id=<interaction_id>:<n>."
                 }
               }
             }
           },
           "400": {
-            "description": "Bad request. Rejected on unknown fields, unsupported resolution (only 720p accepted for fresh non-video generations), tasks other than extend, background=true with store=false, duration parameters, missing source video on extend, or malformed media parts.",
+            "description": "Rejected before generation. unsupported_interaction_request: a field that is unknown (duration included) or of the wrong type, or a body over 4 MiB. interaction_resolution_unsupported: a resolution other than 720p. interaction_resolution_inherited: a resolution with a video input or previous_interaction_id. interaction_task_unsupported: a task other than extend. interaction_extend_requires_source: extend without previous_interaction_id or a video input. interaction_background_requires_store: background=true with store=false. interaction_inline_video_only: response_format.type other than video, or delivery other than inline or uri. interaction_text_input_only: a part type other than text, image, or video. interaction_reference_invalid: a media part with neither uri nor both data and mime_type. interaction_uploaded_reference_unsupported: a uri that is neither files/{id} nor a Google Drive file. omni_prompt_length_invalid: an empty prompt, or one over 8000 characters. omni_invalid_aspect_ratio: an aspect ratio other than 16:9 or 9:16. continuation_identity_mismatch: a previous_interaction_id this API key cannot continue: unknown, created with store=false, evicted, or made with another key.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GeneralError"
                 },
-                "example": {
-                  "error": {
-                    "code": "interaction_resolution_unsupported",
-                    "message": "interaction_resolution_unsupported"
+                "examples": {
+                  "validation": {
+                    "summary": "Request validation: error.code repeats the identifier",
+                    "value": {
+                      "error": {
+                        "code": "interaction_resolution_unsupported",
+                        "message": "interaction_resolution_unsupported"
+                      }
+                    }
+                  },
+                  "continuation": {
+                    "summary": "A previous_interaction_id this API key cannot continue",
+                    "value": {
+                      "error": {
+                        "message": "continuation_identity_mismatch",
+                        "type": "invalid_request_error"
+                      }
+                    }
                   }
                 }
               }
@@ -203,12 +220,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GeneralError"
+                },
+                "example": {
+                  "error": "Invalid API key"
                 }
               }
             }
           },
           "403": {
-            "description": "Upstream access or authorization denied.",
+            "description": "The product denied the serving account's request, for example web_rpc_denied.",
             "content": {
               "application/json": {
                 "schema": {
@@ -218,7 +238,7 @@
             }
           },
           "404": {
-            "description": "Model or referenced file/interaction not found.",
+            "description": "A files/{id} reference that does not exist for this API key (file_not_found), or a serving account that no longer offers video (account_model_unavailable).",
             "content": {
               "application/json": {
                 "schema": {
@@ -228,31 +248,33 @@
             }
           },
           "409": {
-            "description": "No account available or session busy.",
+            "description": "No account can take the turn now. account_unavailable: no account has enough video allowance left for a new video, or none is ready; retry after an allowance resets. continuation_account_unavailable: the account holding previous_interaction_id cannot serve, and no other account can take the continuation or the previous interaction has no finished video to carry. continuation_not_complete: the previous interaction has not completed with a video. session_busy or session_requires_reconciliation: the serving account could not start the turn; retry later.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GeneralError"
-                }
-              }
-            }
-          },
-          "410": {
-            "description": "Stored interaction has expired and cannot be continued.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GeneralError"
+                },
+                "example": {
+                  "error": {
+                    "message": "account_unavailable",
+                    "type": "invalid_request_error"
+                  }
                 }
               }
             }
           },
           "422": {
-            "description": "The request was processed but no usable video was generated.",
+            "description": "The product answered the turn without a video (no_video_generated). The message continues after ': ' with its reply when it gave one, for example a declined prompt or a spent daily video allowance. Streaming and background turns report this on the interaction instead, as status=failed with error.code=no_video_generated.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GeneralError"
+                },
+                "example": {
+                  "error": {
+                    "message": "gemini_web_omni:no_video_generated: <the product's reply>",
+                    "type": "invalid_request_error"
+                  }
                 }
               }
             }
@@ -266,15 +288,16 @@
                 },
                 "example": {
                   "error": {
-                    "code": "invalid_upstream_frame",
-                    "message": "invalid_upstream_frame"
+                    "message": "gemini_web_omni:invalid_upstream_frame",
+                    "type": "server_error",
+                    "code": "internal_server_error"
                   }
                 }
               }
             }
           },
           "503": {
-            "description": "Required storage or provider service is unavailable. URI output requires operator-configured writable storage.",
+            "description": "Required storage or provider service is unavailable. URI output requires operator-configured writable storage: files_requires_drive_write_oauth without Drive OAuth, files_drive_write_permission_required with read-only Drive access.",
             "content": {
               "application/json": {
                 "schema": {
@@ -282,8 +305,9 @@
                 },
                 "example": {
                   "error": {
-                    "code": "files_requires_drive_write_oauth",
-                    "message": "files_requires_drive_write_oauth"
+                    "message": "gemini_web_omni:files_drive_write_permission_required",
+                    "type": "server_error",
+                    "code": "internal_server_error"
                   }
                 }
               }
@@ -296,7 +320,7 @@
       "get": {
         "operationId": "retrieveInteraction",
         "summary": "Retrieve a stored interaction.",
-        "description": "Retrieves an existing interaction with the same API key. Retrieval does not start a new generation. Completed GET responses contain inline base64 video data even when creation requested URI delivery. Set stream=true for events and last_event_id to resume an event cursor.",
+        "description": "Retrieves an interaction created with the same API key. Retrieval never starts a new generation and stays on the account that holds the interaction. Completed GET responses contain inline base64 video data even when creation requested URI delivery. Set stream=true for events, and last_event_id or the Last-Event-ID header to resume after a cursor.",
         "parameters": [
           {
             "name": "interaction_id",
@@ -325,11 +349,20 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "description": "Event cursor used when the last_event_id query parameter is absent.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Stored interaction snapshot with inline video.",
+            "description": "Interaction snapshot: completed with inline video, in_progress while rendering (an error beside it reports why the latest check could not finish), or failed with error.",
             "content": {
               "application/json": {
                 "schema": {
@@ -345,7 +378,7 @@
             }
           },
           "400": {
-            "description": "Invalid retrieval parameters or malformed last_event_id cursor.",
+            "description": "A malformed event cursor (invalid_interaction_event_id), or a stream value other than true or false.",
             "content": {
               "application/json": {
                 "schema": {
@@ -365,7 +398,7 @@
             }
           },
           "404": {
-            "description": "Interaction not found or owned by a different caller scope.",
+            "description": "No interaction with this id for this API key (interaction_not_found): unknown, malformed, created with store=false, evicted, or made with another key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -375,7 +408,17 @@
             }
           },
           "409": {
-            "description": "Account disabled or unavailable.",
+            "description": "The account holding the interaction is disabled or unavailable (account_disabled, continuation_account_unavailable). Retrieval does not move to another account; retry later.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneralError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The turn ended without a video (no_video_generated), with the product's reply after ': ' when it gave one.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1145,6 +1188,12 @@
         "name": "x-goog-api-key",
         "description": "Alternative to Bearer authentication for Interactions, upload creation, and ordinary Files operations."
       },
+      "apiKeyQuery": {
+        "type": "apiKey",
+        "in": "query",
+        "name": "key",
+        "description": "API key in the key query parameter, as in the official REST examples. Prefer a header: query strings are more likely to be logged."
+      },
       "uploadIdAuth": {
         "type": "apiKey",
         "in": "query",
@@ -1193,7 +1242,7 @@
           },
           "previous_interaction_id": {
             "type": "string",
-            "description": "Identifier of a completed, stored video interaction to extend."
+            "description": "Id of a completed, stored interaction created with the same API key. Its conversation continues on the account that holds it while that account can serve; otherwise another account continues from its stored video, and the returned id belongs there."
           },
           "generation_config": {
             "$ref": "#/components/schemas/GenerationConfig"
@@ -1204,7 +1253,7 @@
           "store": {
             "type": "boolean",
             "default": true,
-            "description": "Retain the turn for later retrieval and extension. Background requests require store=true."
+            "description": "Retain the turn for later retrieval and extension. Each serving account keeps its 16 newest stored interactions. Background requests require store=true."
           },
           "background": {
             "type": "boolean",
@@ -1408,7 +1457,7 @@
                 "enum": [
                   "extend"
                 ],
-                "description": "Task instruction. Only extend is supported, used with previous_interaction_id or uploaded video input. Duration seconds cannot be configured or requested."
+                "description": "Only extend is accepted, with previous_interaction_id or a video input. The other official tasks (text_to_video, image_to_video, reference_to_video, edit) return interaction_task_unsupported. Duration cannot be configured or requested."
               }
             }
           }
@@ -1442,14 +1491,14 @@
               "9:16"
             ],
             "default": "9:16",
-            "description": "Framing orientation. Default 9:16 yields 720x1280 portrait. Set 16:9 for 1280x720 landscape. Retain ratio when extending."
+            "description": "Framing orientation. The default 9:16 yields 720x1280 portrait, unlike the official 16:9 default. Set 16:9 for 1280x720 landscape. Other ratios return omni_invalid_aspect_ratio. Retain the ratio when extending."
           },
           "resolution": {
             "type": "string",
             "enum": [
               "720p"
             ],
-            "description": "720p is supported for fresh text/image generation only. Omit resolution with video inputs or previous_interaction_id; those requests inherit their source resolution and otherwise return interaction_resolution_inherited. Other resolutions are unsupported."
+            "description": "720p is supported for fresh text/image generation only. Omit resolution with video inputs or previous_interaction_id; those requests inherit their source resolution and otherwise return interaction_resolution_inherited. The other official values (360p, 1080p, 4k) return interaction_resolution_unsupported."
           }
         }
       },
@@ -1486,10 +1535,11 @@
               "in_progress",
               "failed"
             ],
-            "description": "Turn lifecycle status."
+            "description": "in_progress: still rendering; retrieve the id later. completed: the video is in steps. failed: error says why the turn ended."
           },
           "steps": {
             "type": "array",
+            "description": "One model_output step holding the video once completed, empty otherwise. user_input and thought steps are not returned.",
             "items": {
               "$ref": "#/components/schemas/Step"
             }
@@ -1505,8 +1555,7 @@
           "type": {
             "type": "string",
             "enum": [
-              "model_output",
-              "thought"
+              "model_output"
             ]
           },
           "content": {
@@ -1523,8 +1572,7 @@
           "type": {
             "type": "string",
             "enum": [
-              "video",
-              "text"
+              "video"
             ]
           },
           "mime_type": {
@@ -1541,25 +1589,25 @@
           "uri": {
             "type": "string",
             "description": "Resource identifier (files/{id}) delivered when response_format.delivery=uri is set."
-          },
-          "text": {
-            "type": "string"
           }
         }
       },
       "InteractionError": {
         "type": "object",
+        "description": "Why a failed turn ended, or beside in_progress why the latest check could not finish.",
         "properties": {
           "code": {
             "type": "string",
             "examples": [
               "no_video_generated",
               "web_rpc_denied",
-              "interaction_background_requires_store"
+              "missing_upstream_operation",
+              "background_execution_interrupted"
             ]
           },
           "message": {
-            "type": "string"
+            "type": "string",
+            "description": "The code, followed by ': ' and the product's reply when it gave one."
           }
         }
       },
@@ -1772,6 +1820,7 @@
       },
       "GeneralError": {
         "type": "object",
+        "description": "Error body. The identifier starts error.message, possibly after a gemini_web_omni: prefix; error.code equals it only for request validation errors. Authentication failures return error as a string.",
         "required": [
           "error"
         ],

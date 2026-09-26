@@ -48,7 +48,7 @@
 
         <h3>기존 영상 연장 (Extend)</h3>
         <p class="hint">완료된 영상의 ID와 <code>generation_config.video_config.task = "extend"</code>를 사용해 영상을 연장할 수 있습니다. 약 10초 영상의 3회 연장(최대 약 40초)이 관측되었으나, 이는 보장된 길이 한계나 연장 단위가 아닙니다.</p>
-        <p class="hint">연속 요청은 같은 계정·같은 대화를 유지합니다. 원래 계정이 사용 불가하면 오류를 반환하며 다른 계정으로 자동 전환하지 않습니다.</p>
+        <p class="hint">연속 요청은 원래 계정이 처리할 수 있으면 같은 계정·같은 대화에서 이어집니다. 원래 계정이 막혀 있으면 다른 계정이 저장된 영상을 이어받아 생성하고, 새 ID는 그 계정에 속합니다. 다음 연장에는 항상 가장 최근에 받은 ID를 사용하세요.</p>
         <pre class="api-sample"><code>curl -X POST "https://cliproxy.jclee.me/v1beta/interactions" \
   -H "Authorization: Bearer $YOUR_API_KEY" \
   -H "Content-Type: application/json" \

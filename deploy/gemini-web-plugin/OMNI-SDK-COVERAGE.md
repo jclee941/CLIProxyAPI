@@ -1,5 +1,10 @@
 # Omni SDK coverage over the web session
 
+Historical coverage record (2026-09-16). For the current consumer contract, use
+[openapi.json](openapi.json), published at https://cliproxy.jclee.me/openapi.json.
+Rows below that call background turns, URI delivery, Files references or
+explicit 720p unexpressible or refused predate their support.
+
 What the documented interactions surface offers, what the Gemini web session can
 express, and where each item stands. "Live" marks a capability exercised against
 the deployed plugin and the real product. "Unexpressible" means the web product
