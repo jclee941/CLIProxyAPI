@@ -40,7 +40,7 @@ func TestWebVideoFieldsApplyTheVideoOverrides(t *testing.T) {
 	if len(fields) != 102 {
 		t.Fatalf("field count = %d", len(fields))
 	}
-	for index, want := range map[int]any{49: 11, 67: 0, 68: 1, 80: 1, 91: 0, 96: 0, 98: 1} {
+	for index, want := range map[int]any{49: 11, 67: 0, 68: 1, 80: 2, 91: 0, 96: 0, 98: 1} {
 		if fields[index] != want {
 			t.Fatalf("slot %d = %#v, want %#v", index, fields[index], want)
 		}

@@ -29,6 +29,10 @@ const webVideoTurnsRPC = "hNvQHb"
 // still being produced.
 const webVideoChipMarker = "googleusercontent.com/video_gen_chip/"
 
+// webVideoThinkingLevel is the web app's "Extended thinking" setting
+// (THINKING_LEVEL_EXTENDED), which its request builder writes to slot 80.
+const webVideoThinkingLevel = 2
+
 // webVideoFields turns the text request into a video submission. The overrides
 // are what distinguishes a video turn from a text one.
 // The framing travels twice, exactly as the web app sends it. Slot 55 carries
@@ -60,7 +64,7 @@ func webVideoFields(prompt string, mode int, conversationID string, framing omni
 	fields[55] = []any{[]any{framing.chip}}
 	fields[67] = 0
 	fields[68] = 1
-	fields[80] = 1
+	fields[80] = webVideoThinkingLevel
 	fields[91] = 0
 	fields[96] = 0
 	fields[98] = 1
