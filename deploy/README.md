@@ -9,10 +9,11 @@ Sidecars and the GitOps convergence loop for this CLIProxyAPI fork.
 
 The fork's `master` branch is the single source of truth for what runs on the host.
 
-1. The [`upstream-sync`](../.github/workflows/upstream-sync.yml) workflow merges `router-for-me/CLIProxyAPI@main` into this fork's `master` every 30 minutes. It only runs on forks. On a merge conflict it aborts the merge and opens or updates one persistent issue labelled `upstream-sync`, then fails the run. After a merge it dispatches `core-build`, because its own pushes start no workflow.
-2. The [`core-build`](../.github/workflows/core-build.yml) workflow tests and builds the CPA core whenever `master` changes it and publishes the build on the `cpa-core` release; see [CPA core](#cpa-core).
-3. The host converger [`pull-deploy.sh`](pull-deploy.sh) is run on the host after `master` moves; see [Running a deploy](#running-a-deploy). It fetches the fork branch into a dedicated deploy clone and rebuilds every compose project when the branch moved.
-4. When `GITOPS_CPA_MANIFEST` is set, each run then applies [`cpa-converge.py`](cpa-converge.py) to the CPA core and native plugins; see [CPA native plugins](#cpa-native-plugins).
+1. The [`core-build`](../.github/workflows/core-build.yml) workflow tests and builds the CPA core whenever `master` changes it and publishes the build on the `cpa-core` release; see [CPA core](#cpa-core).
+2. The host converger [`pull-deploy.sh`](pull-deploy.sh) is run on the host after `master` moves; see [Running a deploy](#running-a-deploy). It fetches the fork branch into a dedicated deploy clone and rebuilds every compose project when the branch moved.
+3. When `GITOPS_CPA_MANIFEST` is set, each run then applies [`cpa-converge.py`](cpa-converge.py) to the CPA core and native plugins; see [CPA native plugins](#cpa-native-plugins).
+
+The fork does not follow `router-for-me/CLIProxyAPI` automatically; upstream changes reach `master` only when merged by hand.
 
 Nothing pushes to the host. The host pulls. To roll back, move `master` in the fork and run `pull-deploy.sh` again.
 
@@ -55,7 +56,7 @@ The container bind-mounts the core executable from `/opt/dashboard/gemini-web-lo
 
 The `core` entry of [`cpa-plugins.json`](cpa-plugins.json) names the core paths, the release the builds are published on, and the asset prefix. The core commit is the last first-parent `master` commit that touched those paths; the workflow and the converger resolve it with the same `git log` query.
 
-- `core-build` runs on pushes to `master` that touch the core paths, on dispatch from `upstream-sync`, and by hand. For a core commit without a published build, it runs `go test ./...` and builds `./cmd/server` with cgo on `golang:1.26-bookworm`, the container's Debian 12 base, with the commit stamped into the build. It publishes `CLIProxyAPI-<commit>` and `CLIProxyAPI-<commit>.sha256` on the `cpa-core` prerelease and keeps the newest ten builds. A commit whose tests fail is never published.
+- `core-build` runs on pushes to `master` that touch the core paths, and by hand. For a core commit without a published build, it runs `go test ./...` and builds `./cmd/server` with cgo on `golang:1.26-bookworm`, the container's Debian 12 base, with the commit stamped into the build. It publishes `CLIProxyAPI-<commit>` and `CLIProxyAPI-<commit>.sha256` on the `cpa-core` prerelease and keeps the newest ten builds. A commit whose tests fail is never published.
 - `cpa-converge.py` compares the published SHA-256 of that build with the live executable; builds are not byte-reproducible, so the published build decides. When they differ, it downloads and verifies the build before anything stops, then swaps it in the same idle-gated `docker stop -t 240` / `docker start` window as the restart plugins, so a core change and a plugin change share one restart. The host must then report the new commit in `X-CPA-COMMIT`, every manifest plugin loaded, and as many ready accounts as before. Otherwise it gets one `docker restart`, and the run fails without a rollback. The replaced executable stays as `CLIProxyAPI.prev`.
 - A core commit whose build is not published yet fails the run before anything changes. Run `pull-deploy.sh` again after `core-build` finishes.
 
