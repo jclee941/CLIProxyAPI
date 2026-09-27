@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 )
 
 const continuationHeader = "X-Gemini-Web-Continuation"
@@ -70,11 +71,39 @@ func interactionRejection(err error) requestInterceptResponse {
 	if errors.As(err, &public) {
 		status = public.HTTPStatus
 	}
-	body, marshalErr := json.Marshal(map[string]any{"error": map[string]string{"code": safeCredentialCode(err), "message": safeCredentialMessage(err)}})
+	body, marshalErr := interactionErrorBody(err)
 	if marshalErr != nil {
 		return omniRejection(marshalErr)
 	}
 	return requestInterceptResponse{Terminate: true, StatusCode: status, ResponseHeaders: http.Header{"Content-Type": {"application/json"}}, ResponseBody: body}
+}
+
+// interactionErrorBody is the error object every Interactions failure answers
+// with: its identifier as code, and its message as it stands. The message keeps
+// the gemini_web_omni: prefix a failure raised during a turn carries, since the
+// host's stop rules look for it there; the code is the bare identifier.
+func interactionErrorBody(err error) ([]byte, error) {
+	return json.Marshal(map[string]any{"error": map[string]string{
+		"code":    strings.TrimPrefix(safeCredentialCode(err), "gemini_web_omni:"),
+		"message": safeCredentialMessage(err),
+	}})
+}
+
+// interactionFailure hands that object to the host as the failure's message.
+// The host answers a message that is already JSON as it stands, where it would
+// otherwise file the failure under a generic code for its status - a missing
+// interaction read as model_not_found, a refused turn had no code at all. The
+// code and status the host acts on do not change.
+func interactionFailure(err error) error {
+	var public *publicError
+	if !errors.As(err, &public) {
+		return err
+	}
+	body, marshalErr := interactionErrorBody(public)
+	if marshalErr != nil {
+		return err
+	}
+	return &publicError{Code: public.Code, Message: string(body), HTTPStatus: public.HTTPStatus}
 }
 
 type continuationPick struct {
@@ -85,7 +114,7 @@ type continuationPick struct {
 // Schema 6 schedulers receive headers, not the body. The interceptor derives
 // this header from the native request; the executor independently checks binding.
 // Enabling this capability requires selecting this plugin as the host scheduler.
-func (service *service) pickContinuation(raw []byte) (continuationPick, error) {
+func (service *service) pickContinuation(raw []byte) (picked continuationPick, err error) {
 	var request struct {
 		Provider, Model string
 		Providers       []string
@@ -99,6 +128,11 @@ func (service *service) pickContinuation(raw []byte) (continuationPick, error) {
 	}
 	if json.Unmarshal(raw, &request) != nil {
 		return continuationPick{}, failure(400, "invalid_scheduler_request")
+	}
+	// A refusal from here on answers an Interactions caller, whose error object
+	// names the failure in code.
+	if request.Model == interactionOmniModel {
+		defer func() { err = interactionFailure(err) }()
 	}
 	token := request.Options.Headers.Get(continuationHeader)
 	if token == "" {
@@ -128,9 +162,9 @@ func (service *service) pickContinuation(raw []byte) (continuationPick, error) {
 	key := continuationKey(token)
 	retrieval := request.Options.Headers.Get(interactionRetrieveHeader) == "true"
 	for _, local := range records {
-		turns, err := continuationTurns(local)
-		if err != nil {
-			return continuationPick{}, err
+		turns, errTurns := continuationTurns(local)
+		if errTurns != nil {
+			return continuationPick{}, errTurns
 		}
 		turn, found := turns[key]
 		if !found || turn.CallerScope != request.Options.Metadata.CallerScope {

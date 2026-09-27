@@ -66,7 +66,7 @@ func TestInteractionResumeBootstrapsBeforeOperationCompletes(t *testing.T) {
 	assertInteractionComment(t, first.Payload)
 	finish()
 	closed := interactionAwait(t, calls)
-	if closed.Method != "host.stream.close" || closed.Error != safeCredentialMessage(operation.err) {
+	if closed.Method != "host.stream.close" || closed.Error != `{"error":{"code":"continuation_operation_mismatch","message":"continuation_operation_mismatch"}}` {
 		t.Fatalf("original error lost after bootstrap: %+v", closed)
 	}
 }
@@ -131,7 +131,7 @@ func TestInteractionResumeBootstrapsBeforeTerminalClose(t *testing.T) {
 				if err := json.Unmarshal(bytes.TrimPrefix(pending.Payload, []byte(prefix)), &signal); err != nil {
 					t.Fatal(err)
 				}
-				if signal.Error.Message != "interaction_pending_retrieve_receipt" || signal.Error.Type != "server_error" || signal.Error.Code != "internal_server_error" {
+				if signal.Error.Message != "interaction_pending_retrieve_receipt" || signal.Error.Type != "" || signal.Error.Code != "interaction_pending_retrieve_receipt" {
 					t.Fatalf("pending indication changed: %+v", signal.Error)
 				}
 				var expected bytes.Buffer
@@ -143,7 +143,13 @@ func TestInteractionResumeBootstrapsBeforeTerminalClose(t *testing.T) {
 				}
 			}
 			closed := interactionAwait(t, calls)
-			if closed.Method != "host.stream.close" || closed.Error != scenario.code {
+			// The close carries the same error object a failed request answers
+			// with, so the host passes it on instead of a generic code.
+			want := ""
+			if scenario.code != "" {
+				want = `{"error":{"code":"` + scenario.code + `","message":"` + scenario.code + `"}}`
+			}
+			if closed.Method != "host.stream.close" || closed.Error != want {
 				t.Fatalf("terminal callback: %+v", closed)
 			}
 		})

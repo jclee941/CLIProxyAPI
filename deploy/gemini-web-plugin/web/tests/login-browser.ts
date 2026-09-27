@@ -336,7 +336,7 @@ export async function runLoginScenarios(scenario: Scenario, capture: Capture): P
     await expect(frame.locator('#refresh-mock-default')).toBeEnabled();
     await expect(card).not.toContainText('이전 관측값');
     await expect(card.locator('.account-footer')).toContainText('09:02');
-    await expect(card.locator('.badge-model')).toHaveCount(2);
+    await expect(card.locator('.badge-model')).toHaveCount(original.models.length);
   });
 
   await scenario('failed-cancel-requires-status-not-session-recapture', async (surface) => {

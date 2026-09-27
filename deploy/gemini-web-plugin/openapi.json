@@ -4,7 +4,11 @@
     "title": "Gemini Omni Video and Files API",
     "version": "2026-09-27",
     "summary": "Generate, extend, and retrieve videos, plus upload and manage files.",
-    "description": "Authenticate with an API key as a Bearer token, in the x-goog-api-key header, or in the key query parameter. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait, where the official default is 16:9. A new video goes to an account with enough video allowance left; when none has, creation fails with 409 account_unavailable until an allowance resets. A continuation runs in its original conversation while that account can serve; otherwise another account continues from the stored video and returns a new id to continue from.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. The other official resolutions (360p, 1080p, 4k), explicit duration controls, and tasks other than extend are rejected. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data. Each serving account keeps its 16 newest stored interactions; an older id can no longer be retrieved or continued.\n\nErrors are JSON under error. Read the identifier, such as account_unavailable, from the start of error.message: it may carry a gemini_web_omni: prefix, and a turn answered without a video continues after ': ' with the product's reply. error.code equals the identifier only for request validation errors; otherwise it is absent or a generic class such as internal_server_error. A missing or unknown API key returns 401.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error."
+    "description": "Authenticate with an API key as a Bearer token, in the x-goog-api-key header, or in the key query parameter. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait, where the official default is 16:9. A new video goes to an account with enough video allowance left; when none has, creation fails with 409 account_unavailable until an allowance resets. A continuation runs in its original conversation while that account can serve; otherwise another account continues from the stored video and returns a new id to continue from.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. The other official resolutions (360p, 1080p, 4k), explicit duration controls, and tasks other than extend are rejected. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data. Each serving account keeps its 16 newest stored interactions; an older id can no longer be retrieved or continued.\n\nErrors answer {\"error\": {\"code\", \"message\"}}: code is the identifier, such as account_unavailable, and message repeats it, behind a gemini_web_omni: prefix for a failure raised during a turn, continuing after ': ' with the product's reply when a turn was answered without a video. Failures the gateway raises before a request reaches this service answer the gateway's own object with message and type: a non-boolean stream, or every account held back by the gateway itself. A missing or unknown API key answers 401 with error as a string.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
   },
   "servers": [
     {
@@ -179,7 +183,7 @@
               "text/event-stream": {
                 "schema": {
                   "type": "string",
-                  "description": "Server-sent events. Each event has event: and id: <interaction_id>:<n> lines, and its JSON data repeats event_type and event_id. A completed turn emits interaction.created (1), step.start (2), step.delta (3, the video content part), step.stop (4), interaction.completed (5, the full interaction), and done (6, data [DONE]). A turn answered without a video emits interaction.failed (2) with status=failed and error, then an error event whose data holds error and the same interaction. A turn still rendering when the wait ends emits only an error event with message interaction_pending_retrieve_receipt and the in_progress interaction; retrieve its id. Comment lines such as : keep-alive may appear. Resume with GET ?stream=true&last_event_id=<interaction_id>:<n>."
+                  "description": "Server-sent events. Each event has event: and id: <interaction_id>:<n> lines, and its JSON data repeats event_type and event_id. A completed turn emits interaction.created (1), step.start (2), step.delta (3, the video content part), step.stop (4), interaction.completed (5, the full interaction), and done (6, data [DONE]). A failed turn, such as one answered without a video, emits interaction.failed (2) with status=failed and error, then an error event whose data holds the same error and the interaction. A turn still rendering when the wait ends emits only an error event with code interaction_pending_retrieve_receipt and the in_progress interaction; retrieve its id. Any other failure ends the stream with an error event whose data is the error object. Comment lines such as : keep-alive may appear. Resume with GET ?stream=true&last_event_id=<interaction_id>:<n>."
                 }
               }
             }
@@ -193,7 +197,7 @@
                 },
                 "examples": {
                   "validation": {
-                    "summary": "Request validation: error.code repeats the identifier",
+                    "summary": "Request validation",
                     "value": {
                       "error": {
                         "code": "interaction_resolution_unsupported",
@@ -205,8 +209,8 @@
                     "summary": "A previous_interaction_id this API key cannot continue",
                     "value": {
                       "error": {
-                        "message": "continuation_identity_mismatch",
-                        "type": "invalid_request_error"
+                        "code": "continuation_identity_mismatch",
+                        "message": "continuation_identity_mismatch"
                       }
                     }
                   }
@@ -256,8 +260,8 @@
                 },
                 "example": {
                   "error": {
-                    "message": "account_unavailable",
-                    "type": "invalid_request_error"
+                    "code": "account_unavailable",
+                    "message": "account_unavailable"
                   }
                 }
               }
@@ -272,8 +276,8 @@
                 },
                 "example": {
                   "error": {
-                    "message": "gemini_web_omni:no_video_generated: <the product's reply>",
-                    "type": "invalid_request_error"
+                    "code": "no_video_generated",
+                    "message": "gemini_web_omni:no_video_generated: <the product's reply>"
                   }
                 }
               }
@@ -288,9 +292,8 @@
                 },
                 "example": {
                   "error": {
-                    "message": "gemini_web_omni:invalid_upstream_frame",
-                    "type": "server_error",
-                    "code": "internal_server_error"
+                    "code": "invalid_upstream_frame",
+                    "message": "gemini_web_omni:invalid_upstream_frame"
                   }
                 }
               }
@@ -305,9 +308,8 @@
                 },
                 "example": {
                   "error": {
-                    "message": "gemini_web_omni:files_drive_write_permission_required",
-                    "type": "server_error",
-                    "code": "internal_server_error"
+                    "code": "files_drive_write_permission_required",
+                    "message": "gemini_web_omni:files_drive_write_permission_required"
                   }
                 }
               }
@@ -1265,122 +1267,7 @@
             "default": false,
             "description": "Stream server-sent events for turn progress."
           }
-        },
-        "allOf": [
-          {
-            "if": {
-              "required": [
-                "background"
-              ],
-              "properties": {
-                "background": {
-                  "const": true
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "store": {
-                  "const": true
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "anyOf": [
-                {
-                  "required": [
-                    "previous_interaction_id"
-                  ],
-                  "properties": {
-                    "previous_interaction_id": {
-                      "minLength": 1
-                    }
-                  }
-                },
-                {
-                  "required": [
-                    "input"
-                  ],
-                  "properties": {
-                    "input": {
-                      "type": "array",
-                      "contains": {
-                        "type": "object",
-                        "required": [
-                          "type"
-                        ],
-                        "properties": {
-                          "type": {
-                            "const": "video"
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "required": [
-                    "input"
-                  ],
-                  "properties": {
-                    "input": {
-                      "type": "array",
-                      "contains": {
-                        "required": [
-                          "type",
-                          "content"
-                        ],
-                        "properties": {
-                          "type": {
-                            "const": "user_input"
-                          },
-                          "content": {
-                            "type": "array",
-                            "contains": {
-                              "type": "object",
-                              "required": [
-                                "type"
-                              ],
-                              "properties": {
-                                "type": {
-                                  "const": "video"
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              ]
-            },
-            "then": {
-              "properties": {
-                "response_format": {
-                  "not": {
-                    "required": [
-                      "resolution"
-                    ]
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      "InputItem": {
-        "description": "An input element: either a direct media/text part or an SDK user_input step wrapper.",
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/InputPart"
-          },
-          {
-            "$ref": "#/components/schemas/UserInputStep"
-          }
-        ]
+        }
       },
       "InputPart": {
         "type": "object",
@@ -1820,7 +1707,7 @@
       },
       "GeneralError": {
         "type": "object",
-        "description": "Error body. The identifier starts error.message, possibly after a gemini_web_omni: prefix; error.code equals it only for request validation errors. Authentication failures return error as a string.",
+        "description": "Error body. code is the identifier; message repeats it, possibly behind a gemini_web_omni: prefix and followed by the product's reply. Failures the gateway raises before a request reaches this service answer message and type instead, and a missing or unknown API key answers error as a string.",
         "required": [
           "error"
         ],
@@ -1833,28 +1720,17 @@
                   "message"
                 ],
                 "properties": {
+                  "code": {
+                    "type": "string",
+                    "description": "The error identifier, such as account_unavailable."
+                  },
                   "message": {
                     "type": "string",
-                    "description": "Error description."
-                  },
-                  "code": {
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "integer"
-                      }
-                    ],
-                    "description": "Error code identifier."
+                    "description": "The identifier, possibly behind gemini_web_omni: and followed by ': ' and the product's reply."
                   },
                   "type": {
                     "type": "string",
-                    "description": "Optional error classification."
-                  },
-                  "status": {
-                    "type": "string",
-                    "description": "Optional RPC status name."
+                    "description": "Present only on failures the gateway raises before a request reaches this service."
                   }
                 }
               },

@@ -87,7 +87,7 @@ func TestInteractionGETEndedReceiptIsTerminalWithoutRecovery(t *testing.T) {
 				if err := json.Unmarshal([]byte(strings.TrimPrefix(string(terminal.Payload), prefix)), &signal); err != nil {
 					t.Fatal(err)
 				}
-				if terminal.Method != "host.stream.emit" || terminal.Error != "" || signal.Error.Message != "missing_upstream_operation" || signal.Error.Type != "server_error" || signal.Error.Code != "internal_server_error" {
+				if terminal.Method != "host.stream.emit" || terminal.Error != "" || signal.Error.Message != "missing_upstream_operation" || signal.Error.Type != "" || signal.Error.Code != "missing_upstream_operation" {
 					t.Fatalf("terminal error contract lost: %+v %+v", terminal, signal)
 				}
 				if closed := interactionAwait(t, calls); closed.Method != "host.stream.close" || closed.Error != "" || len(calls) != 0 {
