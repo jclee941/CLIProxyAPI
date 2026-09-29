@@ -121,7 +121,9 @@ authenticated storage. Conversation, reply, candidate, context metadata, and
 submission state are stored there, not accepted as client identifiers.
 
 Only a create without `previous_interaction_id` selects among eligible accounts
-using round-robin. Accounts with a known exhausted five-hour or weekly quota are
+using round-robin. Before anything else, it skips accounts whose latest reading
+shows 80% or more of the five-hour window or 90% or more of the week used; a
+continuation is not filtered this way. Accounts with a known exhausted five-hour or weekly quota are
 excluded until their reset or a fresh usage observation restores availability.
 A continuation stays on the original account and conversation while that
 account can serve, a busy one included. When it is blocked - a spent window or
