@@ -173,7 +173,8 @@ func TestOmniInteractionResumeBootstrapKeepsRetrievalErrorWithoutCredentialRetry
 				if err := json.Unmarshal(event.Data, &failure); err != nil {
 					t.Fatal(err)
 				}
-				if event.Name != "error" || event.ID != "" || failure.Error.Message != scenario.code || failure.Error.Type != "server_error" || failure.Error.Code != "internal_server_error" {
+				// The plugin names every Interactions failure in error.code.
+				if event.Name != "error" || event.ID != "" || failure.Error.Message != scenario.code || failure.Error.Type != "" || failure.Error.Code != scenario.code {
 					t.Errorf("retrieval error: %+v, error=%+v", event, failure.Error)
 				}
 				if scenario.status != "" && (failure.Interaction.ID != receipt.ID || failure.Interaction.Status != scenario.status) {
@@ -219,7 +220,7 @@ func TestOmniInteractionResumeBootstrapKeepsRetrievalErrorWithoutCredentialRetry
 				} else if result := omniSignal(t, ctx, results); !result.Success || result.AuthID != auth.ID {
 					t.Errorf("receipt switched accounts: %+v", result)
 				}
-			} else if result.Success || result.Error == nil || result.Error.Message != scenario.code || !updated.Unavailable || state.NextRetryAfter.Sub(state.UpdatedAt) != time.Minute {
+			} else if want := `{"error":{"code":"` + scenario.code + `","message":"` + scenario.code + `"}}`; result.Success || result.Error == nil || result.Error.Message != want || !updated.Unavailable || state.NextRetryAfter.Sub(state.UpdatedAt) != time.Minute {
 				t.Errorf("real failure lost: result=%+v unavailable=%t model_state=%+v", result, updated.Unavailable, state)
 			}
 			stats, err := client.Call(ctx, "stats", nil)
