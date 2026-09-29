@@ -168,7 +168,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		}
 		fields := webGenerationFields(prompt, model.Mode, webThinkingDefault, nonce, attachments)
 		if turn.Model == omniModel {
-			fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing(), attachments)
+			fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing(), options.thinking(), attachments)
 		}
 		if turn.Parent != "" {
 			var metadata []any

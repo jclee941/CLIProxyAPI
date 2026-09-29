@@ -1347,6 +1347,17 @@
                 "description": "Only extend is accepted, with previous_interaction_id or a video input. The other official tasks (text_to_video, image_to_video, reference_to_video, edit) return interaction_task_unsupported. Duration cannot be configured or requested."
               }
             }
+          },
+          "thinking_level": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "extended",
+              "deep_think",
+              "medium"
+            ],
+            "default": "standard",
+            "description": "Gateway extension, not in the official API: the web app's thinking level for the video turn. Omitted sends standard. Other values return omni_invalid_thinking_level."
           }
         }
       },

@@ -33,6 +33,9 @@ type interactionRequest struct {
 		VideoConfig struct {
 			Task string `json:"task,omitempty"`
 		} `json:"video_config,omitempty"`
+		// ThinkingLevel is this gateway's extension: the web app's thinking level for
+		// the turn, one of omniThinkingLevels by lowercase name.
+		ThinkingLevel string `json:"thinking_level,omitempty"`
 	} `json:"generation_config,omitempty"`
 }
 
@@ -133,8 +136,15 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 		parts = append(parts, map[string]any{"inlineData": map[string]string{"mimeType": reference.MIMEType, "data": reference.Data}})
 	}
 	content := map[string]any{"contents": []any{map[string]any{"role": "user", "parts": parts}}}
+	config := map[string]string{}
 	if format.AspectRatio != "" {
-		content["generationConfig"] = map[string]string{"aspectRatio": format.AspectRatio}
+		config["aspectRatio"] = format.AspectRatio
+	}
+	if level := request.GenerationConfig.ThinkingLevel; level != "" {
+		config["thinkingLevel"] = level
+	}
+	if len(config) != 0 {
+		content["generationConfig"] = config
 	}
 	payload, err := json.Marshal(content)
 	if err != nil {

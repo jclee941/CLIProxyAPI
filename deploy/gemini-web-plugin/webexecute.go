@@ -111,7 +111,7 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	if err != nil {
 		return httpResponse{}, err
 	}
-	video, err := session.generateVideo(ctx, prompt, account, model, options.framing(), attachments)
+	video, err := session.generateVideo(ctx, prompt, account, model, options.framing(), options.thinking(), attachments)
 	if err != nil {
 		service.noteVideoRefusal(record.ID, err)
 		if safeCredentialCode(err) == "no_video_generated" {

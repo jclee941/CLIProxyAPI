@@ -35,7 +35,7 @@ func TestVideoAttachmentDoesNotOverrideSourceFraming(t *testing.T) {
 		t.Run(mimeType, func(t *testing.T) {
 			attachments := []webAttachment{{Path: "/uploaded/media", Name: "media", MIMEType: mimeType}}
 			// When the web request is serialized.
-			fields := webVideoFields("continue", 1, "nonce", webFramingPortrait, attachments)
+			fields := webVideoFields("continue", 1, "nonce", webFramingPortrait, webVideoThinkingLevel, attachments)
 			// Then only uploaded video suppresses chip-derived video options.
 			orientation := jsonField(fields[0], 9, 6, 0, 3)
 			if mimeType == "video/mp4" {

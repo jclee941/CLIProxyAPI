@@ -34,6 +34,21 @@ var omniFramings = map[string]omniFraming{
 type omniOptions struct {
 	AspectRatio    string
 	NegativePrompt string
+	// ThinkingLevel is the web app's thinking level name for the turn; empty sends
+	// the standard level.
+	ThinkingLevel string
+}
+
+// omniThinkingLevels are the web app's thinking levels by name, as its StreamGenerate
+// builder numbers them in slot 80.
+var omniThinkingLevels = map[string]int{"STANDARD": 1, "EXTENDED": 2, "DEEP_THINK": 3, "MEDIUM": 4}
+
+// thinking is the slot 80 value the turn is sent with.
+func (options omniOptions) thinking() int {
+	if level, ok := omniThinkingLevels[options.ThinkingLevel]; ok {
+		return level
+	}
+	return webVideoThinkingLevel
 }
 
 // framing answers what the turn is shot as. A caller who named a ratio gets it;
@@ -64,6 +79,16 @@ func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {
 				return omniOptions{}, failure(400, "omni_invalid_negative_prompt")
 			}
 			options.NegativePrompt = strings.TrimSpace(negative)
+		case "thinkingLevel":
+			var level string
+			if json.Unmarshal(value, &level) != nil {
+				return omniOptions{}, failure(400, "omni_invalid_thinking_level")
+			}
+			level = strings.ToUpper(strings.TrimSpace(level))
+			if _, ok := omniThinkingLevels[level]; !ok {
+				return omniOptions{}, failure(400, "omni_invalid_thinking_level")
+			}
+			options.ThinkingLevel = level
 		case "candidateCount":
 			var count int
 			if json.Unmarshal(value, &count) != nil || count != 1 {
@@ -94,6 +119,9 @@ func (options omniOptions) generationConfig() map[string]string {
 	}
 	if options.NegativePrompt != "" {
 		config["negativePrompt"] = options.NegativePrompt
+	}
+	if options.ThinkingLevel != "" {
+		config["thinkingLevel"] = options.ThinkingLevel
 	}
 	return config
 }
