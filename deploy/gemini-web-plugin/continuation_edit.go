@@ -9,8 +9,8 @@ const webRequestEdit = 2
 
 // continuationEdit says whether a turn sent from parent replaces a turn the
 // conversation already answered from that parent, and the conversation's newest
-// context. The product answers an edit in place of the old turn; a plain turn
-// sent after a refusal is answered after it, with the refusal in its context.
+// context, which the web app sends with every edit. The product answers the edit
+// in place of the old turn: the conversation then reads without it.
 func continuationEdit(turns map[string]continuationTurn, key string, parent []any) (string, bool, error) {
 	conversation, _ := jsonField(parent, 0).(string)
 	reply, _ := jsonField(parent, 1).(string)

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Gemini Omni Video and Files API",
-    "version": "2026-09-27",
+    "version": "2026-09-29",
     "summary": "Generate, extend, and retrieve videos, plus upload and manage files.",
     "description": "Authenticate with an API key as a Bearer token, in the x-goog-api-key header, or in the key query parameter. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait, where the official default is 16:9. A new video goes to an account with enough video allowance left; when none has, creation fails with 409 account_unavailable until an allowance resets. A continuation runs in its original conversation while that account can serve; otherwise another account continues from the stored video and returns a new id to continue from.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. The other official resolutions (360p, 1080p, 4k), explicit duration controls, and tasks other than extend are rejected. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data. Each serving account keeps its 16 newest stored interactions; an older id can no longer be retrieved or continued.\n\nErrors answer {\"error\": {\"code\", \"message\"}}: code is the identifier, such as account_unavailable, and message repeats it, behind a gemini_web_omni: prefix for a failure raised during a turn, continuing after ': ' with the product's reply when a turn was answered without a video. Failures the gateway raises before a request reaches this service answer the gateway's own object with message and type: a non-boolean stream, or every account held back by the gateway itself. A missing or unknown API key answers 401 with error as a string.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error.",
     "license": {
@@ -1244,7 +1244,7 @@
           },
           "previous_interaction_id": {
             "type": "string",
-            "description": "Id of a completed, stored interaction created with the same API key. Its conversation continues on the account that holds it while that account can serve; otherwise another account continues from its stored video, and the returned id belongs there."
+            "description": "Id of a completed, stored interaction created with the same API key. Its conversation continues on the account that holds it while that account can serve; otherwise another account continues from its stored video, and the returned id belongs there. Sending another interaction from the same id replaces the turn an earlier one added to that conversation, as the Gemini app's prompt edit does, so a failed or refused turn can be retried with the same id without the failed attempt staying in the conversation."
           },
           "generation_config": {
             "$ref": "#/components/schemas/GenerationConfig"
