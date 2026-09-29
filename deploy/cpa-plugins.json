@@ -1,6 +1,6 @@
 {
   "core": {
-    "paths": ["cmd", "internal", "sdk", "go.mod", "go.sum"],
+    "paths": ["cmd", "internal", "sdk", "go.mod", "go.sum", ":(exclude)*.md", ":(exclude)*_test.go", ":(exclude,glob)**/testdata/**"],
     "release": "https://github.com/jclee941/CLIProxyAPI/releases/download/cpa-core",
     "asset": "CLIProxyAPI"
   },

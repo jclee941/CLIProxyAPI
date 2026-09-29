@@ -306,6 +306,26 @@ class ConvergeTest(unittest.TestCase):
         self.assertEqual(fixture.docker_calls(), [])
         self.assertEqual(fixture.settings.core_binary.read_bytes(), b"core old")
 
+    def test_a_docs_or_test_only_commit_keeps_the_published_core(self) -> None:
+        fixture = host(self)
+        shipped = json.loads((HERE / "cpa-plugins.json").read_text())["core"]["paths"]
+        manifest = json.loads(fixture.settings.manifest.read_text())
+        manifest["core"]["paths"] = ["core", *(path for path in shipped if path.startswith(":"))]
+        fixture.settings.manifest.write_text(json.dumps(manifest))
+        clone = fixture.settings.clone
+        (clone / "core/testdata").mkdir()
+        (clone / "core/testdata/case.json").write_text("{}\n")
+        (clone / "core/main_test.go").write_text("package main\n")
+        (clone / "core/README.md").write_text("core\n")
+        git = ["git", "-C", str(clone), "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run(git + ["add", "."], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "docs and tests"], check=True)
+
+        self.assertEqual(converge_module.converge(fixture.settings), 0)
+
+        self.assertEqual(fixture.docker_calls(), [])
+        self.assertEqual(fixture.settings.core_binary.read_bytes(), fixture.core)
+
     def test_a_core_download_that_does_not_match_its_published_sha256_is_refused(self) -> None:
         fixture = host(self)
         fixture.live_core(b"core old")

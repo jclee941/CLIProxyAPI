@@ -4,14 +4,24 @@ on:
   push:
     branches:
       - master
-    # Mirrors core.paths in deploy/cpa-plugins.json.
+    # Everything the test gate reads, which is wider than core.paths in
+    # deploy/cpa-plugins.json (what the published build is made of):
+    # `go test ./...` also covers test/ and examples/ packages, the no-copy
+    # invariant in internal/util scans every non-test Go file, internal/pluginhost
+    # tests build deploy/gemini-web-plugin, and executor helper tests read
+    # config.example.yaml. Docs change neither the tests nor the build.
     paths:
       - 'cmd/**'
       - 'internal/**'
       - 'sdk/**'
       - 'go.mod'
       - 'go.sum'
+      - '**/*.go'
+      - 'deploy/gemini-web-plugin/**'
+      - 'config.example.yaml'
+      - 'deploy/cpa-plugins.json'
       - '.github/workflows/core-build.yml'
+      - '!**/*.md'
   workflow_dispatch:
 
 permissions:
@@ -63,7 +73,20 @@ jobs:
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Test and build on Debian bookworm
+      # Every run tests master, not only the runs that publish: a push can break
+      # the core tests without touching a core path (see the trigger paths).
+      # The host container is Debian 12 (glibc 2.36) and the core loads cgo
+      # plugins, so the core is tested and built with cgo on the same base.
+      - name: Test master on Debian bookworm
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/src" -w /src \
+            -e CGO_ENABLED=1 -e GOOS=linux -e GOFLAGS=-buildvcs=false \
+            golang:1.26-bookworm \
+            go test ./...
+
+      - name: Build on Debian bookworm
         if: steps.core.outputs.published == 'false'
         env:
           CORE_COMMIT: ${{ steps.core.outputs.commit }}
@@ -73,17 +96,12 @@ jobs:
           set -euo pipefail
           git checkout --quiet "$CORE_COMMIT"
           mkdir -p dist
-          # The host container is Debian 12 (glibc 2.36) and the core loads
-          # cgo plugins, so the core is built with cgo on the same base.
           docker run --rm \
             -v "$PWD:/src" -w /src \
             -e CGO_ENABLED=1 -e GOOS=linux -e GOFLAGS=-buildvcs=false \
             -e CORE_SHORT -e CORE_ASSET -e BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             golang:1.26-bookworm \
-            sh -ec '
-              go test ./...
-              go build -ldflags="-s -w -X main.Commit=${CORE_SHORT} -X main.BuildDate=${BUILD_DATE}" -o "dist/${CORE_ASSET}" ./cmd/server/
-            '
+            sh -ec 'go build -ldflags="-s -w -X main.Commit=${CORE_SHORT} -X main.BuildDate=${BUILD_DATE}" -o "dist/${CORE_ASSET}" ./cmd/server/'
           (cd dist && sha256sum "$CORE_ASSET" > "$CORE_ASSET.sha256")
 
       - name: Publish
