@@ -175,6 +175,16 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			if json.Unmarshal([]byte(turn.Parent), &metadata) != nil {
 				return nil, failure(503, "continuation_store_corrupt")
 			}
+			latest, edit, errEdit := continuationEdit(execution.turns, execution.key, metadata)
+			if errEdit != nil {
+				return nil, errEdit
+			}
+			if edit {
+				if latest != "" {
+					metadata[9] = latest
+				}
+				fields[72] = webRequestEdit
+			}
 			fields[2] = metadata
 		}
 		encoded, err := json.Marshal(fields)
