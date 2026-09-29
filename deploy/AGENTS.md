@@ -4,7 +4,7 @@
 Deployment convergence and native plugin artifacts; score 14, with operator policy overriding historical sidecar instructions.
 
 ## STRUCTURE
-- `cpa-plugins.json`: active core paths, plugin artifacts, dashboard targets.
+- `cpa-plugins.json`: active core paths (docs, tests, testdata excluded), plugin artifacts, dashboard targets.
 - `cpa-converge.py`: SHA-256 comparison, staging, swaps, host verification.
 - `pull-deploy.sh`: dedicated-clone update and convergence launcher.
 - `gemini-web-plugin/`: active Gemini native plugin and its browser resources.
@@ -23,7 +23,7 @@ Deployment convergence and native plugin artifacts; score 14, with operator poli
 | Idle restart gate | `cpa-converge.py` | Account activity plus unanswered Omni picks |
 | Convergence contracts | `cpa_converge_test.py` | Local management server and Docker fixture |
 | Deployment procedure | `README.md` | Explicit run after core release publication |
-| Core publishing | `../.github/workflows/core-build.yml` | Manifest-aligned paths and release assets |
+| Core publishing | `../.github/workflows/core-build.yml` | Tests master on every push the core tests read; builds only unpublished core commits |
 
 ## CONVENTIONS
 - CPA runs only core, PostgreSQL, and native plugins. Legacy sidecars/overlays are not deployed or maintained.
