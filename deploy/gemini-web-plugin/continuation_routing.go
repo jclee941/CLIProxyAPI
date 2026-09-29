@@ -136,7 +136,10 @@ func (service *service) pickContinuation(raw []byte) (picked continuationPick, e
 	}
 	token := request.Options.Headers.Get(continuationHeader)
 	if token == "" {
-		pick := service.pickServableAccount(request.Model, request.Candidates)
+		candidates := slices.DeleteFunc(slices.Clone(request.Candidates), func(candidate struct{ ID, Provider string }) bool {
+			return !service.belowFirstEntryCeilings(candidate.ID)
+		})
+		pick := service.pickServableAccount(request.Model, candidates)
 		if !pick.Handled && (request.Model == interactionOmniModel || request.Model == omniModel) {
 			return continuationPick{}, failure(409, "account_unavailable")
 		}

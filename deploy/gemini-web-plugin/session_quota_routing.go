@@ -36,6 +36,12 @@ type quotaSnapshot struct {
 	// weekTurnover is when the weekly window resets. Once a window has turned
 	// over, what it had left says nothing about the refilled one.
 	weekTurnover int64
+	// roomUsed and weekUsed are the fractions of the five hour and weekly
+	// windows spent when an observation names them.
+	roomUsed     float64
+	roomUsedSeen bool
+	weekUsed     float64
+	weekUsedSeen bool
 	// delivered counts the videos the account delivered since this reading; the
 	// next reading divides what the five hour window lost by it.
 	delivered int
@@ -98,6 +104,28 @@ func (service *service) affordsARoom(id string) bool {
 	return (!roomKnown || snapshot.roomUnits >= need) && (!weekKnown || snapshot.weekUnits >= need)
 }
 
+// A first entry only opens a room on an account below both ceilings: 80% of its
+// five hour window and 90% of its week (operator decision 2026-09-29).
+const (
+	firstEntryRoomCeiling = 0.80
+	firstEntryWeekCeiling = 0.90
+)
+
+// belowFirstEntryCeilings reports whether a new request may go to the account.
+// A window with no reading, or one that has turned over since, counts as below.
+func (service *service) belowFirstEntryCeilings(id string) bool {
+	service.quota.mu.RLock()
+	snapshot, found := service.quota.entries[id]
+	service.quota.mu.RUnlock()
+	if !found {
+		return true
+	}
+	now := service.now().Unix()
+	roomFull := snapshot.roomUsedSeen && !turnedOver(snapshot.turnover, now) && snapshot.roomUsed >= firstEntryRoomCeiling
+	weekFull := snapshot.weekUsedSeen && !turnedOver(snapshot.weekTurnover, now) && snapshot.weekUsed >= firstEntryWeekCeiling
+	return !roomFull && !weekFull
+}
+
 func turnedOver(reset, now int64) bool {
 	return reset > 0 && now >= reset
 }
@@ -136,6 +164,17 @@ func (service *service) observeQuota(id string, usage *usageView) {
 		if metric.WindowKind == "weekly" && metric.RemainingUnits != nil {
 			snapshot.weekUnits = *metric.RemainingUnits
 			snapshot.weekMeasured = true
+		}
+		used := metric.UsageFraction
+		if used == nil && metric.UsagePercent != nil {
+			fraction := *metric.UsagePercent / 100
+			used = &fraction
+		}
+		if used != nil && metric.WindowKind == "5h" {
+			snapshot.roomUsed, snapshot.roomUsedSeen = *used, true
+		}
+		if used != nil && metric.WindowKind == "weekly" {
+			snapshot.weekUsed, snapshot.weekUsedSeen = *used, true
 		}
 		if metric.UsageFraction != nil && *metric.UsageFraction >= 1 ||
 			metric.UsagePercent != nil && *metric.UsagePercent >= 100 ||
