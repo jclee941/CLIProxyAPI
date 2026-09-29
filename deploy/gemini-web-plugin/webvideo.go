@@ -29,6 +29,14 @@ const webVideoTurnsRPC = "hNvQHb"
 // still being produced.
 const webVideoChipMarker = "googleusercontent.com/video_gen_chip/"
 
+// webVideoThinkingLevel is the thinking level a video turn is sent with. The web
+// app's StreamGenerate builder writes a set level to slot 80 as 1-4 for STANDARD,
+// EXTENDED, DEEP_THINK and MEDIUM; it never leaves the slot empty. The operator
+// turned Extended thinking off on 2026-09-29, so video turns send the standard
+// level again. Leaving the slot unset instead ended every video turn sent in the
+// next fifteen minutes in the product's canned text-model answer.
+const webVideoThinkingLevel = 1
+
 // webVideoFields turns the text request into a video submission. The overrides
 // are what distinguishes a video turn from a text one.
 // The framing travels twice, exactly as the web app sends it. Slot 55 carries
@@ -60,9 +68,7 @@ func webVideoFields(prompt string, mode int, conversationID string, framing omni
 	fields[55] = []any{[]any{framing.chip}}
 	fields[67] = 0
 	fields[68] = 1
-	// Slot 80, the web app's "Extended thinking" level, stays unset: the operator
-	// turned it off (2026-09-29) while 40-60% of video turns ended in the product's
-	// canned text-model answer instead of a video.
+	fields[80] = webVideoThinkingLevel
 	fields[91] = 0
 	fields[96] = 0
 	fields[98] = 1
