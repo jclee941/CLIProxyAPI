@@ -88,18 +88,21 @@ type modelInfo struct {
 type executorRequest struct {
 	interactionDelivery string
 	freshContinuation   bool
-	AuthID              string
-	AuthProvider        string
-	Model               string
-	Format              string
-	SourceFormat        string
-	Stream              bool
-	Alt                 string
-	Payload             []byte
-	OriginalRequest     []byte
-	StorageJSON         []byte
-	AuthMetadata        authMetadata
-	Metadata            struct {
+	// retryRefused marks a create that names a previous turn without extending
+	// it, so a first turn that ended without video is retried in place.
+	retryRefused    bool
+	AuthID          string
+	AuthProvider    string
+	Model           string
+	Format          string
+	SourceFormat    string
+	Stream          bool
+	Alt             string
+	Payload         []byte
+	OriginalRequest []byte
+	StorageJSON     []byte
+	AuthMetadata    authMetadata
+	Metadata        struct {
 		PinnedAuthID string `json:"pinned_auth_id"`
 		CallerScope  string `json:"caller_scope"`
 	}

@@ -204,6 +204,7 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 			}
 		}
 	}
+	native.retryRefused = previous != "" && body.GenerationConfig.VideoConfig.Task != interactionExtendTask
 	native.Payload, err = json.Marshal(map[string]any{continuationField: continuationControl{Action: "prepare", Token: previous}})
 	if err != nil {
 		return nil, err

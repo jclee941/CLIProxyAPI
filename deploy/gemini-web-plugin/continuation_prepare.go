@@ -13,10 +13,15 @@ func (service *service) prepareContinuation(execution continuationExecution) (in
 	}
 	parent := ""
 	if execution.control.Token != "" {
-		if execution.turn.State != "complete" {
+		address, refused, err := refusedFirstTurnAddress(execution.turn)
+		if err != nil {
+			return nil, err
+		}
+		retry := refused && execution.request.retryRefused
+		if execution.turn.State != "complete" && !retry {
 			return nil, failure(409, "continuation_not_complete")
 		}
-		if execution.turn.NextToken != "" && !execution.request.freshContinuation {
+		if !retry && execution.turn.NextToken != "" && !execution.request.freshContinuation {
 			next, found := execution.turns[continuationKey(execution.turn.NextToken)]
 			if !found {
 				return nil, failure(410, "continuation_expired")
@@ -27,6 +32,9 @@ func (service *service) prepareContinuation(execution continuationExecution) (in
 			return continuationResponse(next.Model, continuationView{Token: execution.turn.NextToken, State: next.State}, nil)
 		}
 		parent = execution.turn.Metadata
+		if retry {
+			parent = address
+		}
 	}
 	sequence := uint64(0)
 	oldestKey := ""
