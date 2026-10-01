@@ -103,7 +103,7 @@ func (service *service) retrieveInteraction(ctx context.Context, request executo
 		if !request.Stream {
 			return result, nil
 		}
-		operation = &interactionOperation{done: make(chan struct{}), result: result.(continuationResult)}
+		operation = &interactionOperation{account: record.ID, done: make(chan struct{}), result: result.(continuationResult)}
 		close(operation.done)
 	}
 	if request.Stream {

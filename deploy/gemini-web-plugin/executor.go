@@ -21,7 +21,7 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 		request.Stream = request.Stream || method == "executor.execute_stream"
 		result, err := service.executeInteraction(ctx, request)
 		if err != nil {
-			return nil, interactionFailure(executionFailure(omniModel, err))
+			return nil, interactionAccountFailure(request.AuthID, executionFailure(omniModel, err))
 		}
 		return result, nil
 	}

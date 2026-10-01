@@ -26,7 +26,15 @@ func TestInteractionsRejectOtherAuthenticatedCaller(t *testing.T) {
 	}
 	// The host answers a JSON message as it stands, so the caller reads the
 	// identifier as code while the prefix the stop rules match stays in the text.
-	if result.Error.Message != `{"error":{"code":"continuation_identity_mismatch","message":"gemini_web_omni:continuation_identity_mismatch"}}` {
+	// It also names the account the turn was routed to, by its short id.
+	var body struct {
+		Error map[string]string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(result.Error.Message), &body); err != nil {
+		t.Fatalf("cross-caller error body: %s", result.Error.Message)
+	}
+	want := map[string]string{"account": interactionAccount(local.Target.ID), "code": "continuation_identity_mismatch", "message": "gemini_web_omni:continuation_identity_mismatch"}
+	if len(body.Error) != len(want) || body.Error["account"] != want["account"] || body.Error["code"] != want["code"] || body.Error["message"] != want["message"] {
 		t.Fatalf("cross-caller error body: %s", result.Error.Message)
 	}
 	fixture.mu.Lock()

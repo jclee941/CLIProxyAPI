@@ -135,6 +135,16 @@ original account, and remains allowed when its generation quota is exhausted.
 The executor independently rejects wrong selected accounts, unknown/tampered
 IDs, stale projections, disabled accounts, and identity changes.
 
+Every response about a turn names the account that handled it in an optional
+`account` field: the six-hex short id the `video_turn_diag` line prints, never
+the auth file name, an address or a credential. It is on the interaction object
+(`interaction.created`, `interaction.failed`, `interaction.completed`, the JSON
+create and GET snapshots) and on the `error` object of every failure raised
+after the scheduler picked an account, including the SSE `error` event. A
+refusal raised before any account is picked (`account_unavailable`,
+`continuation_account_unavailable`) has none. The field is a body field rather
+than a response header because SSE headers are written before the turn runs.
+
 Each stored receipt also binds the authenticated CPA `Metadata.caller_scope`.
 This is not a client header: host `internal/api/server_middleware.go:169` obtains
 `userApiKey` from the authenticated access provider's `Principal`;

@@ -11,9 +11,12 @@ import (
 )
 
 type interactionOperation struct {
-	done   chan struct{}
-	result continuationResult
-	err    error
+	// account is the auth id of the account the turn was chosen for; every event
+	// and error the turn emits names it by its short id.
+	account string
+	done    chan struct{}
+	result  continuationResult
+	err     error
 }
 
 // Generation belongs to the plugin lifecycle, not to any SSE subscriber. GET
@@ -27,7 +30,7 @@ func (service *service) ownInteraction(ctx context.Context, native executorReque
 	if err := service.lifecycle.enter(); err != nil {
 		return nil, err
 	}
-	operation := &interactionOperation{done: make(chan struct{})}
+	operation := &interactionOperation{account: native.AuthID, done: make(chan struct{})}
 	if service.interactions == nil {
 		service.interactions = make(map[string]*interactionOperation)
 	}
@@ -129,9 +132,13 @@ func (service *service) streamInteractionCallback(method, stream string, payload
 // emitInteractionError writes an outcome as an SSE error event carrying the
 // interaction and the error object a failed request answers with, so that the
 // stream can still close cleanly afterwards.
-func (service *service) emitInteractionError(stream, code, message string, interaction any) error {
+func (service *service) emitInteractionError(stream, account, code, message string, interaction any) error {
+	detail := map[string]string{"code": code, "message": message}
+	if id := interactionAccount(account); id != "" {
+		detail["account"] = id
+	}
 	payload, err := json.Marshal(map[string]any{
-		"error":       map[string]string{"code": code, "message": message},
+		"error":       detail,
 		"interaction": interaction,
 	})
 	if err != nil {
@@ -149,7 +156,7 @@ func (service *service) subscribeInteraction(stream, token string, cursor int, o
 		err := service.sendInteractionEvents(stream, token, cursor, operation)
 		message := ""
 		if err != nil {
-			message = safeCredentialMessage(interactionFailure(err))
+			message = safeCredentialMessage(interactionAccountFailure(operation.account, err))
 		}
 		// A disconnected subscriber is not a generation failure. The owned operation
 		// continues, and its result is recoverable through the durable receipt.
@@ -179,7 +186,12 @@ func (service *service) sendInteractionEvents(stream, token string, cursor int, 
 			return err
 		}
 	}
-	if err := emit(1, "interaction.created", map[string]any{"interaction": map[string]any{"id": token, "object": "interaction", "model": interactionOmniModel, "status": "in_progress", "steps": []any{}}}); err != nil {
+	created := map[string]any{"id": token, "object": "interaction", "model": interactionOmniModel, "status": "in_progress", "steps": []any{}}
+	account := interactionAccount(operation.account)
+	if account != "" {
+		created["account"] = account
+	}
+	if err := emit(1, "interaction.created", map[string]any{"interaction": created}); err != nil {
 		return err
 	}
 	select {
@@ -204,10 +216,13 @@ func (service *service) sendInteractionEvents(stream, token string, cursor int, 
 			"status": "failed", "steps": []any{},
 			"error": map[string]string{"code": "no_video_generated", "message": safeCredentialMessage(operation.err)},
 		}
+		if account != "" {
+			failed["account"] = account
+		}
 		if err := emit(2, "interaction.failed", map[string]any{"interaction": failed}); err != nil {
 			return err
 		}
-		return service.emitInteractionError(stream, "no_video_generated", safeCredentialMessage(operation.err), failed)
+		return service.emitInteractionError(stream, operation.account, "no_video_generated", safeCredentialMessage(operation.err), failed)
 	}
 	var result struct {
 		Status string                         `json:"status"`
@@ -232,7 +247,7 @@ func (service *service) sendInteractionEvents(stream, token string, cursor int, 
 		}
 		// Preserve outcome/error events as SSE data, not a stream-close error
 		// that the host records as a credential failure. Retain diagnostics.
-		return service.emitInteractionError(stream, code, message, json.RawMessage(operation.result.Payload))
+		return service.emitInteractionError(stream, operation.account, code, message, json.RawMessage(operation.result.Payload))
 	}
 	if result.Status != "completed" {
 		return failure(409, "interaction_pending_retrieve_receipt")

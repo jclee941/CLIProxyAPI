@@ -65,6 +65,17 @@ func diagAccount(id string) string {
 	return id
 }
 
+// interactionAccount is the short id an Interactions response names the serving
+// account by: the same six characters the video_turn_diag line prints, so a
+// caller's log and this plugin's log can be set side by side. An empty id, a
+// turn no account was chosen for, has none.
+func interactionAccount(id string) string {
+	if strings.TrimSpace(id) == "" {
+		return ""
+	}
+	return diagAccount(id)
+}
+
 func isHexString(value string) bool {
 	for _, character := range value {
 		if !strings.ContainsRune("0123456789abcdef", character) {

@@ -350,7 +350,10 @@ func renderInteraction(account string, result continuationResult, view continuat
 	if view.State == "outcome_unknown" {
 		status = "failed"
 	}
-	body := map[string]any{"id": view.Token, "object": "interaction", "model": interactionOmniModel, "account": account, "status": status, "steps": steps}
+	body := map[string]any{"id": view.Token, "object": "interaction", "model": interactionOmniModel, "status": status, "steps": steps}
+	if id := interactionAccount(account); id != "" {
+		body["account"] = id
+	}
 	// A failure the plugin can name was being dropped here, so a caller saw only
 	// that the turn failed and had nothing to act on - the same blank answer
 	// whether the product declined the prompt, ran out of daily video, or
