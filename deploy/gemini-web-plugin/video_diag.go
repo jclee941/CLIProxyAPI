@@ -31,6 +31,8 @@ type videoTurnDiag struct {
 	caps     []capability
 	shape    string
 	slots    string
+	s9v      string
+	hasS9v   bool
 	text     string
 }
 
@@ -82,6 +84,12 @@ func (diag *videoTurnDiag) observe(candidate any) {
 	if diag.shape == "" {
 		diag.shape = videoCandidateShape(candidate)
 		diag.slots = videoSlotSkeletons(candidate)
+		// Slot 9 on a refusal is a two-character string; whether it is a language
+		// or a reason code is only known from its value. Only a string of at most
+		// four runes is kept, so nothing the model said can ride along.
+		if value, ok := jsonField(candidate, 9).(string); ok && len([]rune(value)) <= 4 {
+			diag.s9v, diag.hasS9v = value, true
+		}
 	}
 	if text, ok := jsonField(candidate, 1, 0).(string); ok {
 		diag.text = text
@@ -246,6 +254,9 @@ func videoDiagFields(diag *videoTurnDiag, outcome string) map[string]any {
 	response := "candidate_shape=" + shape
 	if diag.slots != "" {
 		response += " " + diag.slots
+	}
+	if diag.hasS9v {
+		response += " s9v=" + diag.s9v
 	}
 	if outcome == "no_video" {
 		head := strings.Join(strings.Fields(diag.text), " ")

@@ -103,6 +103,36 @@ func TestVideoOutcomeNamesTheCode(t *testing.T) {
 	}
 }
 
+func TestVideoDiagShowsSlotNineOnlyWhenItIsAShortString(t *testing.T) {
+	candidateWith := func(slot9 any) []any {
+		candidate := make([]any, 10)
+		candidate[1] = []any{"reply"}
+		candidate[9] = slot9
+		return candidate
+	}
+	response := func(slot9 any) string {
+		diag := &videoTurnDiag{account: "none", kind: "first"}
+		diag.observe(candidateWith(slot9))
+		text, _ := videoDiagFields(diag, "no_video")["remote_transport"].(string)
+		return text
+	}
+
+	if got := response("ko"); !strings.Contains(got, " s9v=ko ") || !strings.Contains(got, "s9=s2 ") {
+		t.Fatalf("a two-rune slot 9 = %q, want its value shown", got)
+	}
+	if got := response("한국"); !strings.Contains(got, " s9v=한국 ") {
+		t.Fatalf("a two-rune slot 9 = %q, want its value shown by runes", got)
+	}
+	if got := response("abcd"); !strings.Contains(got, " s9v=abcd ") {
+		t.Fatalf("a four-rune slot 9 = %q, want its value shown", got)
+	}
+	for name, slot9 := range map[string]any{"long": "SECRET-LONG-VALUE", "five": "abcde", "number": float64(2), "list": []any{"ko"}, "null": nil} {
+		if got := response(slot9); strings.Contains(got, "s9v=") || strings.Contains(got, "SECRET") {
+			t.Fatalf("%s slot 9 = %q, want no value shown", name, got)
+		}
+	}
+}
+
 func TestVideoSlotSkeletonsKeepFormAndNeverStrings(t *testing.T) {
 	secret := "SECRET-슬롯-TEXT"
 	candidate := make([]any, 38)
