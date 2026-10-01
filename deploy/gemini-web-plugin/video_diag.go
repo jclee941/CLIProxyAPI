@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -29,6 +30,7 @@ type videoTurnDiag struct {
 	chip     int
 	caps     []capability
 	shape    string
+	slots    string
 	text     string
 }
 
@@ -79,6 +81,7 @@ func (diag *videoTurnDiag) observe(candidate any) {
 	}
 	if diag.shape == "" {
 		diag.shape = videoCandidateShape(candidate)
+		diag.slots = videoSlotSkeletons(candidate)
 	}
 	if text, ok := jsonField(candidate, 1, 0).(string); ok {
 		diag.text = text
@@ -118,6 +121,84 @@ func videoCandidateShape(candidate any) string {
 		shape += " c8_0=" + strconv.FormatFloat(number, 'f', -1, 64)
 	}
 	return shape
+}
+
+// Skeletons show the form of a candidate slot and nothing it says: numbers,
+// booleans and null stay as they are, every string becomes its length in
+// runes, and nesting stops at a fixed depth and the whole is cut at a fixed
+// length. Object keys are strings, so they are reduced the same way.
+const (
+	skeletonDepth = 5
+	skeletonLimit = 240
+)
+
+// videoSlotSkeletons renders the slots that tell a refusal's candidate apart
+// from a video's. It reads and never changes the candidate.
+func videoSlotSkeletons(candidate any) string {
+	parts := make([]string, 0, 3)
+	for _, slot := range []int{9, 37, 28} {
+		parts = append(parts, "s"+strconv.Itoa(slot)+"="+videoSkeleton(jsonField(candidate, slot)))
+	}
+	return strings.Join(parts, " ")
+}
+
+func videoSkeleton(value any) string {
+	var out strings.Builder
+	writeSkeleton(&out, value, 0)
+	if runes := []rune(out.String()); len(runes) > skeletonLimit {
+		return string(runes[:skeletonLimit])
+	}
+	return out.String()
+}
+
+func writeSkeleton(out *strings.Builder, value any, depth int) {
+	if out.Len() > skeletonLimit {
+		return
+	}
+	switch typed := value.(type) {
+	case nil:
+		out.WriteString("null")
+	case bool:
+		out.WriteString(strconv.FormatBool(typed))
+	case float64:
+		out.WriteString(strconv.FormatFloat(typed, 'f', -1, 64))
+	case string:
+		out.WriteString("s" + strconv.Itoa(len([]rune(typed))))
+	case []any:
+		if depth >= skeletonDepth {
+			out.WriteString("[..]")
+			return
+		}
+		out.WriteByte('[')
+		for index, item := range typed {
+			if index > 0 {
+				out.WriteByte(',')
+			}
+			writeSkeleton(out, item, depth+1)
+		}
+		out.WriteByte(']')
+	case map[string]any:
+		if depth >= skeletonDepth {
+			out.WriteString("{..}")
+			return
+		}
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		out.WriteByte('{')
+		for index, key := range keys {
+			if index > 0 {
+				out.WriteByte(',')
+			}
+			out.WriteString("s" + strconv.Itoa(len([]rune(key))) + ":")
+			writeSkeleton(out, typed[key], depth+1)
+		}
+		out.WriteByte('}')
+	default:
+		out.WriteString("?")
+	}
 }
 
 // continuationDiagKind is the kind a settling request can tell on its own: a turn
@@ -163,6 +244,9 @@ func videoDiagFields(diag *videoTurnDiag, outcome string) map[string]any {
 		shape = "none"
 	}
 	response := "candidate_shape=" + shape
+	if diag.slots != "" {
+		response += " " + diag.slots
+	}
 	if outcome == "no_video" {
 		head := strings.Join(strings.Fields(diag.text), " ")
 		if runes := []rune(head); len(runes) > 40 {

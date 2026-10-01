@@ -102,3 +102,32 @@ func TestVideoOutcomeNamesTheCode(t *testing.T) {
 		t.Fatal("outcomes do not follow the public codes")
 	}
 }
+
+func TestVideoSlotSkeletonsKeepFormAndNeverStrings(t *testing.T) {
+	secret := "SECRET-슬롯-TEXT"
+	candidate := make([]any, 38)
+	candidate[9] = []any{[]any{secret, float64(3), true, nil}, map[string]any{"topsecret": []any{secret}}, float64(1.5)}
+	candidate[28] = []any{[]any{[]any{[]any{[]any{[]any{[]any{secret}}}}}}}
+	candidate[37] = []any{secret}
+
+	diag := &videoTurnDiag{account: "none", kind: "first"}
+	diag.observe([]any{nil, []any{secret}, candidate[2], candidate[3], candidate[4], candidate[5], candidate[6], candidate[7], candidate[8], candidate[9], nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, candidate[28], nil, nil, nil, nil, nil, nil, nil, nil, candidate[37]})
+	response, _ := videoDiagFields(diag, "video")["remote_transport"].(string)
+
+	for _, want := range []string{"s9=[[s14,3,true,null],{s9:[s14]},1.5]", "s37=[s14]", "s28=[[[[[[..]]]]]]"} {
+		if !strings.Contains(response, want) {
+			t.Fatalf("response = %q, missing %q", response, want)
+		}
+	}
+	for _, forbidden := range []string{"SECRET", "슬롯", "topsecret"} {
+		if strings.Contains(response, forbidden) {
+			t.Fatalf("response carries %q: %s", forbidden, response)
+		}
+	}
+	if long := videoSkeleton(make([]any, 500)); len([]rune(long)) != skeletonLimit {
+		t.Fatalf("skeleton length = %d, want %d", len([]rune(long)), skeletonLimit)
+	}
+	if got := videoSkeleton(nil); got != "null" {
+		t.Fatalf("absent slot = %q", got)
+	}
+}
