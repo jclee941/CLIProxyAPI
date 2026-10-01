@@ -56,6 +56,9 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 	// operator, and empty on every path that does not submit.
 	var shapes []string
 	var lines int
+	// The one-line report a video turn owes, set only on the call that submits.
+	var diag *videoTurnDiag
+	diagKind := "first"
 	if turn.State == "failed" || turn.Background && turn.State == "no_video" {
 		// Recheck under the account lease: GET may have read an older snapshot
 		// just before the background owner persisted its terminal failure.
@@ -179,13 +182,19 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			if errEdit != nil {
 				return nil, errEdit
 			}
+			diagKind = "extension"
 			if edit {
+				diagKind = "edit"
 				if latest != "" {
 					metadata[9] = latest
 				}
 				fields[72] = webRequestEdit
 			}
 			fields[2] = metadata
+		}
+		if turn.Model == omniModel {
+			diag = newVideoTurnDiag(execution.local.Target.ID, diagKind, account, model, options.framing(), options.thinking())
+			session.diag = diag
 		}
 		encoded, err := json.Marshal(fields)
 		if err != nil {
@@ -200,6 +209,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		}
 		session.generationFrame = func(raw []byte) error {
 			lines, shapes = lines+1, frameShapes(shapes, raw)
+			diag.observeFrame(raw)
 			updated, err := continuationFrame(turn, raw)
 			if err != nil {
 				return err
@@ -227,15 +237,24 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 				// unobservable, which is how a healthy fleet runs out of accounts.
 				view.State = "outcome_unknown"
 				service.reportUnnamed(view.Error, turn, lines, shapes)
+				service.reportVideoTurn(diag, view.Error)
 				if releaseErr := service.releaseAfter(execution, turn, "no_operation"); releaseErr != nil {
 					return nil, releaseErr
 				}
+			}
+			if view.State == "pending" {
+				service.stashVideoDiag(execution.key, diag)
 			}
 			return continuationResponse(turn.Model, view, nil)
 		}
 	}
 	if turn.Conversation == "" || turn.Reply == "" {
 		service.reportUnnamed("missing_upstream_operation", turn, lines, shapes)
+		unnamed := "missing_upstream_operation"
+		if _, refusal := unnamedOutcome(turn); refusal != nil {
+			unnamed = "no_video"
+		}
+		service.reportVideoTurn(diag, unnamed)
 		// A reply means the product answered, so there is no submission still in
 		// flight to protect, and without a conversation there is nothing any
 		// recovery can ask about either: the turn ends here instead of holding
@@ -254,6 +273,18 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		}
 		return continuationResponse(turn.Model, continuationView{Token: view.Token, State: "outcome_unknown", Error: "missing_upstream_operation"}, nil)
 	}
+	// A turn still waiting on its video keeps its report until a request settles
+	// it; after a restart only the account and kind survive.
+	if turn.Model == omniModel {
+		if diag == nil {
+			diag = service.recallVideoDiag(execution.key, execution.local.Target.ID, continuationDiagKind(turn.Parent))
+		}
+		service.stashVideoDiag(execution.key, diag)
+	}
+	settle := func(outcome string) {
+		service.reportVideoTurn(diag, outcome)
+		service.dropVideoDiag(execution.key)
+	}
 	// One observation per request: recovery never calls StreamGenerate and never
 	// polls or sleeps. The caller may issue another recover while still pending.
 	turns, err := session.rpc(ctx, webVideoTurnsRPC, []any{turn.Conversation, 32, nil, 1, []any{1}, []any{4}, nil, 1})
@@ -262,12 +293,15 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 	}
 	candidate, err := continuationCandidate(turn, turns)
 	if err != nil {
+		settle(videoOutcome(err))
 		return nil, err
 	}
 	var body []byte
 	if turn.Model == omniModel {
+		diag.observe(candidate)
 		state, err := webParseVideoCandidate(candidate)
 		if err != nil {
+			settle(videoOutcome(err))
 			// The reply exists but terminally carries no video, so this turn can
 			// never complete. Releasing the durable intent here is what keeps the
 			// account usable: the operator route defers to recovery, and recovery
@@ -292,8 +326,10 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			return continuationResponse(turn.Model, continuationView{Token: view.Token, State: "pending"}, nil)
 		}
 		if status != http.StatusOK || len(video) < 8 || string(video[4:8]) != "ftyp" {
+			settle("invalid_video_download")
 			return nil, failure(502, "invalid_video_download")
 		}
+		settle("video")
 		service.noteVideoDelivered(execution.local.Target.ID)
 		service.observeTurn(ctx, execution.local.Target.ID, session)
 		body, err = json.Marshal(map[string]any{"candidates": []any{map[string]any{"index": 0, "finishReason": "STOP", "content": map[string]any{"role": "model", "parts": []any{map[string]any{"inlineData": map[string]string{"mimeType": "video/mp4", "data": base64.StdEncoding.EncodeToString(video)}}}}}}})

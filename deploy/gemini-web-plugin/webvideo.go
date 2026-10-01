@@ -337,6 +337,7 @@ func (session *webSession) generateVideo(ctx context.Context, prompt string, acc
 	if conversation == "" || reply == "" || candidate == nil {
 		return nil, failure(502, "missing_video_operation")
 	}
+	session.diag.observe(candidate)
 	state, err := webParseVideoCandidate(candidate)
 	if err != nil {
 		return nil, err
@@ -367,6 +368,7 @@ func (session *webSession) generateVideo(ctx context.Context, prompt string, acc
 		if jsonField(turns, 0, 0, 0, 1) != reply {
 			return nil, failure(502, "video_operation_mismatch")
 		}
+		session.diag.observe(jsonField(turns, 0, 0, 3, 0, 0))
 		state, err = webParseVideoCandidate(jsonField(turns, 0, 0, 3, 0, 0))
 		if err != nil {
 			return nil, err

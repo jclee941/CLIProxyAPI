@@ -71,6 +71,8 @@ type service struct {
 	driveAccess        driveToken
 	startedAt          int64
 	quota              quotaCache
+	videoDiagMu        sync.Mutex
+	videoDiags         map[string]*videoTurnDiag
 }
 
 func newService(host hostCall) *service {

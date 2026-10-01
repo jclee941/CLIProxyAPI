@@ -79,6 +79,9 @@ type webSession struct {
 	onRotate        func(string)
 	onCut           func(map[string]any)
 	uploadOrigin    string
+	// diag, when set, records what the video candidates looked like for the
+	// one-line turn report. It is read-only with respect to the turn.
+	diag *videoTurnDiag
 }
 
 func newWebSession(client *http.Client, credential webCredential, origin string) *webSession {

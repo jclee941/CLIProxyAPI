@@ -19,6 +19,10 @@ type interactionStreamCall struct {
 func interactionStreamCalls(service *service) <-chan interactionStreamCall {
 	calls := make(chan interactionStreamCall, 8)
 	service.host = func(method string, raw []byte) ([]byte, error) {
+		// Diagnostic log lines are not stream traffic and must not queue behind it.
+		if method == "host.log" {
+			return []byte(`{"ok":true,"result":{}}`), nil
+		}
 		var call interactionStreamCall
 		if err := json.Unmarshal(raw, &call); err != nil {
 			return nil, err

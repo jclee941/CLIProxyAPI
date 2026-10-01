@@ -78,7 +78,7 @@ func (service *service) nativeText(ctx context.Context, record storageRecord, to
 // nativeVideo produces the same response body the sidecar would, so the caller's
 // submission bookkeeping and validation stay untouched when only the transport
 // changes.
-func (service *service) nativeVideo(ctx context.Context, record storageRecord, token sessionToken, payload []byte) (httpResponse, error) {
+func (service *service) nativeVideo(ctx context.Context, record storageRecord, token sessionToken, payload []byte) (result httpResponse, err error) {
 	credential, err := decodeWebCredential(token)
 	if err != nil {
 		return httpResponse{}, err
@@ -103,6 +103,8 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	if !ok {
 		return httpResponse{}, failure(404, "account_model_unavailable")
 	}
+	session.diag = newVideoTurnDiag(record.ID, "first", account, model, options.framing(), options.thinking())
+	defer func() { service.reportVideoTurn(session.diag, videoOutcome(err)) }()
 	sources, err := service.mediaSources(ctx, media, "")
 	if err != nil {
 		return httpResponse{}, err
