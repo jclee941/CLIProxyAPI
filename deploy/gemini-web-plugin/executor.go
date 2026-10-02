@@ -19,9 +19,10 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	}
 	if request.Format == "interactions" {
 		request.Stream = request.Stream || method == "executor.execute_stream"
+		service.noteExecutorAccount(request)
 		result, err := service.executeInteraction(ctx, request)
 		if err != nil {
-			return nil, interactionAccountFailure(request.AuthID, executionFailure(omniModel, err))
+			return nil, interactionAccountFailure(service.accountDisplay(request.AuthID), executionFailure(omniModel, err))
 		}
 		return result, nil
 	}

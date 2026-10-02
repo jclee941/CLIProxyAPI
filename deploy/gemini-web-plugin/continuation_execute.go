@@ -193,7 +193,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			fields[2] = metadata
 		}
 		if turn.Model == omniModel {
-			diag = newVideoTurnDiag(execution.local.Target.ID, diagKind, account, model, options.framing(), options.thinking())
+			diag = newVideoTurnDiag(service.recordAccountName(execution.local.Target), diagKind, account, model, options.framing(), options.thinking())
 			session.diag = diag
 		}
 		encoded, err := json.Marshal(fields)

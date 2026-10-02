@@ -133,10 +133,8 @@ func (service *service) streamInteractionCallback(method, stream string, payload
 // interaction and the error object a failed request answers with, so that the
 // stream can still close cleanly afterwards.
 func (service *service) emitInteractionError(stream, account, code, message string, interaction any) error {
-	detail := map[string]string{"code": code, "message": message}
-	if id := interactionAccount(account); id != "" {
-		detail["account"] = id
-	}
+	detail := map[string]any{"code": code, "message": message}
+	service.accountDisplay(account).put(detail)
 	payload, err := json.Marshal(map[string]any{
 		"error":       detail,
 		"interaction": interaction,
@@ -156,7 +154,7 @@ func (service *service) subscribeInteraction(stream, token string, cursor int, o
 		err := service.sendInteractionEvents(stream, token, cursor, operation)
 		message := ""
 		if err != nil {
-			message = safeCredentialMessage(interactionAccountFailure(operation.account, err))
+			message = safeCredentialMessage(interactionAccountFailure(service.accountDisplay(operation.account), err))
 		}
 		// A disconnected subscriber is not a generation failure. The owned operation
 		// continues, and its result is recoverable through the durable receipt.
@@ -187,10 +185,7 @@ func (service *service) sendInteractionEvents(stream, token string, cursor int, 
 		}
 	}
 	created := map[string]any{"id": token, "object": "interaction", "model": interactionOmniModel, "status": "in_progress", "steps": []any{}}
-	account := interactionAccount(operation.account)
-	if account != "" {
-		created["account"] = account
-	}
+	service.accountDisplay(operation.account).put(created)
 	if err := emit(1, "interaction.created", map[string]any{"interaction": created}); err != nil {
 		return err
 	}
@@ -216,9 +211,7 @@ func (service *service) sendInteractionEvents(stream, token string, cursor int, 
 			"status": "failed", "steps": []any{},
 			"error": map[string]string{"code": "no_video_generated", "message": safeCredentialMessage(operation.err)},
 		}
-		if account != "" {
-			failed["account"] = account
-		}
+		service.accountDisplay(operation.account).put(failed)
 		if err := emit(2, "interaction.failed", map[string]any{"interaction": failed}); err != nil {
 			return err
 		}

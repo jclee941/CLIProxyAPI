@@ -120,6 +120,7 @@ func (service *service) parseStorage(raw []byte, strict bool) (storageRecord, er
 	if _, err := parseCredentialReference(record.TokenRef); err != nil {
 		return record, err
 	}
+	service.rememberAccount(record)
 	return record, nil
 }
 

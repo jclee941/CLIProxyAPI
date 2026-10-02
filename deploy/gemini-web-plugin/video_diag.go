@@ -36,9 +36,9 @@ type videoTurnDiag struct {
 	text     string
 }
 
-func newVideoTurnDiag(accountID, kind string, account webAccount, model capability, framing omniFraming, thinking int) *videoTurnDiag {
+func newVideoTurnDiag(accountName, kind string, account webAccount, model capability, framing omniFraming, thinking int) *videoTurnDiag {
 	return &videoTurnDiag{
-		account:  diagAccount(accountID),
+		account:  diagName(accountName),
 		kind:     kind,
 		model:    model,
 		capacity: webCapacity(account.CapacityFlags),
@@ -48,8 +48,18 @@ func newVideoTurnDiag(accountID, kind string, account webAccount, model capabili
 	}
 }
 
+// diagName is what the video_turn_diag line prints for an account: its readable
+// name, or "none" when no account was chosen.
+func diagName(name string) string {
+	if name == "" {
+		return "none"
+	}
+	return name
+}
+
 // diagAccount shortens an account id to six hex characters. An id that is not
-// plain hex is hashed first, so nothing readable about it is ever written.
+// plain hex is hashed first. It is the name an account has only while no label
+// is known for it.
 func diagAccount(id string) string {
 	id = strings.ToLower(strings.TrimSpace(id))
 	if id == "" {
@@ -63,17 +73,6 @@ func diagAccount(id string) string {
 		return id[:6]
 	}
 	return id
-}
-
-// interactionAccount is the short id an Interactions response names the serving
-// account by: the same six characters the video_turn_diag line prints, so a
-// caller's log and this plugin's log can be set side by side. An empty id, a
-// turn no account was chosen for, has none.
-func interactionAccount(id string) string {
-	if strings.TrimSpace(id) == "" {
-		return ""
-	}
-	return diagAccount(id)
 }
 
 func isHexString(value string) bool {
@@ -319,7 +318,7 @@ func (service *service) recallVideoDiag(key, accountID, kind string) *videoTurnD
 	if diag != nil {
 		return diag
 	}
-	return &videoTurnDiag{account: diagAccount(accountID), kind: kind}
+	return &videoTurnDiag{account: diagName(service.accountName(accountID)), kind: kind}
 }
 
 func (service *service) dropVideoDiag(key string) {

@@ -136,8 +136,18 @@ The executor independently rejects wrong selected accounts, unknown/tampered
 IDs, stale projections, disabled accounts, and identity changes.
 
 Every response about a turn names the account that handled it in an optional
-`account` field: the six-hex short id the `video_turn_diag` line prints, never
-the auth file name, an address or a credential. It is on the interaction object
+`account` field: the account's readable name, the same one the `video_turn_diag`
+line prints. It is the local part of the account label's email address,
+lowercased (or the whole label, lowercased, when it is not an address), with any
+character outside `[a-z0-9._-]` replaced by `-`, cut to 32 characters and
+matching `^[a-z0-9][a-z0-9._-]{0,31}$`. An account with no known label is named by
+its six-hex short id. It is a display name only: it is never the auth file name,
+the full address or a credential, and it is not an identity to route, pin or
+store by. Beside it an optional `account_usage` object, `{"5h": <percent>,
+"weekly": <percent>}`, gives the share of each quota window the account had used
+when the plugin last read it, as a number from 0 to 100 with one decimal. A
+window never read has no key and an account never read has no object; no
+request is made to Google for it. Both are on the interaction object
 (`interaction.created`, `interaction.failed`, `interaction.completed`, the JSON
 create and GET snapshots) and on the `error` object of every failure raised
 after the scheduler picked an account, including the SSE `error` event. A

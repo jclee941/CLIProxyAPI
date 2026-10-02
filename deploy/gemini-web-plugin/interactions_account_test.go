@@ -9,27 +9,43 @@ import (
 )
 
 // Every Interactions response a caller reads names the account that handled the
-// turn, by the same short id the video_turn_diag line prints. These tests read
-// the machine-consumed field, never the wording around it.
+// turn by a readable name taken from its label, with the account's last quota
+// reading beside it. These tests read the machine-consumed fields, never the
+// wording around them.
+
+var readableAccountPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
 
 var shortAccountPattern = regexp.MustCompile(`^[0-9a-f]{6}$`)
 
-func TestInteractionAccountIsAShortHexIdAndNeverTheFileName(t *testing.T) {
+const namedAccount = "someone"
+
+func namedAccountService(t *testing.T) *service {
+	t.Helper()
+	service := newService(nil)
+	service.rememberAccount(storageRecord{ID: "account.json", Label: "Someone@Example.com"})
+	return service
+}
+
+func TestAccountNameIsTheLabelAndHexOnlyWhenNoLabelIsKnown(t *testing.T) {
+	service := newService(nil)
 	file := "gemini-web-0123456789abcdef0123456789abcdef.json"
-	for _, id := range []string{file, "account.json", "abcdef0123", "USER@example.com"} {
-		got := interactionAccount(id)
-		if !shortAccountPattern.MatchString(got) {
-			t.Fatalf("interactionAccount(%q) = %q, want six hex characters", id, got)
-		}
-		if got != diagAccount(id) {
-			t.Fatalf("interactionAccount(%q) = %q, the diag line prints %q", id, got, diagAccount(id))
-		}
+	if got := service.accountName(file); !shortAccountPattern.MatchString(got) || got != diagAccount(file) {
+		t.Fatalf("an account with no label is named %q, want the short id %q", got, diagAccount(file))
 	}
-	if got := interactionAccount("abcdef0123"); got != "abcdef" {
-		t.Fatalf("a hex id keeps its first six characters, got %q", got)
+	service.rememberAccount(storageRecord{ID: file, Label: "Sunmin938A@gmail.com"})
+	got := service.accountName(file)
+	if got != "sunmin938a" || !readableAccountPattern.MatchString(got) {
+		t.Fatalf("a labelled account is named %q, want sunmin938a", got)
 	}
-	if got := interactionAccount("  "); got != "" {
-		t.Fatalf("no account chosen must give no id, got %q", got)
+	if got := service.accountName("  "); got != "" {
+		t.Fatalf("no account chosen must give no name, got %q", got)
+	}
+	if display := service.accountDisplay(""); display.Name != "" || display.Usage != nil {
+		t.Fatalf("no account chosen must give an empty display, got %+v", display)
+	}
+	service.rememberAccount(storageRecord{ID: file, Label: "\u00ed\u0095\u009c"})
+	if got := service.accountName(file); !shortAccountPattern.MatchString(got) {
+		t.Fatalf("a label with nothing usable falls back to the short id, got %q", got)
 	}
 }
 
@@ -77,14 +93,15 @@ func accountOfEnvelopeError(t *testing.T, result envelope) string {
 }
 
 func TestRenderedInteractionNamesTheAccountForEveryState(t *testing.T) {
-	want := interactionAccount("account.json")
+	service := namedAccountService(t)
+	want := namedAccount
 	video := []byte(`{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"video/mp4","data":"AAAA"}}]}}]}`)
 	for name, view := range map[string]continuationView{
 		"pending": {Token: "t", State: "pending"},
 		"failed":  {Token: "t", State: "outcome_unknown", Error: "no_video_generated"},
 		"refused": {Token: "t", State: "outcome_unknown", Error: "quota", ErrorMessage: "quota"},
 	} {
-		result, err := renderInteraction("account.json", continuationResult{}, view)
+		result, err := service.renderInteraction("account.json", continuationResult{}, view)
 		if err != nil {
 			t.Fatal(name, err)
 		}
@@ -92,20 +109,23 @@ func TestRenderedInteractionNamesTheAccountForEveryState(t *testing.T) {
 			t.Fatalf("%s: account = %q, want %q", name, got, want)
 		}
 	}
-	result, err := renderInteraction("account.json", continuationResult{Payload: video}, continuationView{Token: "t", State: "complete"})
+	result, err := service.renderInteraction("account.json", continuationResult{Payload: video}, continuationView{Token: "t", State: "complete"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := accountOfInteraction(t, result.(continuationResult).Payload); got != want {
 		t.Fatalf("complete: account = %q, want %q", got, want)
 	}
-	if bytes.Contains(result.(continuationResult).Payload, []byte("account.json")) {
-		t.Fatal("the auth file name leaked into the response")
+	for _, leaked := range []string{"account.json", "example.com", "Example"} {
+		if bytes.Contains(result.(continuationResult).Payload, []byte(leaked)) {
+			t.Fatalf("%q leaked into the response", leaked)
+		}
 	}
 }
 
 func TestInteractionFailureNamesTheAccountOnlyWhenOneWasChosen(t *testing.T) {
-	named := interactionAccountFailure("account.json", failure(409, "session_busy"))
+	service := namedAccountService(t)
+	named := interactionAccountFailure(service.accountDisplay("account.json"), failure(409, "session_busy"))
 	var public *publicError
 	if !asPublicError(named, &public) {
 		t.Fatal("not a public error")
@@ -114,12 +134,12 @@ func TestInteractionFailureNamesTheAccountOnlyWhenOneWasChosen(t *testing.T) {
 		t.Fatalf("status and code must not change: %+v", public)
 	}
 	var body struct {
-		Error map[string]string `json:"error"`
+		Error map[string]any `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(public.Message), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Error["account"] != interactionAccount("account.json") || body.Error["code"] != "session_busy" {
+	if body.Error["account"] != namedAccount || body.Error["code"] != "session_busy" {
 		t.Fatalf("error object = %v", body.Error)
 	}
 	// A refusal raised before the scheduler picked anyone has no account to name.
@@ -137,8 +157,8 @@ func TestExecutorFailureAfterTheAccountWasChosenNamesIt(t *testing.T) {
 	request := executorRequest{AuthID: local.Target.ID, AuthProvider: provider, Model: interactionOmniModel, Format: "interactions", SourceFormat: "interactions", StorageJSON: auth.StorageJSON, AuthMetadata: auth.Metadata, Payload: []byte(`{"model":"gemini-omni-1.1-flash","input":"x"}`)}
 	// No caller scope: the executor refuses after the host has chosen the account.
 	result := invoke(t, service, "executor.execute", request)
-	if got := accountOfEnvelopeError(t, result); got != interactionAccount(local.Target.ID) {
-		t.Fatalf("failure account = %q, want %q", got, interactionAccount(local.Target.ID))
+	if got := accountOfEnvelopeError(t, result); got != accountDisplayName(local.Target.Label) {
+		t.Fatalf("failure account = %q, want %q", got, accountDisplayName(local.Target.Label))
 	}
 }
 
@@ -147,7 +167,7 @@ func TestFreshExtendedAndRetrievedTurnsNameTheAccount(t *testing.T) {
 	fixture := &continuationWebFixture{video: true}
 	continuationWeb(t, service, fixture)
 	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
-	want := interactionAccount(local.Target.ID)
+	want := accountDisplayName(local.Target.Label)
 
 	fresh := interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`)
 	if got := accountOfEnvelopeResult(t, fresh); got != want {
@@ -174,7 +194,7 @@ func TestDeclinedFreshAndRetriedTurnsNameTheAccountOnTheFailure(t *testing.T) {
 	fixture := &continuationWebFixture{video: false}
 	continuationWeb(t, service, fixture)
 	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
-	want := interactionAccount(local.Target.ID)
+	want := accountDisplayName(local.Target.Label)
 
 	declined := interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`)
 	if got := accountOfEnvelopeError(t, declined); got != want {
@@ -183,7 +203,7 @@ func TestDeclinedFreshAndRetriedTurnsNameTheAccountOnTheFailure(t *testing.T) {
 }
 
 func TestStreamEventsNameTheAccount(t *testing.T) {
-	service := newService(nil)
+	service := namedAccountService(t)
 	calls := interactionStreamCalls(service)
 	operation := &interactionOperation{account: "account.json", done: make(chan struct{}), err: webNoVideo("Daily video limit reached.")}
 	close(operation.done)
@@ -192,7 +212,7 @@ func TestStreamEventsNameTheAccount(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	want := interactionAccount("account.json")
+	want := namedAccount
 
 	if _, err := service.subscribeInteraction("s", "tok", 0, operation); err != nil {
 		t.Fatal(err)
@@ -243,15 +263,15 @@ func TestStreamEventsNameTheAccount(t *testing.T) {
 }
 
 func TestStreamedFailedAndCompletedResultsNameTheAccount(t *testing.T) {
-	want := interactionAccount("account.json")
+	want := namedAccount
 	video := []byte(`{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"video/mp4","data":"AAAA"}}]}}]}`)
 	for name, view := range map[string]continuationView{
 		"quota":     {Token: "tok", State: "outcome_unknown", Error: "video_quota_exhausted", ErrorMessage: "video_quota_exhausted"},
 		"completed": {Token: "tok", State: "complete"},
 	} {
-		service := newService(nil)
+		service := namedAccountService(t)
 		calls := interactionStreamCalls(service)
-		rendered, err := renderInteraction("account.json", continuationResult{Payload: video}, view)
+		rendered, err := service.renderInteraction("account.json", continuationResult{Payload: video}, view)
 		if err != nil {
 			t.Fatal(err)
 		}

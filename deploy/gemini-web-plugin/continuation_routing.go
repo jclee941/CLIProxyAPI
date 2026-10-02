@@ -83,20 +83,18 @@ func interactionRejection(err error) requestInterceptResponse {
 // the gemini_web_omni: prefix a failure raised during a turn carries, since the
 // host's stop rules look for it there; the code is the bare identifier.
 func interactionErrorBody(err error) ([]byte, error) {
-	return interactionAccountErrorBody("", err)
+	return interactionAccountErrorBody(accountDisplay{}, err)
 }
 
-// interactionAccountErrorBody is that object with the short id of the account
-// that handled the turn, when one had been chosen. A refusal raised before any
-// account is picked carries none.
-func interactionAccountErrorBody(account string, err error) ([]byte, error) {
-	detail := map[string]string{
+// interactionAccountErrorBody is that object with the name and usage of the
+// account that handled the turn, when one had been chosen. A refusal raised
+// before any account is picked carries none.
+func interactionAccountErrorBody(account accountDisplay, err error) ([]byte, error) {
+	detail := map[string]any{
 		"code":    strings.TrimPrefix(safeCredentialCode(err), "gemini_web_omni:"),
 		"message": safeCredentialMessage(err),
 	}
-	if id := interactionAccount(account); id != "" {
-		detail["account"] = id
-	}
+	account.put(detail)
 	return json.Marshal(map[string]any{"error": detail})
 }
 
@@ -106,12 +104,12 @@ func interactionAccountErrorBody(account string, err error) ([]byte, error) {
 // interaction read as model_not_found, a refused turn had no code at all. The
 // code and status the host acts on do not change.
 func interactionFailure(err error) error {
-	return interactionAccountFailure("", err)
+	return interactionAccountFailure(accountDisplay{}, err)
 }
 
 // interactionAccountFailure is interactionFailure for a turn an account was
 // already chosen for, so the caller's error object names that account.
-func interactionAccountFailure(account string, err error) error {
+func interactionAccountFailure(account accountDisplay, err error) error {
 	var public *publicError
 	if !errors.As(err, &public) {
 		return err

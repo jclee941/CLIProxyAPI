@@ -103,7 +103,7 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	if !ok {
 		return httpResponse{}, failure(404, "account_model_unavailable")
 	}
-	session.diag = newVideoTurnDiag(record.ID, "first", account, model, options.framing(), options.thinking())
+	session.diag = newVideoTurnDiag(service.recordAccountName(record), "first", account, model, options.framing(), options.thinking())
 	defer func() { service.reportVideoTurn(session.diag, videoOutcome(err)) }()
 	sources, err := service.mediaSources(ctx, media, "")
 	if err != nil {

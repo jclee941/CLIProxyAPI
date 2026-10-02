@@ -104,7 +104,7 @@ func (service *service) persistBackgroundOutcome(request executorRequest, token 
 	if err := service.saveContinuations(local, turns); err != nil {
 		return nil, errors.Join(err, executionErr)
 	}
-	return renderInteraction(record.ID, continuationResult{}, continuationView{
+	return service.renderInteraction(record.ID, continuationResult{}, continuationView{
 		Token: token, State: "outcome_unknown", Error: turn.Error, ErrorMessage: turn.ErrorMessage,
 	})
 }

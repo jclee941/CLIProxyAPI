@@ -1424,7 +1424,25 @@
           "account": {
             "type": "string",
             "readOnly": true,
-            "description": "Optional diagnostic identifier. Do not use it to construct requests."
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$",
+            "description": "Optional readable name of the account that served the turn: the lowercased local part of the account label's email address (or the lowercased label), or a six-hex short id when no label is known. Display only; do not use it to construct requests."
+          },
+          "account_usage": {
+            "type": "object",
+            "readOnly": true,
+            "description": "Optional share of each quota window the serving account had used when it was last read, in percent with one decimal. A window never read has no key; the object is absent when neither was read. Present only beside account.",
+            "properties": {
+              "5h": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "weekly": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
           },
           "status": {
             "type": "string",
@@ -1738,6 +1756,25 @@
                   "message": {
                     "type": "string",
                     "description": "The identifier, possibly behind gemini_web_omni: and followed by ': ' and the product's reply."
+                  },
+                  "account": {
+                    "type": "string",
+                    "readOnly": true,
+                    "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$",
+                    "description": "Present only on a failure raised after an account was chosen: its readable name, as on the interaction object."
+                  },
+                  "account_usage": {
+                    "type": "object",
+                    "readOnly": true,
+                    "description": "Present only beside account when a quota window was read: percent used, with keys 5h and weekly.",
+                    "properties": {
+                      "5h": {
+                        "type": "number"
+                      },
+                      "weekly": {
+                        "type": "number"
+                      }
+                    }
                   },
                   "type": {
                     "type": "string",

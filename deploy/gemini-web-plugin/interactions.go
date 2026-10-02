@@ -245,7 +245,7 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 		if _, err := service.ownInteraction(ctx, native, token, body.Store, true); err != nil {
 			return nil, err
 		}
-		return renderInteraction(request.AuthID, continuationResult{}, continuationView{Token: token, State: "pending"})
+		return service.renderInteraction(request.AuthID, continuationResult{}, continuationView{Token: token, State: "pending"})
 	}
 	return service.finishInteraction(ctx, native, token, body.Store)
 }
@@ -300,7 +300,7 @@ func (service *service) finishInteraction(ctx context.Context, native executorRe
 			return nil, err
 		}
 	}
-	rendered, err := renderInteraction(record.ID, result, receipt.View)
+	rendered, err := service.renderInteraction(record.ID, result, receipt.View)
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +321,7 @@ func (service *service) waitInteraction(ctx context.Context) error {
 	}
 }
 
-func renderInteraction(account string, result continuationResult, view continuationView) (interface{}, error) {
+func (service *service) renderInteraction(account string, result continuationResult, view continuationView) (interface{}, error) {
 	status := "in_progress"
 	steps := make([]any, 0, 1)
 	if view.State == "complete" {
@@ -351,9 +351,7 @@ func renderInteraction(account string, result continuationResult, view continuat
 		status = "failed"
 	}
 	body := map[string]any{"id": view.Token, "object": "interaction", "model": interactionOmniModel, "status": status, "steps": steps}
-	if id := interactionAccount(account); id != "" {
-		body["account"] = id
-	}
+	service.accountDisplay(account).put(body)
 	// A failure the plugin can name was being dropped here, so a caller saw only
 	// that the turn failed and had nothing to act on - the same blank answer
 	// whether the product declined the prompt, ran out of daily video, or

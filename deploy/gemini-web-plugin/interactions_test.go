@@ -25,7 +25,7 @@ func TestInteractionCarriesAReferenceImage(t *testing.T) {
 // A caller that is told only "failed" has nothing to act on, and the plugin
 // already knows why.
 func TestRenderedInteractionCarriesTheFailureReason(t *testing.T) {
-	result, err := renderInteraction("account.json", continuationResult{},
+	result, err := newService(nil).renderInteraction("account.json", continuationResult{},
 		continuationView{Token: "t", State: "outcome_unknown", Error: "no_video_generated"})
 
 	if err != nil {
@@ -51,7 +51,7 @@ func TestATextAnswerIsNeverACompletedInteraction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := renderInteraction("account.json", continuationResult{Payload: spoken},
+	result, err := newService(nil).renderInteraction("account.json", continuationResult{Payload: spoken},
 		continuationView{Token: "t", State: "complete"})
 
 	if err == nil {

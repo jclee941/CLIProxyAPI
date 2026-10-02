@@ -33,7 +33,7 @@ func TestInteractionsRejectOtherAuthenticatedCaller(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.Error.Message), &body); err != nil {
 		t.Fatalf("cross-caller error body: %s", result.Error.Message)
 	}
-	want := map[string]string{"account": interactionAccount(local.Target.ID), "code": "continuation_identity_mismatch", "message": "gemini_web_omni:continuation_identity_mismatch"}
+	want := map[string]string{"account": accountDisplayName(local.Target.Label), "code": "continuation_identity_mismatch", "message": "gemini_web_omni:continuation_identity_mismatch"}
 	if len(body.Error) != len(want) || body.Error["account"] != want["account"] || body.Error["code"] != want["code"] || body.Error["message"] != want["message"] {
 		t.Fatalf("cross-caller error body: %s", result.Error.Message)
 	}

@@ -13,7 +13,7 @@ func diagFixture() *videoTurnDiag {
 		},
 		CapacityFlags: []int{16, 38},
 	}
-	diag := newVideoTurnDiag("abcdef0123456789", "first", account, account.Capabilities[0], webFramingPortrait, 1)
+	diag := newVideoTurnDiag("sunmin938a", "first", account, account.Capabilities[0], webFramingPortrait, 1)
 	diag.observe([]any{[]any{"rc_x"}, []any{"저는 언어 모델이라서 영상을 만들 수 없습니다. 죄송합니다 정말로 그렇습니다"}, nil, nil, nil, nil, nil, nil, []any{float64(2)}, nil, nil, nil, []any{}})
 	return diag
 }
@@ -31,7 +31,7 @@ func TestVideoDiagFieldsCarryTheTurnWithoutThePrompt(t *testing.T) {
 		t.Fatalf("state/error = %v/%v", fields["state"], fields["error"])
 	}
 	reason, _ := fields["reason"].(string)
-	for _, want := range []string{"account=abcdef ", "kind=first", "capability=3.8 Flash", "mode=1", "id8=01234567", "capacity=1", "thinking=1", "chip=17"} {
+	for _, want := range []string{"account=sunmin938a ", "kind=first", "capability=3.8 Flash", "mode=1", "id8=01234567", "capacity=1", "thinking=1", "chip=17"} {
 		if !strings.Contains(reason, want) {
 			t.Fatalf("reason = %q, missing %q", reason, want)
 		}
@@ -65,7 +65,7 @@ func TestVideoDiagNeverCarriesWhatTheTurnWasAskedOrCalled(t *testing.T) {
 	// candidate's recorded form; only the candidate text is kept, and only for a
 	// refusal.
 	prompt := "SECRET-PROMPT-TEXT"
-	diag := newVideoTurnDiag("someone@example.com", "extension", webAccount{}, capability{}, webFramingLandscape, 2)
+	diag := newVideoTurnDiag("reader", "extension", webAccount{}, capability{}, webFramingLandscape, 2)
 	diag.observe([]any{[]any{"rc_conversationid"}, nil, "https://example.com/video"})
 	fields := videoDiagFields(diag, "video")
 	var all strings.Builder
@@ -73,7 +73,7 @@ func TestVideoDiagNeverCarriesWhatTheTurnWasAskedOrCalled(t *testing.T) {
 		all.WriteString(value.(string))
 		all.WriteByte('\n')
 	}
-	for _, forbidden := range []string{prompt, "someone", "example.com", "conversationid", "rc_", "https://"} {
+	for _, forbidden := range []string{prompt, "@", "example.com", "conversationid", "rc_", "https://"} {
 		if strings.Contains(all.String(), forbidden) {
 			t.Fatalf("diagnostic carries %q: %s", forbidden, all.String())
 		}
