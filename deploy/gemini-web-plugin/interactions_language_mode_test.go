@@ -185,3 +185,28 @@ func containsField(reason, field string) bool {
 	}
 	return false
 }
+
+func TestVideoToolMentionIsOptIn(t *testing.T) {
+	if videoRequestOptions(t, "").VideoTool || !videoRequestOptions(t, `{"video_tool":true}`).VideoTool {
+		t.Fatal("video_tool must default off and turn on only when named")
+	}
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{video: true}
+	continuationWeb(t, service, fixture)
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+
+	for body, want := range map[string]string{
+		`{"model":"gemini-omni-1.1-flash","input":"first"}`:                                         "null",
+		`{"model":"gemini-omni-1.1-flash","input":"first","generation_config":{"video_tool":true}}`: `[["video_generation"]]`,
+	} {
+		before := len(fixture.fields)
+		interactionID(t, interactionCall(t, service, local, body))
+		if len(fixture.fields) != before+1 {
+			t.Fatalf("%s: %d generation requests, want one", body, len(fixture.fields)-before)
+		}
+		got, err := json.Marshal(fixture.fields[before][9])
+		if err != nil || string(got) != want {
+			t.Fatalf("%s: slot 9 = %s, want %s", body, got, want)
+		}
+	}
+}

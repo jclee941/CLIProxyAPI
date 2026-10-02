@@ -44,6 +44,9 @@ type omniOptions struct {
 	// account's standard mode, and a mode the account does not advertise is
 	// refused.
 	VideoMode int
+	// VideoTool sends the video tool as an explicit tool mention, the way the web
+	// app's tool menu does when the user picks it. Off by default.
+	VideoTool bool
 }
 
 // webLanguageDefault is the interface language every request has always been
@@ -123,6 +126,10 @@ func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {
 				return omniOptions{}, failure(400, "omni_invalid_video_mode")
 			}
 			options.VideoMode = mode
+		case "videoTool":
+			if json.Unmarshal(value, &options.VideoTool) != nil {
+				return omniOptions{}, failure(400, "omni_invalid_video_tool")
+			}
 		case "candidateCount":
 			var count int
 			if json.Unmarshal(value, &count) != nil || count != 1 {

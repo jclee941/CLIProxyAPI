@@ -43,6 +43,9 @@ type interactionRequest struct {
 		// runs on, which the serving account has to advertise. Absent, the account's
 		// standard mode is used.
 		VideoMode *int `json:"video_mode,omitempty"`
+		// VideoTool is this gateway's extension: send the video tool as an explicit
+		// tool mention, as the web app does when the user picks it from its tool menu.
+		VideoTool bool `json:"video_tool,omitempty"`
 	} `json:"generation_config,omitempty"`
 }
 
@@ -155,6 +158,9 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 	}
 	if mode := request.GenerationConfig.VideoMode; mode != nil {
 		config["videoMode"] = *mode
+	}
+	if request.GenerationConfig.VideoTool {
+		config["videoTool"] = true
 	}
 	if len(config) != 0 {
 		content["generationConfig"] = config

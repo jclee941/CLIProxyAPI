@@ -77,6 +77,16 @@ func webVideoFields(prompt string, mode int, conversationID string, framing omni
 	return fields
 }
 
+// webVideoToolName is the tool the web app names in its request's tool-mention
+// list (slot 9, protocol field 10) when the video tool is picked from the tool menu.
+const webVideoToolName = "video_generation"
+
+// webMentionVideoTool writes that mention into a video turn's fields.
+func webMentionVideoTool(fields []any) []any {
+	fields[9] = []any{[]any{webVideoToolName}}
+	return fields
+}
+
 // webRoleDeclared reports whether a prompt already names a media role. The tag
 // vocabulary is the product's own prompt syntax, so every spelling of it is left
 // alone - including the frame tags, which the reference declaration used to
