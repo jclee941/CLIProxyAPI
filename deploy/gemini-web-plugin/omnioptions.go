@@ -37,6 +37,28 @@ type omniOptions struct {
 	// ThinkingLevel is the web app's thinking level name for the turn; empty sends
 	// the standard level.
 	ThinkingLevel string
+	// Language is the interface language a video turn is sent with, one of
+	// omniLanguages; empty sends webLanguageDefault.
+	Language string
+	// VideoMode is the capability mode a video turn runs on; zero takes the
+	// account's standard mode, and a mode the account does not advertise is
+	// refused.
+	VideoMode int
+}
+
+// webLanguageDefault is the interface language every request has always been
+// sent with. A video turn sends another only when the caller names it.
+const webLanguageDefault = "en"
+
+// omniLanguages are the interface languages a video turn may be sent with.
+var omniLanguages = map[string]bool{"en": true, "ko": true}
+
+// language is the interface language the turn is sent with.
+func (options omniOptions) language() string {
+	if options.Language != "" {
+		return options.Language
+	}
+	return webLanguageDefault
 }
 
 // omniThinkingLevels are the web app's thinking levels by name, as its StreamGenerate
@@ -89,6 +111,18 @@ func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {
 				return omniOptions{}, failure(400, "omni_invalid_thinking_level")
 			}
 			options.ThinkingLevel = level
+		case "language":
+			var language string
+			if json.Unmarshal(value, &language) != nil || !omniLanguages[language] {
+				return omniOptions{}, failure(400, "omni_invalid_language")
+			}
+			options.Language = language
+		case "videoMode":
+			var mode int
+			if json.Unmarshal(value, &mode) != nil || mode < 1 {
+				return omniOptions{}, failure(400, "omni_invalid_video_mode")
+			}
+			options.VideoMode = mode
 		case "candidateCount":
 			var count int
 			if json.Unmarshal(value, &count) != nil || count != 1 {

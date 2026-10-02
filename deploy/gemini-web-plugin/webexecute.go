@@ -99,11 +99,11 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	if err != nil {
 		return httpResponse{}, err
 	}
-	model, ok := webVideoCapability(account)
-	if !ok {
-		return httpResponse{}, failure(404, "account_model_unavailable")
+	model, err := webVideoCapabilityFor(account, options.VideoMode)
+	if err != nil {
+		return httpResponse{}, err
 	}
-	session.diag = newVideoTurnDiag(service.recordAccountName(record), "first", account, model, options.framing(), options.thinking())
+	session.diag = newVideoTurnDiag(service.recordAccountName(record), "first", account, model, options.framing(), options.thinking(), options.language())
 	defer func() { service.reportVideoTurn(session.diag, videoOutcome(err)) }()
 	sources, err := service.mediaSources(ctx, media, "")
 	if err != nil {
@@ -113,7 +113,7 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	if err != nil {
 		return httpResponse{}, err
 	}
-	video, err := session.generateVideo(ctx, prompt, account, model, options.framing(), options.thinking(), attachments)
+	video, err := session.generateVideo(ctx, prompt, account, model, options.framing(), options.thinking(), options.language(), attachments)
 	if err != nil {
 		service.noteVideoRefusal(record.ID, err)
 		if safeCredentialCode(err) == "no_video_generated" {
@@ -148,6 +148,24 @@ func webVideoCapability(account webAccount) (capability, bool) {
 		}
 	}
 	return capability{}, false
+}
+
+// webVideoCapabilityFor is the capability a video turn runs on: the standard one
+// unless the caller named a mode, and a mode the account does not advertise is
+// refused rather than replaced by another model.
+func webVideoCapabilityFor(account webAccount, mode int) (capability, error) {
+	if mode == 0 {
+		if entry, ok := webVideoCapability(account); ok {
+			return entry, nil
+		}
+		return capability{}, failure(404, "account_model_unavailable")
+	}
+	for _, entry := range account.Capabilities {
+		if entry.Mode == mode {
+			return entry, nil
+		}
+	}
+	return capability{}, failure(400, "omni_video_mode_unavailable")
 }
 
 // webExecutionResult matches the envelope the sidecar path returns, so the two

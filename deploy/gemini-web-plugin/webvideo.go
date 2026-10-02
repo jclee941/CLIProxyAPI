@@ -48,9 +48,10 @@ const webVideoThinkingLevel = 1
 // Both were pinned to landscape, which is why every video came back landscape,
 // and they have to move together - a portrait orientation under a landscape chip
 // leaves the upstream holding the stream open until the budget runs out.
-func webVideoFields(prompt string, mode int, conversationID string, framing omniFraming, thinking int, attachments []webAttachment) []any {
+func webVideoFields(prompt string, mode int, conversationID string, framing omniFraming, thinking int, language string, attachments []webAttachment) []any {
 	prompt = webReferenceDeclaration(prompt, attachments)
 	fields := webGenerationFields(prompt, mode, 0, conversationID, attachments)
+	fields[1] = []any{language}
 	fields[0] = []any{prompt, 0, nil, webAttachmentSlot(attachments), nil, nil, 0, nil, nil,
 		[]any{nil, nil, nil, nil, nil, nil, []any{[]any{nil, nil, nil, framing.orientation}}}}
 	// The web serializer does not translate selected video chips into generation
@@ -273,7 +274,7 @@ func webResponseFrames(raw []byte) ([]any, error) {
 	return bodies, nil
 }
 
-func (session *webSession) submitVideo(ctx context.Context, prompt string, account webAccount, model capability, framing omniFraming, thinking int, attachments []webAttachment) ([]byte, error) {
+func (session *webSession) submitVideo(ctx context.Context, prompt string, account webAccount, model capability, framing omniFraming, thinking int, language string, attachments []webAttachment) ([]byte, error) {
 	if session.xsrf == "" {
 		if err := session.bootstrap(ctx); err != nil {
 			return nil, err
@@ -283,11 +284,11 @@ func (session *webSession) submitVideo(ctx context.Context, prompt string, accou
 	if err != nil {
 		return nil, err
 	}
-	fields, err := json.Marshal(webVideoFields(prompt, model.Mode, conversationID, framing, thinking, attachments))
+	fields, err := json.Marshal(webVideoFields(prompt, model.Mode, conversationID, framing, thinking, language, attachments))
 	if err != nil {
 		return nil, failure(400, "web_request_invalid")
 	}
-	return session.postGeneration(ctx, string(fields), account, model)
+	return session.postGeneration(ctx, string(fields), account, model, language)
 }
 
 func (session *webSession) downloadVideo(ctx context.Context, url string) (int, []byte, error) {
@@ -314,8 +315,8 @@ func (session *webSession) downloadVideo(ctx context.Context, url string) (int, 
 
 // generateVideo submits the prompt and then re-reads the conversation until the
 // download appears. The poll interval matches the bridge it replaces.
-func (session *webSession) generateVideo(ctx context.Context, prompt string, account webAccount, model capability, framing omniFraming, thinking int, attachments []webAttachment) ([]byte, error) {
-	raw, err := session.submitVideo(ctx, prompt, account, model, framing, thinking, attachments)
+func (session *webSession) generateVideo(ctx context.Context, prompt string, account webAccount, model capability, framing omniFraming, thinking int, language string, attachments []webAttachment) ([]byte, error) {
+	raw, err := session.submitVideo(ctx, prompt, account, model, framing, thinking, language, attachments)
 	if err != nil {
 		return nil, err
 	}

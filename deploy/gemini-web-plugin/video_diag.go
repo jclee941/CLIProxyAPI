@@ -28,6 +28,7 @@ type videoTurnDiag struct {
 	capacity int
 	thinking int
 	chip     int
+	language string
 	caps     []capability
 	shape    string
 	slots    string
@@ -36,7 +37,7 @@ type videoTurnDiag struct {
 	text     string
 }
 
-func newVideoTurnDiag(accountName, kind string, account webAccount, model capability, framing omniFraming, thinking int) *videoTurnDiag {
+func newVideoTurnDiag(accountName, kind string, account webAccount, model capability, framing omniFraming, thinking int, language string) *videoTurnDiag {
 	return &videoTurnDiag{
 		account:  diagName(accountName),
 		kind:     kind,
@@ -44,6 +45,7 @@ func newVideoTurnDiag(accountName, kind string, account webAccount, model capabi
 		capacity: webCapacity(account.CapacityFlags),
 		thinking: thinking,
 		chip:     framing.chip,
+		language: language,
 		caps:     account.Capabilities,
 	}
 }
@@ -275,13 +277,17 @@ func videoDiagFields(diag *videoTurnDiag, outcome string) map[string]any {
 		}
 		response += " reply_head=" + head
 	}
+	language := diag.language
+	if language == "" {
+		language = "unknown"
+	}
 	return map[string]any{
 		"provider": provider,
 		"state":    "video_turn_diag",
 		"error":    outcome,
-		"reason": fmt.Sprintf("account=%s kind=%s capability=%s mode=%d id8=%s capacity=%d thinking=%d chip=%d",
+		"reason": fmt.Sprintf("account=%s kind=%s capability=%s mode=%d id8=%s capacity=%d thinking=%d chip=%d lang=%s",
 			diag.account, diag.kind, diag.model.DisplayName, diag.model.Mode, shortID(diag.model.CapabilityID),
-			diag.capacity, diag.thinking, diag.chip),
+			diag.capacity, diag.thinking, diag.chip, language),
 		"budget":           "caps=" + strings.Join(caps, ","),
 		"remote_transport": response,
 	}

@@ -1358,6 +1358,20 @@
             ],
             "default": "standard",
             "description": "Gateway extension, not in the official API: the web app's thinking level for the video turn. Omitted sends standard. Other values return omni_invalid_thinking_level."
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "en",
+              "ko"
+            ],
+            "default": "en",
+            "description": "Gateway extension, not in the official API: the interface language the video turn is sent to the web product with. Omitted sends en. Other values return omni_invalid_language."
+          },
+          "video_mode": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Gateway extension, not in the official API: the capability mode the video turn runs on, for example 1 for 3.8 Flash, 3 for 3.1 Pro and 6 for 3.5 Flash-Lite as advertised on the current accounts. Omitted uses the serving account's standard mode (1). A mode the serving account does not advertise returns 400 omni_video_mode_unavailable and nothing is sent; there is no fallback to another model. Values below 1 or non-integers return omni_invalid_video_mode."
           }
         }
       },

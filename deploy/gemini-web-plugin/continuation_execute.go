@@ -132,8 +132,13 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			return nil, err
 		}
 		model, ok := webSelectCapability(account, turn.Model)
+		language := webLanguageDefault
 		if turn.Model == omniModel {
-			model, ok = webVideoCapability(account)
+			var errCapability error
+			if model, errCapability = webVideoCapabilityFor(account, options.VideoMode); errCapability != nil {
+				return nil, errCapability
+			}
+			ok, language = true, options.language()
 		}
 		if !ok {
 			return nil, failure(404, "account_model_unavailable")
@@ -171,7 +176,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		}
 		fields := webGenerationFields(prompt, model.Mode, webThinkingDefault, nonce, attachments)
 		if turn.Model == omniModel {
-			fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing(), options.thinking(), attachments)
+			fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing(), options.thinking(), language, attachments)
 		}
 		if turn.Parent != "" {
 			var metadata []any
@@ -193,7 +198,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			fields[2] = metadata
 		}
 		if turn.Model == omniModel {
-			diag = newVideoTurnDiag(service.recordAccountName(execution.local.Target), diagKind, account, model, options.framing(), options.thinking())
+			diag = newVideoTurnDiag(service.recordAccountName(execution.local.Target), diagKind, account, model, options.framing(), options.thinking(), language)
 			session.diag = diag
 		}
 		encoded, err := json.Marshal(fields)
@@ -221,7 +226,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			execution.turns[execution.key] = turn
 			return service.saveContinuations(execution.local, execution.turns)
 		}
-		_, submitErr := session.postGeneration(ctx, string(encoded), account, model)
+		_, submitErr := session.postGeneration(ctx, string(encoded), account, model, language)
 		session.generationFrame = nil
 		if submitErr != nil {
 			view.State, view.Error = "pending", safeCredentialCode(submitErr)

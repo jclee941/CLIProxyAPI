@@ -31,8 +31,10 @@ func (transport continuationFixtureTransport) RoundTrip(request *http.Request) (
 }
 
 type continuationWebFixture struct {
-	mu             sync.Mutex
-	fields         [][]any
+	mu     sync.Mutex
+	fields [][]any
+	// languages is the hl each StreamGenerate query carried, in order.
+	languages      []string
 	candidates     []any
 	uploads        [][]byte
 	uploadCookies  []string
@@ -97,6 +99,7 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 				return
 			}
 			fixture.fields = append(fixture.fields, fields)
+			fixture.languages = append(fixture.languages, request.URL.Query().Get("hl"))
 			n := len(fixture.fields)
 			answer := "answer"
 			if fixture.answer != "" {

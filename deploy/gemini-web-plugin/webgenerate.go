@@ -87,7 +87,7 @@ func (session *webSession) generateText(ctx context.Context, prompt string, acco
 	if err != nil {
 		return "", failure(400, "web_request_invalid")
 	}
-	raw, err := session.postGeneration(ctx, string(fields), account, model)
+	raw, err := session.postGeneration(ctx, string(fields), account, model, webLanguageDefault)
 	if err != nil {
 		return "", err
 	}
@@ -95,15 +95,16 @@ func (session *webSession) generateText(ctx context.Context, prompt string, acco
 }
 
 // postGeneration sends one generation turn. Text and video differ only in the
-// field array, so the envelope and the selection header are shared.
-func (session *webSession) postGeneration(ctx context.Context, fields string, account webAccount, model capability) ([]byte, error) {
+// field array and the interface language, so the envelope and the selection
+// header are shared.
+func (session *webSession) postGeneration(ctx context.Context, fields string, account webAccount, model capability, language string) ([]byte, error) {
 	envelope, err := json.Marshal([]any{nil, fields})
 	if err != nil {
 		return nil, failure(400, "web_request_invalid")
 	}
 	query := url.Values{
 		"bl":     {session.build},
-		"hl":     {"en"},
+		"hl":     {language},
 		"_reqid": {strconv.Itoa(session.requestID)},
 		"rt":     {"c"},
 	}

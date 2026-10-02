@@ -36,6 +36,13 @@ type interactionRequest struct {
 		// ThinkingLevel is this gateway's extension: the web app's thinking level for
 		// the turn, one of omniThinkingLevels by lowercase name.
 		ThinkingLevel string `json:"thinking_level,omitempty"`
+		// Language is this gateway's extension: the interface language ("en" or
+		// "ko") a video turn is sent with. Absent, the turn is sent in English.
+		Language string `json:"language,omitempty"`
+		// VideoMode is this gateway's extension: the capability mode the video turn
+		// runs on, which the serving account has to advertise. Absent, the account's
+		// standard mode is used.
+		VideoMode *int `json:"video_mode,omitempty"`
 	} `json:"generation_config,omitempty"`
 }
 
@@ -136,12 +143,18 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 		parts = append(parts, map[string]any{"inlineData": map[string]string{"mimeType": reference.MIMEType, "data": reference.Data}})
 	}
 	content := map[string]any{"contents": []any{map[string]any{"role": "user", "parts": parts}}}
-	config := map[string]string{}
+	config := map[string]any{}
 	if format.AspectRatio != "" {
 		config["aspectRatio"] = format.AspectRatio
 	}
 	if level := request.GenerationConfig.ThinkingLevel; level != "" {
 		config["thinkingLevel"] = level
+	}
+	if language := request.GenerationConfig.Language; language != "" {
+		config["language"] = language
+	}
+	if mode := request.GenerationConfig.VideoMode; mode != nil {
+		config["videoMode"] = *mode
 	}
 	if len(config) != 0 {
 		content["generationConfig"] = config
