@@ -6,9 +6,9 @@ import (
 )
 
 // A caller picks the video turn's thinking level through generation_config; the
-// gateway sends the standard level when none is named.
+// gateway sends the extended level when none is named.
 func TestInteractionThinkingLevelReachesTheVideoTurn(t *testing.T) {
-	for level, want := range map[string]int{"": 1, "standard": 1, "extended": 2, "EXTENDED": 2} {
+	for level, want := range map[string]int{"": 2, "standard": 1, "extended": 2, "EXTENDED": 2} {
 		body := `{"model":"` + interactionOmniModel + `","input":"a wave"`
 		if level != "" {
 			body += `,"generation_config":{"thinking_level":"` + level + `"}`
