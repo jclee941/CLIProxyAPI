@@ -69,6 +69,21 @@ func webConversationText(raw []byte) string {
 	return builder.String()
 }
 
+// webImageDeclined reports a turn that ended without an image as a refusal: the
+// caller's remedy is to reword the prompt, and another account reproduces the
+// same ending. Any answer the product gave is kept so the reason is visible.
+func webImageDeclined(answer string) error {
+	declined := failure(400, webPolicyCode)
+	declined.Message = "the image turn ended before the image tool answered"
+	if answer = strings.TrimSpace(answer); answer != "" {
+		if runes := []rune(answer); len(runes) > 300 {
+			answer = string(runes[:300]) + "..."
+		}
+		declined.Message += ": " + answer
+	}
+	return declined
+}
+
 // webRefusedByPolicy reports whether an attempt already established that the
 // account refuses this prompt, so the remaining credentials are not asked to
 // reproduce the same refusal.

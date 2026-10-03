@@ -16,12 +16,16 @@ import (
 // says it served, which can differ from what was asked once an allowance runs
 // out. Complete is set by the stream's own end marker: a stream cut before it
 // may have left the answer half written while the turn goes on server-side.
+// TurnEnded is the assistant closing the turn and ToolAnswered a tool posting a
+// message in it, so an image turn closed before its tool answered is over.
 type webReply struct {
 	Text           string
 	ConversationID string
 	Model          string
 	Effort         string
 	Complete       bool
+	TurnEnded      bool
+	ToolAnswered   bool
 }
 
 type webStreamMessage struct {
@@ -30,6 +34,7 @@ type webStreamMessage struct {
 	} `json:"author"`
 	Recipient string  `json:"recipient"`
 	Channel   *string `json:"channel"`
+	EndTurn   *bool   `json:"end_turn"`
 	Content   struct {
 		ContentType string            `json:"content_type"`
 		Parts       []json.RawMessage `json:"parts"`
@@ -104,6 +109,14 @@ func (reader *webReplyReader) feed(payload string) {
 // is longer and cannot discard what was accumulated.
 func (reader *webReplyReader) enter(message *webStreamMessage) {
 	reader.current = message
+	switch message.Author.Role {
+	case "tool":
+		reader.reply.ToolAnswered = true
+	case "assistant":
+		if message.EndTurn != nil && *message.EndTurn {
+			reader.reply.TurnEnded = true
+		}
+	}
 	if message.Author.Role == "assistant" && message.Metadata.ModelSlug != "" {
 		reader.reply.Model = message.Metadata.ModelSlug
 		reader.reply.Effort = message.Metadata.ThinkingEffort
@@ -158,7 +171,20 @@ func (reader *webReplyReader) fold(raw json.RawMessage, pointer string) {
 		if node.Pointer != nil && *node.Pointer != "" {
 			next = *node.Pointer
 		}
+		if next == "/message/end_turn" {
+			reader.endTurn(node.Value)
+			return
+		}
 		reader.fold(node.Value, next)
+	}
+}
+
+// endTurn applies a patch to the end_turn flag of the message being written,
+// which is how the product closes a turn whose answer it streamed.
+func (reader *webReplyReader) endTurn(value json.RawMessage) {
+	var ended bool
+	if json.Unmarshal(value, &ended) == nil && ended && reader.current != nil && reader.current.Author.Role == "assistant" {
+		reader.reply.TurnEnded = true
 	}
 }
 

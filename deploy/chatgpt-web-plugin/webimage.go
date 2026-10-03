@@ -449,9 +449,12 @@ func webScanReferences(text string, into *webImageReferences) {
 	}
 }
 
-func webReadStream(response *http.Response) webImageReferences {
+// webReadStream collects the image references a turn streamed and how the turn
+// ended, which decides whether the conversation is worth waiting on.
+func webReadStream(response *http.Response) (webImageReferences, webReply) {
 	defer closeBody(response)
 	references := webImageReferences{}
+	reader := webReplyReader{}
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), imagesMaxEventBytes)
 	for scanner.Scan() {
@@ -460,12 +463,26 @@ func webReadStream(response *http.Response) webImageReferences {
 			continue
 		}
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" || payload == "[DONE]" {
+		if payload == "[DONE]" {
+			reader.reply.Complete = true
+			continue
+		}
+		if payload == "" {
 			continue
 		}
 		webScanReferences(payload, &references)
+		reader.feed(payload)
 	}
-	return references
+	return references, reader.reply
+}
+
+// webTurnEndedWithoutImage reports a turn the product closed before its image
+// tool answered. Nothing arrives after that: on a prompt that hung every caller
+// attempt, the model called the tool with a null prompt, the tool never posted,
+// the turn closed on an empty answer, and the conversation stayed unchanged for
+// 200 seconds while each account spent its whole poll budget.
+func webTurnEndedWithoutImage(reply webReply) bool {
+	return reply.Complete && reply.TurnEnded && !reply.ToolAnswered
 }
 
 func (client *webClient) pollConversation(ctx context.Context, references *webImageReferences) error {
@@ -616,8 +633,11 @@ func (client *webClient) generate(ctx context.Context, prompt string) (string, s
 	if err != nil {
 		return "", "", err
 	}
-	references := webReadStream(response)
+	references, reply := webReadStream(response)
 	if len(references.fileIDs) == 0 && len(references.sedimentIDs) == 0 {
+		if webTurnEndedWithoutImage(reply) {
+			return "", references.conversationID, webImageDeclined(reply.Text)
+		}
 		if pollErr := client.pollConversation(ctx, &references); pollErr != nil {
 			return "", references.conversationID, pollErr
 		}
