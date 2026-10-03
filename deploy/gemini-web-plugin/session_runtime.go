@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 )
 
 func parseCredentialReference(raw string) (string, error) {
@@ -183,6 +184,12 @@ func (service *service) localAuthModels(ctx context.Context, record storageRecor
 	return service.interactionModels(account), nil
 }
 
+// Google refuses a second RotateCookies for the same session within about 30
+// seconds, and the turn path read that refusal as an unknown outcome that fenced
+// the account until an operator or a listing released it. A session rotated
+// this recently is fresh, so the turn uses it as it stands.
+const turnRotationAge = time.Minute
+
 func (service *service) renewLocalSession(ctx context.Context, callbackID string, record storageRecord) (sessionToken, error) {
 	local, err := service.localRecord(record)
 	if err != nil {
@@ -200,6 +207,9 @@ func (service *service) renewLocalSession(ctx context.Context, callbackID string
 	}
 	if !sameHostProjection(latest, record) {
 		return sessionToken{}, failure(409, "credential_changed")
+	}
+	if age := service.now().Unix() - local.RotatedAt; age >= 0 && age < int64(turnRotationAge/time.Second) {
+		return sessionToken{local.Token}, nil
 	}
 	identity, err := service.inspectCredential(ctx, "", sessionToken{local.Token})
 	if err != nil {
@@ -224,7 +234,7 @@ func (service *service) renewLocalSession(ctx context.Context, callbackID string
 		return sessionToken{}, failure(409, "session_renewal_identity_mismatch")
 	}
 	if token.value == local.Token {
-		local.State = localReady
+		local.State, local.RotatedAt = localReady, service.now().Unix()
 		if err := service.localStore().write(local); err != nil {
 			return sessionToken{}, err
 		}
@@ -248,6 +258,7 @@ func (service *service) renewLocalSession(ctx context.Context, callbackID string
 		return sessionToken{}, failure(409, "credential_changed")
 	}
 	local.Previous, local.Target, local.Token, local.State = latest, latest, token.value, localHostPending
+	local.RotatedAt = service.now().Unix()
 	if local.Target.SessionRevision == ^uint64(0) {
 		return sessionToken{}, failure(409, "session_revision_exhausted")
 	}
