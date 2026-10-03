@@ -636,7 +636,7 @@ func (client *webClient) generate(ctx context.Context, prompt string) (string, s
 	references, reply := webReadStream(response)
 	if len(references.fileIDs) == 0 && len(references.sedimentIDs) == 0 {
 		if webTurnEndedWithoutImage(reply) {
-			return "", references.conversationID, webImageDeclined(reply.Text)
+			return "", references.conversationID, webImageDeclined()
 		}
 		if pollErr := client.pollConversation(ctx, &references); pollErr != nil {
 			return "", references.conversationID, pollErr

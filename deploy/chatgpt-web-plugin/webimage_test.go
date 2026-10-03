@@ -174,7 +174,7 @@ func TestImageTurnClosedBeforeItsToolAnsweredIsDeclinedAtOnce(t *testing.T) {
 	if !webTurnEndedWithoutImage(reply) {
 		t.Fatalf("a closed turn without a tool answer was left to the poll: %+v", reply)
 	}
-	declined := webImageDeclined(reply.Text)
+	declined := webImageDeclined()
 	if !webRefusedByPolicy(declined) {
 		t.Fatalf("the decline would walk the other accounts: %v", declined)
 	}
@@ -202,16 +202,15 @@ func TestImageTurnStillOpenIsLeftToThePoll(t *testing.T) {
 	}
 }
 
-func TestDeclinedImageTurnCarriesTheAnswer(t *testing.T) {
+// The host drops `code` from the envelope it writes, so a caller can only tell a
+// refusal from any other failure by the message.
+func TestDeclinedImageTurnNamesTheRefusalInItsMessage(t *testing.T) {
 	var public *publicError
-	if !errors.As(webImageDeclined("  I can't make that picture.  "), &public) || public.HTTPStatus != 400 {
+	if !errors.As(webImageDeclined(), &public) || public.HTTPStatus != 400 {
 		t.Fatalf("not a public 400: %v", public)
 	}
-	if !strings.HasSuffix(public.Message, ": I can't make that picture.") {
-		t.Fatalf("message = %q", public.Message)
-	}
-	if !errors.As(webImageDeclined(""), &public) || strings.HasSuffix(public.Message, ": ") {
-		t.Fatalf("message = %q", public.Message)
+	if public.Code != webPolicyCode || public.Message != webPolicyCode {
+		t.Fatalf("code = %q, message = %q", public.Code, public.Message)
 	}
 }
 

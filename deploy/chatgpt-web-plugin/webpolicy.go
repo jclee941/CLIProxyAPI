@@ -71,17 +71,10 @@ func webConversationText(raw []byte) string {
 
 // webImageDeclined reports a turn that ended without an image as a refusal: the
 // caller's remedy is to reword the prompt, and another account reproduces the
-// same ending. Any answer the product gave is kept so the reason is visible.
-func webImageDeclined(answer string) error {
-	declined := failure(400, webPolicyCode)
-	declined.Message = "the image turn ended before the image tool answered"
-	if answer = strings.TrimSpace(answer); answer != "" {
-		if runes := []rune(answer); len(runes) > 300 {
-			answer = string(runes[:300]) + "..."
-		}
-		declined.Message += ": " + answer
-	}
-	return declined
+// same ending. The message stays the bare code because the host drops `code`
+// from the envelope and callers read the verdict from `message`.
+func webImageDeclined() error {
+	return failure(400, webPolicyCode)
 }
 
 // webRefusedByPolicy reports whether an attempt already established that the
