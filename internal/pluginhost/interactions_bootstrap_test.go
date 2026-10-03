@@ -220,7 +220,7 @@ func TestOmniInteractionResumeBootstrapKeepsRetrievalErrorWithoutCredentialRetry
 				} else if result := omniSignal(t, ctx, results); !result.Success || result.AuthID != auth.ID {
 					t.Errorf("receipt switched accounts: %+v", result)
 				}
-			} else if want := `{"error":{"code":"` + scenario.code + `","message":"` + scenario.code + `"}}`; result.Success || result.Error == nil || result.Error.Message != want || !updated.Unavailable || state.NextRetryAfter.Sub(state.UpdatedAt) != time.Minute {
+			} else if result.Success || result.Error == nil || !namesServingFailure(result.Error.Message, scenario.code) || !updated.Unavailable || state.NextRetryAfter.Sub(state.UpdatedAt) != time.Minute {
 				t.Errorf("real failure lost: result=%+v unavailable=%t model_state=%+v", result, updated.Unavailable, state)
 			}
 			stats, err := client.Call(ctx, "stats", nil)
@@ -236,4 +236,11 @@ func TestOmniInteractionResumeBootstrapKeepsRetrievalErrorWithoutCredentialRetry
 			}
 		})
 	}
+}
+
+func namesServingFailure(message, code string) bool {
+	var object struct {
+		Error struct{ Account, Code, Message string } `json:"error"`
+	}
+	return json.Unmarshal([]byte(message), &object) == nil && object.Error.Code == code && object.Error.Message == code && object.Error.Account != ""
 }
