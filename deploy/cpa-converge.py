@@ -8,8 +8,8 @@ serves, and anything whose bytes differ from the live copy is replaced:
 - a dashboard file is replaced in place, since the host reads it per request;
 - a "hot" plugin is swapped and re-enabled through the management API;
 - a "restart" plugin holds the plugin session store, so it is swapped under a
-  stopped container, and only while no Omni turn runs: a restart kills every
-  generation in flight;
+  stopped container, and only while no Omni turn runs and no API request is
+  being answered: a restart kills every generation and request in flight;
 - the core executable is the core-build workflow's published build of the last
   master commit that touched the core paths, swapped with the restart plugins.
 
@@ -179,14 +179,29 @@ def inflight(settings: Settings) -> int:
     return len(picked - answered)
 
 
+def answering(settings: Settings, key: str) -> int:
+    """API requests the host is answering, which a restart would cut.
+
+    A core older than the count answers 404 and is treated as answering none, so
+    the restart that installs a counting core is gated on Omni turns alone.
+    """
+    try:
+        return int(call(settings, key, "GET", "/v0/management/in-flight")["in_flight"])
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+        log("the host does not count the API requests it answers; only Omni turns gate this restart")
+        return 0
+
+
 def idle(settings: Settings, key: str) -> bool:
-    """No Omni turn running, confirmed across one listing cache refresh.
+    """No Omni turn running and no API request answered, confirmed across one listing cache refresh.
 
     A turn keeps generating inside the plugin after its HTTP request ends, so
     the log alone reads idle while an account still generates.
     """
     for attempt in range(2):
-        if inflight(settings) or generating(settings, key):
+        if inflight(settings) or generating(settings, key) or answering(settings, key):
             return False
         if attempt == 0:
             time.sleep(settings.idle_confirm)
@@ -354,7 +369,7 @@ def converge(settings: Settings) -> int:
             if core is not None:
                 stage_core(core, staged)
             if not idle(settings, key):
-                log("an Omni turn is running; the restart waits for the next tick")
+                log("an Omni turn or an API request is running; the restart waits for the next tick")
                 return 0
             before = ready(settings, key)
             run("docker", "stop", "-t", "240", settings.container)

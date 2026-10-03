@@ -20,7 +20,7 @@ Deployment convergence and native plugin artifacts; score 14, with operator poli
 | --- | --- | --- |
 | Active artifact selection | `cpa-plugins.json` | Gemini restart reload; ChatGPT hot reload |
 | Core release selection | `cpa-converge.py` | Published binary and checksum, not a local rebuild |
-| Idle restart gate | `cpa-converge.py` | Account activity plus unanswered Omni picks |
+| Idle restart gate | `cpa-converge.py` | Account activity, unanswered Omni picks, and in-flight API requests |
 | Convergence contracts | `cpa_converge_test.py` | Local management server and Docker fixture |
 | Deployment procedure | `README.md` | Explicit run after core release publication |
 | Core publishing | `../.github/workflows/core-build.yml` | Tests master on every push the core tests read; builds only unpublished core commits |

@@ -74,6 +74,8 @@ def management_handler(state: pathlib.Path, plugins: pathlib.Path) -> type[http.
                 self.reply({"plugins": [{"id": i, "path": "/CLIProxyAPI/plugins/" + n, "registered": bool(n)} for i, n in loaded.items()]})
             elif self.path == "/v0/management/plugins/gemini-web/accounts":
                 self.reply({"accounts": json.loads((state / "accounts.json").read_text())})
+            elif self.path == "/v0/management/in-flight" and (state / "in_flight").exists():
+                self.reply({"in_flight": int((state / "in_flight").read_text())})
             else:
                 self.send_error(404)
 
@@ -161,6 +163,7 @@ def host(test: unittest.TestCase) -> Host:
     (state / "loaded.json").write_text(json.dumps({"gw": "gw-v0.1.0.1.so", "cw": "cw-v0.1.0.1.so"}))
     (state / "restart_ids.json").write_text(json.dumps(["gw"]))
     (state / "main.log").write_text("")
+    (state / "in_flight").write_text("0")
     (root / "core.env").write_text("MANAGEMENT_PASSWORD='key'\n")
     docker = binaries / "docker"
     docker.write_text(FAKE_DOCKER)
@@ -237,6 +240,26 @@ class ConvergeTest(unittest.TestCase):
         self.assertEqual(converge_module.converge(fixture.settings), 0)
 
         self.assertEqual(fixture.lifecycle(), [])
+
+    def test_a_restart_waits_while_the_host_answers_an_api_request(self) -> None:
+        fixture = host(self)
+        fixture.live("gw", b"gw-old")
+        (fixture.state / "in_flight").write_text("1")
+
+        self.assertEqual(converge_module.converge(fixture.settings), 0)
+
+        self.assertEqual(fixture.lifecycle(), [])
+        self.assertEqual((fixture.plugins / "gw-v0.1.0.1.so").read_bytes(), b"gw-old")
+
+    def test_a_core_that_does_not_count_api_requests_restarts_on_the_omni_gate(self) -> None:
+        fixture = host(self)
+        fixture.live_core(b"core old")
+        (fixture.state / "in_flight").unlink()
+
+        self.assertEqual(converge_module.converge(fixture.settings), 0)
+
+        self.assertEqual(fixture.lifecycle(), ["stop", "start"])
+        self.assertEqual(fixture.settings.core_binary.read_bytes(), fixture.core)
 
     def test_a_restart_plugin_is_swapped_under_a_stopped_container_when_idle(self) -> None:
         fixture = host(self)
