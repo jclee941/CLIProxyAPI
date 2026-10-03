@@ -17,6 +17,7 @@ Gin server assembly, protocol multiplexing, and route lifecycle; score 14, a dis
 | Listener lifecycle | `mux_listener.go`, `buffered_conn.go` | Preserve peeked bytes and shutdown behavior |
 | Redis-compatible usage interface | `redis_queue_protocol.go` | Management-key authentication |
 | Heartbeat endpoint | `server_keepalive.go` | Optional embedding watchdog |
+| In-flight API request count | `server_in_flight.go` | `GET /v0/management/in-flight`; the deploy idle gate reads it |
 | Management implementation | `handlers/AGENTS.md` | Handler state and persistence rules |
 | Request-log capture | `middleware/AGENTS.md` | Streaming and deferred-body rules |
 | Native integration fixture | `testdata/frontend_http.c` | Used by frontend HTTP native tests |

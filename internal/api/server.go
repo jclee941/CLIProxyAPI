@@ -105,6 +105,9 @@ type Server struct {
 
 	exampleAPIKeySafeModeEnabled bool
 	exampleAPIKeySafeModeActive  atomic.Bool
+
+	// inFlight counts the API requests being answered.
+	inFlight atomic.Int64
 }
 
 // NewServer creates and initializes a new API server instance.
@@ -229,6 +232,7 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	// subscribe-config heartbeat connection is healthy.
 	engine.Use(s.homeHeartbeatMiddleware())
 	engine.Use(s.exampleAPIKeySafeModeMiddleware())
+	engine.Use(s.inFlightMiddleware())
 
 	// Setup routes
 	s.setupRoutes()
