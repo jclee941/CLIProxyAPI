@@ -82,6 +82,8 @@ type webSession struct {
 	// diag, when set, records what the video candidates looked like for the
 	// one-line turn report. It is read-only with respect to the turn.
 	diag *videoTurnDiag
+	// videoWire is set only by video paths; text and image keep legacy headers.
+	videoWire videoWireMode
 }
 
 func newWebSession(client *http.Client, credential webCredential, origin string) *webSession {

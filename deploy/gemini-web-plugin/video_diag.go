@@ -29,6 +29,7 @@ type videoTurnDiag struct {
 	thinking int
 	chip     int
 	language string
+	wire     videoWireMode
 	caps     []capability
 	shape    string
 	slots    string
@@ -281,13 +282,17 @@ func videoDiagFields(diag *videoTurnDiag, outcome string) map[string]any {
 	if language == "" {
 		language = "unknown"
 	}
+	wire := diag.wire
+	if wire == "" {
+		wire = videoWireLegacy
+	}
 	return map[string]any{
 		"provider": provider,
 		"state":    "video_turn_diag",
 		"error":    outcome,
-		"reason": fmt.Sprintf("account=%s kind=%s capability=%s mode=%d id8=%s capacity=%d thinking=%d chip=%d lang=%s",
+		"reason": fmt.Sprintf("account=%s kind=%s capability=%s mode=%d id8=%s capacity=%d thinking=%d chip=%d lang=%s wire=%s",
 			diag.account, diag.kind, diag.model.DisplayName, diag.model.Mode, shortID(diag.model.CapabilityID),
-			diag.capacity, diag.thinking, diag.chip, language),
+			diag.capacity, diag.thinking, diag.chip, language, wire),
 		"budget":           "caps=" + strings.Join(caps, ","),
 		"remote_transport": response,
 	}

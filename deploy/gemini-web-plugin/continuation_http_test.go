@@ -35,6 +35,8 @@ type continuationWebFixture struct {
 	fields [][]any
 	// languages is the hl each StreamGenerate query carried, in order.
 	languages      []string
+	selections     []string
+	capacityFlags  []int
 	candidates     []any
 	uploads        [][]byte
 	uploadCookies  []string
@@ -100,6 +102,7 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 			}
 			fixture.fields = append(fixture.fields, fields)
 			fixture.languages = append(fixture.languages, request.URL.Query().Get("hl"))
+			fixture.selections = append(fixture.selections, request.Header.Get("x-goog-ext-525001261-jspb"))
 			n := len(fixture.fields)
 			answer := "answer"
 			if fixture.answer != "" {
@@ -138,7 +141,7 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 				if fixture.duringModels != nil {
 					fixture.duringModels()
 				}
-				writeFixture(t, writer, rpcEnvelope(t, accountCapabilityRPC, slots(16, map[int]any{14: 1000, 15: []any{slots(18, map[int]any{0: "cap-flash", 11: "3.8 Flash", 17: 1})}})))
+				writeFixture(t, writer, rpcEnvelope(t, accountCapabilityRPC, slots(17, map[int]any{14: 1000, 15: []any{slots(18, map[int]any{0: "cap-flash", 11: "3.8 Flash", 17: 1})}, 16: fixture.capacityFlags})))
 				return
 			}
 			switch request.URL.Query().Get("rpcids") {

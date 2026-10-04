@@ -296,7 +296,8 @@ func (session *webSession) submitVideo(ctx context.Context, prompt string, accou
 	if err != nil {
 		return nil, err
 	}
-	fields, err := json.Marshal(webVideoFields(prompt, model.Mode, conversationID, framing, thinking, language, attachments))
+	session.videoWire = session.videoWire.variant(conversationID, account.CapacityFlags)
+	fields, err := json.Marshal(session.videoWire.fields(webVideoFields(prompt, model.Mode, conversationID, framing, thinking, language, attachments)))
 	if err != nil {
 		return nil, failure(400, "web_request_invalid")
 	}

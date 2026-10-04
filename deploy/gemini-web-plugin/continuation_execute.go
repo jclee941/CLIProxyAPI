@@ -176,7 +176,10 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		}
 		fields := webGenerationFields(prompt, model.Mode, webThinkingDefault, nonce, attachments)
 		if turn.Model == omniModel {
+			turn.VideoWire = turn.wireMode(service.settings().VideoWireMode).variant(execution.key, account.CapacityFlags)
+			session.videoWire = turn.VideoWire
 			fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing(), options.thinking(), language, attachments)
+			fields = turn.VideoWire.fields(fields)
 			if options.VideoTool {
 				fields = webMentionVideoTool(fields)
 			}
@@ -286,6 +289,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 	if turn.Model == omniModel {
 		if diag == nil {
 			diag = service.recallVideoDiag(execution.key, execution.local.Target.ID, continuationDiagKind(turn.Parent))
+			diag.wire = turn.VideoWire
 		}
 		service.stashVideoDiag(execution.key, diag)
 	}

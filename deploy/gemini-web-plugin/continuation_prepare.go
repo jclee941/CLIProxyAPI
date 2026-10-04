@@ -60,7 +60,11 @@ func (service *service) prepareContinuation(execution continuationExecution) (in
 		return nil, failure(500, "continuation_token_failed")
 	}
 	token := hex.EncodeToString(bytes)
-	execution.turns[continuationKey(token)] = continuationTurn{CallerScope: execution.request.Metadata.CallerScope, Model: execution.request.Model, State: "prepared", Parent: parent, Sequence: sequence + 1}
+	next := continuationTurn{CallerScope: execution.request.Metadata.CallerScope, Model: execution.request.Model, State: "prepared", Parent: parent, Sequence: sequence + 1}
+	if parent != "" {
+		next.VideoWire = execution.turn.VideoWire
+	}
+	execution.turns[continuationKey(token)] = next
 	if execution.control.Token != "" {
 		execution.turn.NextToken = token
 		execution.turns[execution.key] = execution.turn

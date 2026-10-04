@@ -17,23 +17,24 @@ type continuationControl struct {
 	Token  string `json:"token,omitempty"`
 }
 type continuationTurn struct {
-	CallerScope  string   `json:"caller_scope"`
-	Model        string   `json:"model"`
-	State        string   `json:"state"`
-	Parent       string   `json:"parent,omitempty"`
-	Metadata     string   `json:"metadata,omitempty"`
-	Conversation string   `json:"conversation,omitempty"`
-	Reply        string   `json:"reply,omitempty"`
-	Candidate    string   `json:"candidate,omitempty"`
-	Digest       [32]byte `json:"digest"`
-	Sequence     uint64   `json:"sequence"`
-	StartedAt    int64    `json:"started_at,omitempty"`
-	Summary      string   `json:"summary,omitempty"`
-	NextToken    string   `json:"next_token,omitempty"`
-	ResultStored bool     `json:"result_stored,omitempty"`
-	Background   bool     `json:"background,omitempty"`
-	Error        string   `json:"error,omitempty"`
-	ErrorMessage string   `json:"error_message,omitempty"`
+	CallerScope  string        `json:"caller_scope"`
+	Model        string        `json:"model"`
+	State        string        `json:"state"`
+	Parent       string        `json:"parent,omitempty"`
+	Metadata     string        `json:"metadata,omitempty"`
+	Conversation string        `json:"conversation,omitempty"`
+	Reply        string        `json:"reply,omitempty"`
+	Candidate    string        `json:"candidate,omitempty"`
+	Digest       [32]byte      `json:"digest"`
+	Sequence     uint64        `json:"sequence"`
+	StartedAt    int64         `json:"started_at,omitempty"`
+	Summary      string        `json:"summary,omitempty"`
+	NextToken    string        `json:"next_token,omitempty"`
+	ResultStored bool          `json:"result_stored,omitempty"`
+	Background   bool          `json:"background,omitempty"`
+	Error        string        `json:"error,omitempty"`
+	ErrorMessage string        `json:"error_message,omitempty"`
+	VideoWire    videoWireMode `json:"video_wire,omitempty"`
 }
 type continuationResult struct {
 	Payload []byte

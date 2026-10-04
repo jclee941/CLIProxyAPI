@@ -23,7 +23,26 @@ manager_origin: https://cliproxy.jclee.me
 browser_extension_id: REPLACE_WITH_REGISTERED_EXTENSION_ID
 native_generation: true
 native_continuation: true
+video_wire_mode: legacy
 ```
+
+`video_wire_mode` accepts `legacy` (the default, unchanged request bytes), `web`,
+or `alternate`. For Omni video only, `web` sends selection-header capacity `3`,
+capabilities `[4,5,6,8,16,4,5,6,8,16]`, and body slot 30 `[4,16]` when the
+serving account advertises capacity flag `16`. Other accounts keep legacy bytes;
+text and image requests are unaffected.
+
+`alternate` hashes the first local receipt to split new conversations. The
+chosen variant is stored with the turn and inherited by extensions and edits,
+including after a restart. Existing conversations without a recorded variant
+stay legacy. Explicit `legacy` or `web` overrides the stored choice, so rollback
+does not have to wait for a new conversation. `video_turn_diag` reports the
+effective `wire=legacy|web` in `reason`.
+
+Use the authenticated `PATCH /v0/management/plugins/gemini-web/config` with
+`{"video_wire_mode":"alternate"}` (or `legacy` / `web`). The patch preserves other
+plugin settings. Confirm the saved value with the matching GET and the applied
+variant in real video diagnostics; a saved value alone is not reload evidence.
 
 The running process needs `GEMINI_WEB_SESSION_KEY`. On the deployed host,
 `deploy/gemini-web/start-production.sh` reads the mounted

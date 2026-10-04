@@ -26,8 +26,9 @@ type pluginConfig struct {
 	// NativeGeneration serves text turns by speaking to the web product directly
 	// instead of delegating to the sidecar. Off until the native path has been
 	// compared against the sidecar on a real account.
-	NativeGeneration   bool `yaml:"native_generation"`
-	NativeContinuation bool `yaml:"native_continuation"`
+	NativeGeneration   bool          `yaml:"native_generation"`
+	NativeContinuation bool          `yaml:"native_continuation"`
+	VideoWireMode      videoWireMode `yaml:"video_wire_mode"`
 	// Drive credentials live here as well as in the environment because the
 	// configuration is mounted and hot reloaded, while the environment can only
 	// change by recreating the container.
@@ -78,7 +79,7 @@ type service struct {
 }
 
 func newService(host hostCall) *service {
-	return &service{config: pluginConfig{DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html"}, startedAt: time.Now().Unix(), host: host, client: newSidecarClient(), now: time.Now}
+	return &service{config: pluginConfig{DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html", VideoWireMode: videoWireLegacy}, startedAt: time.Now().Unix(), host: host, client: newSidecarClient(), now: time.Now}
 }
 
 func (service *service) handle(ctx context.Context, method string, raw []byte) []byte {
@@ -142,6 +143,13 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	if !filepath.IsAbs(config.DashboardPath) || filepath.Ext(config.DashboardPath) != ".html" {
 		return nil, failure(400, "invalid_plugin_config")
 	}
+	switch config.VideoWireMode {
+	case "":
+		config.VideoWireMode = videoWireLegacy
+	case videoWireLegacy, videoWireWeb, videoWireAlternate:
+	default:
+		return nil, failure(400, "invalid_plugin_config")
+	}
 	current := service.config
 	current.HostEnabled, current.HostPriority = config.HostEnabled, config.HostPriority
 	unchanged := reflect.DeepEqual(current, config) && (config.SessionDir == "" || service.sessions != nil && service.sessionKeyHash == sha256.Sum256([]byte(os.Getenv("GEMINI_WEB_SESSION_KEY"))))
@@ -166,6 +174,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 		}
 	}
 	registration := json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"},{"Name":"session_dir","Type":"string","Description":"Dedicated 0700 encrypted application-session directory; single process owner"},{"Name":"manager_origin","Type":"string","Description":"Exact HTTPS management portal origin"},{"Name":"browser_extension_id","Type":"string","Description":"Registered 32-character browser companion extension ID"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini"],"management_api":true,"frontend_http":true,"request_interceptor":true,"quota_provider":true}}`)
+	registration = bytes.Replace(registration, []byte(`"ConfigFields":[`), []byte(`"ConfigFields":[{"Name":"video_wire_mode","Type":"enum","EnumValues":["legacy","web","alternate"],"Description":"Omni account-tier wire profile; legacy by default, alternate stays fixed per conversation"},`), 1)
 	if config.NativeContinuation {
 		registration = bytes.Replace(registration, []byte(`"request_interceptor":true`), []byte(`"request_interceptor":true,"scheduler":true`), 1)
 		registration = bytes.ReplaceAll(registration, []byte(`["gemini"]`), []byte(`["gemini","interactions"]`))

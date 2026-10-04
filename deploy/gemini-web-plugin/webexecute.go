@@ -104,6 +104,7 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 		return httpResponse{}, err
 	}
 	session.diag = newVideoTurnDiag(service.recordAccountName(record), "first", account, model, options.framing(), options.thinking(), options.language())
+	session.videoWire = service.settings().VideoWireMode
 	defer func() { service.reportVideoTurn(session.diag, videoOutcome(err)) }()
 	sources, err := service.mediaSources(ctx, media, "")
 	if err != nil {

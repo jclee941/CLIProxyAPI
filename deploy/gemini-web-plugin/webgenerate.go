@@ -55,6 +55,9 @@ func webGenerationFields(prompt string, mode, thinking int, conversationID strin
 // never names a model.
 func webSelectionHeader(model capability, capacity int) string {
 	header := []any{1, nil, nil, nil, model.CapabilityID, nil, nil, 0, []any{4, 5, 6, 8}, nil, nil, capacity, nil, nil, model.Mode}
+	if capacity == 3 {
+		header[8] = []any{4, 5, 6, 8, 16, 4, 5, 6, 8, 16}
+	}
 	encoded, err := json.Marshal(header)
 	if err != nil {
 		return webModelHeader
@@ -113,8 +116,15 @@ func (session *webSession) postGeneration(ctx context.Context, fields string, ac
 	}
 	session.requestID += 100000
 	body := url.Values{"f.req": {string(envelope)}, "at": {session.xsrf}}.Encode()
+	capacity := webCapacity(account.CapacityFlags)
+	if session.videoWire == videoWireWeb {
+		capacity = 3
+	}
+	if session.diag != nil {
+		session.diag.wire, session.diag.capacity = session.videoWire, capacity
+	}
 	overrides := http.Header{
-		"x-goog-ext-525001261-jspb": {webSelectionHeader(model, webCapacity(account.CapacityFlags))},
+		"x-goog-ext-525001261-jspb": {webSelectionHeader(model, capacity)},
 		"x-goog-ext-73010990-jspb":  {"[0,0,0]"},
 	}
 	return session.do(ctx, session.prefix+webGeneratePath+"?"+query.Encode(), []byte(body), overrides)
