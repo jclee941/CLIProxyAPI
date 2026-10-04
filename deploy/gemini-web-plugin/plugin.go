@@ -152,8 +152,14 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	}
 	current := service.config
 	current.HostEnabled, current.HostPriority = config.HostEnabled, config.HostPriority
+	wireChanged := current.VideoWireMode != config.VideoWireMode
+	current.VideoWireMode = config.VideoWireMode
 	unchanged := reflect.DeepEqual(current, config) && (config.SessionDir == "" || service.sessions != nil && service.sessionKeyHash == sha256.Sum256([]byte(os.Getenv("GEMINI_WEB_SESSION_KEY"))))
-	if !unchanged {
+	if unchanged {
+		// This policy is read at submission; it does not replace session state
+		// or alter a request whose wire variant has already been selected.
+		service.config.VideoWireMode = config.VideoWireMode
+	} else {
 		if err := service.lifecycle.reconfigure(func() error {
 			if err := service.reconfigureCredentials(config); err != nil {
 				return err
@@ -172,6 +178,13 @@ func (service *service) register(raw []byte) (interface{}, error) {
 		}); err != nil {
 			return nil, err
 		}
+	}
+	if wireChanged {
+		service.report(map[string]any{
+			"provider": provider,
+			"state":    "video_wire_mode",
+			"reason":   "mode=" + string(config.VideoWireMode),
+		}, "gemini-web: video wire mode applied")
 	}
 	registration := json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"},{"Name":"session_dir","Type":"string","Description":"Dedicated 0700 encrypted application-session directory; single process owner"},{"Name":"manager_origin","Type":"string","Description":"Exact HTTPS management portal origin"},{"Name":"browser_extension_id","Type":"string","Description":"Registered 32-character browser companion extension ID"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini"],"management_api":true,"frontend_http":true,"request_interceptor":true,"quota_provider":true}}`)
 	registration = bytes.Replace(registration, []byte(`"ConfigFields":[`), []byte(`"ConfigFields":[{"Name":"video_wire_mode","Type":"enum","EnumValues":["legacy","web","alternate"],"Description":"Omni account-tier wire profile; legacy by default, alternate stays fixed per conversation"},`), 1)

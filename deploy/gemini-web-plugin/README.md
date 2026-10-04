@@ -43,6 +43,8 @@ Use the authenticated `PATCH /v0/management/plugins/gemini-web/config` with
 `{"video_wire_mode":"alternate"}` (or `legacy` / `web`). The patch preserves other
 plugin settings. Confirm the saved value with the matching GET and the applied
 variant in real video diagnostics; a saved value alone is not reload evidence.
+Changing only this policy does not drain or replace live sessions. A successful
+change also emits `state=video_wire_mode reason=mode=<value>` in the host log.
 
 The running process needs `GEMINI_WEB_SESSION_KEY`. On the deployed host,
 `deploy/gemini-web/start-production.sh` reads the mounted
