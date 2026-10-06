@@ -17,6 +17,28 @@ The fork does not follow `router-for-me/CLIProxyAPI` automatically; upstream cha
 
 Nothing pushes to the host. The host pulls. To roll back, move `master` in the fork and run `pull-deploy.sh` again.
 
+## Current host
+
+Since 2026-10-06, CPA runs on the Synology DS423+ at 192.168.50.215 (DSM Container Manager, Docker 24). The former LXC host 192.168.50.114 is stopped. Everything lives under `/volume1/docker/cliproxy`:
+
+| Path | Contents |
+| --- | --- |
+| `deploy/` | Dedicated deploy clone |
+| `runtime/` | Core executable, plugin directory, `config.yaml`, `sessions/`, `auths/`, `secrets/`, and the core compose file |
+| `manager/` | CPA Manager Plus, plus the traefik gateway that routes `cliproxy.jclee.me` to the manager or to the core |
+| `lan114/` | traefik on the macvlan address 192.168.50.114, serving `registry.jclee.me` TLS and forwarding `:8317` to the core |
+
+The DSM kernel has no CFS quota, so compose files there must not set `cpus:`. The converger defaults below name the old host's paths. On the NAS, `sudo` asks for a password, so run the converger as `jclee` (a member of the `docker` group):
+
+```bash
+B=/volume1/docker/cliproxy
+GITOPS_DEPLOY_DIR=$B/deploy GITOPS_CPA_MANIFEST=deploy/cpa-plugins.json GITOPS_COMPOSE_FILES=" " \
+CPA_PLUGIN_DIR=$B/runtime/plugins CPA_CORE_BINARY=$B/runtime/CLIProxyAPI CPA_CORE_ENV=$B/runtime/secrets/core.env \
+$B/deploy/deploy/pull-deploy.sh >> $B/pull-deploy.log 2>&1
+```
+
+Set `GITOPS_COMPOSE_FILES` to a single space. An empty value falls back to the default list, and the Telegram sidecars are not deployed on the NAS.
+
 ## CPA native plugins
 
 [`cpa-plugins.json`](cpa-plugins.json) declares what the CPA container serves from its plugin directory: each plugin's committed `.so` artifact and each dashboard file. Deploying a plugin is committing its bookworm-built artifact to `master`; nothing else is needed.
