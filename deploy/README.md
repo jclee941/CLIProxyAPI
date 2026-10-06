@@ -25,8 +25,10 @@ Since 2026-10-06, CPA runs on the Synology DS423+ at 192.168.50.215 (DSM Contain
 | --- | --- |
 | `deploy/` | Dedicated deploy clone |
 | `runtime/` | Core executable, plugin directory, `config.yaml`, `sessions/`, `auths/`, `secrets/`, and the core compose file |
-| `manager/` | CPA Manager Plus, plus the traefik gateway that routes `cliproxy.jclee.me` to the manager or to the core |
+| `manager/` | CPA Manager Plus, published on `192.168.50.215:18317` |
 | `lan114/` | traefik on the macvlan address 192.168.50.114, serving `registry.jclee.me` TLS and forwarding `:8317` to the core |
+
+The NAS Cloudflare tunnel routes `cliproxy.jclee.me` and `cliproxy2.jclee.me` itself; no reverse proxy sits in front of CPA. Requests for `/`, `/management.html`, `/health`, `/status`, `/setup`, `/models`, `/usage-service/*`, `/v0/management/*` and `/v0/resource/plugins/*` go to Manager Plus on `:18317`, and everything else goes to the core on `:8317`. A Cloudflare URL rewrite rule serves `/openapi.json` from `/v0/resource/plugins/gemini-web/openapi.json`.
 
 The DSM kernel has no CFS quota, so compose files there must not set `cpus:`. The converger defaults below name the old host's paths. On the NAS, `sudo` asks for a password, so run the converger as `jclee` (a member of the `docker` group):
 
