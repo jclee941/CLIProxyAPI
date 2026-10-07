@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -199,10 +200,22 @@ func (client *webClient) bootstrap(ctx context.Context) error {
 	header.Del("X-OpenAI-Target-Route")
 	body, err := client.call(ctx, http.MethodGet, "/", header, nil, "web_bootstrap_failed")
 	if err != nil {
-		return err
+		return homePageRefusal(err)
 	}
 	client.scriptSources, client.dataBuild = webParseResources(string(body))
 	return nil
+}
+
+// The home page is fetched without the account token, so a 401 or 403 there is the
+// product turning this gateway away for a while. Passed through, the host reported it
+// as the caller's permission error and the YouTube pipeline failed the run instead of
+// waiting (2026-10-07).
+func homePageRefusal(err error) error {
+	var public *publicError
+	if errors.As(err, &public) && (public.HTTPStatus == http.StatusUnauthorized || public.HTTPStatus == http.StatusForbidden) {
+		return failure(http.StatusBadGateway, public.Code)
+	}
+	return err
 }
 
 func webParseResources(html string) ([]string, string) {

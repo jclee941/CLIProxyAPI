@@ -1,13 +1,40 @@
 package main
 
 import (
+	"context"
 	"crypto/sha3"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 )
+
+func TestBootstrapReportsTheHomePageTurningUsAwayAsAGatewayFailure(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		client := clientWith(t, func(request *http.Request) (*http.Response, error) {
+			return textResponse(request, status, "<html>Just a moment...</html>"), nil
+		})
+		var public *publicError
+		if err := client.bootstrap(context.Background()); !errors.As(err, &public) {
+			t.Fatalf("status %d: err = %v", status, err)
+		}
+		if public.HTTPStatus != http.StatusBadGateway || public.Code != "web_bootstrap_failed" {
+			t.Fatalf("status %d: public = %+v", status, public)
+		}
+	}
+}
+
+func TestBootstrapKeepsARateLimitAsARateLimit(t *testing.T) {
+	client := clientWith(t, func(request *http.Request) (*http.Response, error) {
+		return textResponse(request, http.StatusTooManyRequests, ""), nil
+	})
+	var public *publicError
+	if err := client.bootstrap(context.Background()); !errors.As(err, &public) || public.HTTPStatus != http.StatusTooManyRequests {
+		t.Fatalf("err = %v", err)
+	}
+}
 
 func TestPowSolveProducesADigestUnderTheTarget(t *testing.T) {
 	seed := "0.6284919484842104"
