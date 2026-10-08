@@ -132,6 +132,7 @@ func (service *service) configureSessions(config pluginConfig) error {
 	service.loginMu.Unlock()
 	service.sessions, service.sessionKeyHash = store, sha256.Sum256([]byte(key))
 	service.startKeepAlive()
+	service.startTrappedSessionRelease()
 	return nil
 }
 

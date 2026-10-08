@@ -35,8 +35,9 @@ func (service *service) resolveIntent(ctx context.Context, request managementReq
 }
 
 // releaseInterruptedSession carries the release policy shared by the operator
-// route and the automatic recovery run while listing accounts. An automatic
-// release stamps the record so the dashboard can report when it happened.
+// route and the automatic recovery that the account listing and the trapped
+// session sweep run. An automatic release stamps the record so the dashboard
+// can report when it happened.
 func (service *service) releaseInterruptedSession(ctx context.Context, record storageRecord, automatic bool) (maintenanceState, string, error) {
 	if !localReferencePattern.MatchString(record.TokenRef) {
 		return "", "", failure(409, "local_session_required")
@@ -164,4 +165,72 @@ func (service *service) autoReleaseIfInterrupted(ctx context.Context, record sto
 		return 0
 	}
 	return released.AutoResolvedAt
+}
+
+// trappedReleaseInterval paces the plugin's own run of the listing's automatic
+// release. While the listing was its only trigger, an account trapped by an
+// interrupted submission stayed out of every new room until someone opened the
+// account listing.
+const trappedReleaseInterval = 5 * time.Minute
+
+// startTrappedSessionRelease runs whether or not the keep-alive sweep is on: a
+// release probes a credential but never rotates it. The caller holds the
+// lifecycle lock while configuring sessions, so the closing signal is read
+// inside the goroutine.
+func (service *service) startTrappedSessionRelease() {
+	go func() { service.keepReleasingTrappedSessions(service.lifecycle.closingSignal()) }()
+}
+
+func (service *service) keepReleasingTrappedSessions(closing <-chan struct{}) {
+	ticker := time.NewTicker(trappedReleaseInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-closing:
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				select {
+				case <-closing:
+					cancel()
+				case <-ctx.Done():
+				}
+			}()
+			service.releaseTrappedSessions(ctx)
+			cancel()
+		}
+	}
+}
+
+// releaseTrappedSessions applies the listing's automatic release to every
+// session left in an interrupted submission or renewal.
+func (service *service) releaseTrappedSessions(ctx context.Context) {
+	store := service.localStore()
+	if store == nil {
+		return
+	}
+	records, err := store.records()
+	if err != nil {
+		return
+	}
+	for _, local := range records {
+		if ctx.Err() != nil {
+			return
+		}
+		if local.State != localRenewing && local.State != localSubmitting {
+			continue
+		}
+		service.releaseTrappedSession(ctx, local.Target)
+	}
+}
+
+// releaseTrappedSession joins the lifecycle so a shutdown drains the release the
+// way it drains a request.
+func (service *service) releaseTrappedSession(ctx context.Context, record storageRecord) {
+	if err := service.lifecycle.enter(); err != nil {
+		return
+	}
+	defer service.lifecycle.leave()
+	service.autoReleaseIfInterrupted(ctx, record)
 }
