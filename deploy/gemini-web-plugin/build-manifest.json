@@ -6,7 +6,7 @@
   "sdk_baseline": "router-for-me/CLIProxyAPI v7.2.157 09a29bd",
   "format": "c-shared",
   "artifact": "gemini-web.so",
-  "artifact_sha256": "a15a6496be4634d8cb9d220d9f7ace02285bf2073ce350f15446a29c51008c9e",
+  "artifact_sha256": "affe6b505c1e527ba8917dfbb60854087cea3cb175510ca882d977a100164c40",
   "generated_header": "gemini-web.h",
   "header_sha256": "2a74b332021e0c98eaa577c560c947d1bc1e2712e9a15dff55a32f24482bdbf4",
   "platform": "linux/amd64",

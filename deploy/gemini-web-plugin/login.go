@@ -59,6 +59,7 @@ type loginCompletion struct {
 	AuthUser      *uint64 `json:"auth_user"`
 	ExtensionID   string  `json:"extension_id"`
 	Consent       bool    `json:"consent"`
+	RefreshOnly   bool    `json:"refresh_only,omitempty"`
 }
 
 func (service *service) configureSessions(config pluginConfig) error {

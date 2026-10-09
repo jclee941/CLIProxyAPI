@@ -65,6 +65,9 @@ func (service *service) commitLogin(ctx context.Context, callbackID string, comm
 		return flow, failure(409, "credential_identity_mismatch")
 	}
 	record := flow.Previous
+	if body.RefreshOnly && record.ID == "" {
+		return flow, failure(400, "credential_refresh_requires_existing_account")
+	}
 	if record.ID == "" {
 		var random [16]byte
 		if _, err := rand.Read(random[:]); err != nil {
@@ -80,8 +83,10 @@ func (service *service) commitLogin(ctx context.Context, callbackID string, comm
 		return flow, failure(409, "session_busy")
 	}
 	defer lease.guard.Unlock()
-	if err := leaseBlockedForLogin(lease); err != nil {
-		return flow, err
+	if !body.RefreshOnly {
+		if err := leaseBlockedForLogin(lease); err != nil {
+			return flow, err
+		}
 	}
 	inspection, err := service.inspectCredential(ctx, "", token)
 	if err != nil {
@@ -122,6 +127,22 @@ func (service *service) commitLogin(ctx context.Context, callbackID string, comm
 		previous, err := service.localStore().read(record.TokenRef)
 		if err != nil {
 			return flow, err
+		}
+		if body.RefreshOnly {
+			if previous.State == localHostPending {
+				return flow, failure(409, "host_sync_pending")
+			}
+			// Refresh only the verified credential and its login replay binding.
+			// Pending turns, receipts, revisions and maintenance fences survive.
+			previous.Token = token.value
+			previous.LoginState, previous.LoginExpires = flow.View.State, flow.View.ExpiresAt
+			previous.LoginTokenHash = tokenFingerprint(token)
+			if err := service.localStore().write(previous); err != nil {
+				return flow, err
+			}
+			flow.Reference = previous.Target.TokenRef
+			flow.View.AccountID, flow.View.Status = previous.Target.ID, loginSaved
+			return flow, nil
 		}
 		if previous.State != localReady {
 			return flow, failure(409, "session_requires_reconciliation")
