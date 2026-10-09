@@ -11,6 +11,7 @@ import (
 // what made healthy accounts expire at random under load.
 func (service *service) trackJar(reference string, session *webSession) {
 	session.onRotate = func(cookie string) { service.storeJar(reference, cookie) }
+	session.onFlowRotate = func(updates map[string]string) { service.storeFlowCookies(reference, updates) }
 }
 
 func (service *service) persistJar(reference string, session *webSession) {
@@ -21,19 +22,54 @@ func (service *service) persistJar(reference string, session *webSession) {
 }
 
 func (service *service) storeJar(reference string, cookie string) {
+	service.updateCredential(reference, func(credential *webCredential) bool {
+		if credential.Cookie == cookie {
+			return false
+		}
+		credential.Cookie = cookie
+		return true
+	})
+}
+
+// storeFlowCookies merges rotated Flow-host cookies into the same record. The
+// root jar and the Flow set are written by separate sources, so each update is
+// applied to the freshly read record and touches only its own field.
+func (service *service) storeFlowCookies(reference string, updates map[string]string) {
+	service.updateCredential(reference, func(credential *webCredential) bool {
+		changed := false
+		for name, value := range updates {
+			if credential.FlowCookies[name] == value {
+				continue
+			}
+			if credential.FlowCookies == nil {
+				credential.FlowCookies = map[string]string{}
+			}
+			credential.FlowCookies[name], changed = value, true
+		}
+		return changed
+	})
+}
+
+// updateCredential is the one read-modify-write of a stored credential. The
+// per-credential mutex keeps concurrent root and Flow absorptions from
+// overwriting each other with a stale copy of the record.
+func (service *service) updateCredential(reference string, update func(*webCredential) bool) {
 	store := service.localStore()
 	if store == nil || !localReferencePattern.MatchString(reference) {
 		return
 	}
+	lease := service.leases.get(reference)
+	lease.jar.Lock()
+	defer lease.jar.Unlock()
 	local, err := store.read(reference)
 	if err != nil {
 		return
 	}
 	credential, err := decodeWebCredential(sessionToken{local.Token})
-	if err != nil || credential.Cookie == cookie {
+	if err != nil || !update(&credential) {
 		return
 	}
-	refreshed := encodeWebCredential(cookie, credential.AuthUser)
+	refreshed := encodeWebCredential(credential)
 	if refreshed.value == "" {
 		return
 	}

@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -378,5 +380,236 @@ func TestSessionExchangeAllowsOnlyPassiveFlowLogin(t *testing.T) {
 	}
 	if len(fixture.requests()) != 1 {
 		t.Fatal("refused login reached upstream")
+	}
+}
+
+const (
+	flowOSID       = "flow-osid-value"
+	flowSecureOSID = "flow-secure-osid-value"
+	exchangeRoot   = "SID=one; SAPISID=secret"
+)
+
+func seedFlowCookies(t *testing.T, fixture *exchangeFixture, flow map[string]string) {
+	t.Helper()
+	store := fixture.service.localStore()
+	local, err := store.read(fixture.record.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := decodeWebCredential(sessionToken{local.Token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential.FlowCookies = flow
+	local.Token = encodeWebCredential(credential).value
+	if err := store.write(local); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func storedCredential(t *testing.T, fixture *exchangeFixture) webCredential {
+	t.Helper()
+	token, err := fixture.service.resolveLocal(fixture.record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := decodeWebCredential(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return credential
+}
+
+func TestSessionExchangeAttachesFlowCookiesOnlyToFlow(t *testing.T) {
+	fixture := newExchangeFixture(t, 2, exchangeOK)
+	seedFlowCookies(t, fixture, map[string]string{"OSID": flowOSID, "__Secure-OSID": flowSecureOSID})
+	targets := []string{
+		"https://flow.google.com/projects",
+		"https://www.google.com/recaptcha/enterprise/anchor",
+		"https://accounts.google.com/ServiceLogin?passive=1209600&continue=https%3A%2F%2Fflow.google.com%2Fprojects",
+	}
+	for _, target := range targets {
+		if _, err := fixture.exchange(t, sessionExchangeRequest{AuthID: fixture.record.ID, Method: "GET", URL: target}); err != nil {
+			t.Fatalf("%s: %v", target, err)
+		}
+	}
+	seen := fixture.requests()
+	if len(seen) != len(targets) {
+		t.Fatalf("upstream requests = %d", len(seen))
+	}
+	want := exchangeRoot + "; OSID=" + flowOSID + "; __Secure-OSID=" + flowSecureOSID
+	if got := seen[0].header.Get("Cookie"); got != want {
+		t.Fatalf("flow cookie = %q, want %q", got, want)
+	}
+	for _, other := range seen[1:] {
+		if got := other.header.Get("Cookie"); got != exchangeRoot {
+			t.Fatalf("non-Flow request to %s sent %q, want only the root jar", other.path, got)
+		}
+	}
+}
+
+func TestNativeRenewKeepsFlowCookiesAndNeverSendsThemToGemini(t *testing.T) {
+	fixture := newExchangeFixture(t, 2, exchangeOK)
+	flow := map[string]string{"OSID": flowOSID, "__Secure-OSID": flowSecureOSID}
+	seedFlowCookies(t, fixture, flow)
+	var mu sync.Mutex
+	var cookies []string
+	gemini := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mu.Lock()
+		cookies = append(cookies, request.Header.Get("Cookie"))
+		mu.Unlock()
+		if request.URL.Path == "/RotateCookies" {
+			writeRotationFixture(writer, request)
+			return
+		}
+		writeIdentityFixture(t, writer)
+	}))
+	t.Cleanup(gemini.Close)
+	fixture.service.webOriginOverride, fixture.service.webRotateOverride = gemini.URL, gemini.URL
+	token, err := fixture.service.resolveLocal(fixture.record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed, _, err := fixture.service.nativeRenew(t.Context(), fixture.record.TokenRef, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := decodeWebCredential(renewed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential.Cookie != exchangeRoot+"; "+rotatingCookie+"=rotated" || credential.AuthUser != 2 {
+		t.Fatalf("renewed credential = %+v, want the rotated root jar", credential)
+	}
+	if !reflect.DeepEqual(credential.FlowCookies, flow) {
+		t.Fatalf("renewed flow cookies = %v, want %v", credential.FlowCookies, flow)
+	}
+	if stored := storedCredential(t, fixture); !reflect.DeepEqual(stored.FlowCookies, flow) {
+		t.Fatalf("stored flow cookies = %v, want %v", stored.FlowCookies, flow)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(cookies) == 0 {
+		t.Fatal("renewal never reached the Gemini fixture")
+	}
+	for _, cookie := range cookies {
+		if strings.Contains(cookie, "OSID") {
+			t.Fatalf("Gemini request carried a Flow cookie: %q", cookie)
+		}
+	}
+}
+
+func TestSessionExchangePersistsRotatedFlowCookiesWithoutReturningThem(t *testing.T) {
+	fixture := newExchangeFixture(t, 2, func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasPrefix(request.URL.Path, "/recaptcha/") {
+			writer.Header().Add("Set-Cookie", "OSID=captcha-osid; Path=/; Secure")
+		} else {
+			writer.Header().Add("Set-Cookie", "OSID=rotated-osid; Path=/; Secure; HttpOnly")
+			writer.Header().Add("Set-Cookie", "__Secure-OSID=rotated-secure; Path=/; Secure; HttpOnly")
+			writer.Header().Add("Set-Cookie", "SID=rotated; Domain=google.com; Path=/; Secure; HttpOnly")
+			writer.Header().Add("Set-Cookie", "NID=not-scoped; Path=/")
+			writer.Header().Add("Set-Cookie", "OSID=foreign; Domain=example.org; Path=/")
+		}
+		writer.Header().Set("Content-Type", "text/plain")
+		if _, err := writer.Write([]byte("ok")); err != nil {
+			return
+		}
+	})
+	seedFlowCookies(t, fixture, map[string]string{"OSID": "old-osid", "__Secure-OSID": "old-secure"})
+	flowRequest := sessionExchangeRequest{AuthID: fixture.record.ID, Method: "GET", URL: "https://flow.google.com/projects"}
+	result, err := fixture.exchange(t, flowRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := string(jsonFixture(t, result))
+	for _, leaked := range []string{"rotated-osid", "rotated-secure", "OSID", "Set-Cookie"} {
+		if strings.Contains(encoded, leaked) {
+			t.Fatalf("result leaks %q: %s", leaked, encoded)
+		}
+	}
+	stored := storedCredential(t, fixture)
+	want := map[string]string{"OSID": "rotated-osid", "__Secure-OSID": "rotated-secure"}
+	if stored.Cookie != "SID=rotated; SAPISID=secret" || !reflect.DeepEqual(stored.FlowCookies, want) {
+		t.Fatalf("stored credential = %+v, want root and Flow rotations side by side", stored)
+	}
+	if _, err := fixture.exchange(t, flowRequest); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fixture.requests()[1].header.Get("Cookie"), "SID=rotated; SAPISID=secret; OSID=rotated-osid; __Secure-OSID=rotated-secure"; got != want {
+		t.Fatalf("second Flow exchange sent %q, want %q", got, want)
+	}
+	// A host-only OSID from any other origin is not a Flow cookie.
+	if _, err := fixture.exchange(t, sessionExchangeRequest{AuthID: fixture.record.ID, Method: "GET", URL: "https://www.google.com/recaptcha/enterprise/anchor"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fixture.requests()[2].header.Get("Cookie"); strings.Contains(got, "OSID") {
+		t.Fatalf("captcha exchange sent a Flow cookie: %q", got)
+	}
+	if after := storedCredential(t, fixture); !reflect.DeepEqual(after.FlowCookies, want) {
+		t.Fatalf("non-Flow response changed the Flow cookies: %v", after.FlowCookies)
+	}
+}
+
+func TestRootAndFlowRotationDoNotOverwriteEachOther(t *testing.T) {
+	fixture := newExchangeFixture(t, 2, exchangeOK)
+	for round := range 50 {
+		cookie := "SID=r" + strconv.Itoa(round) + "; SAPISID=secret"
+		value := "osid" + strconv.Itoa(round)
+		var group sync.WaitGroup
+		group.Add(2)
+		go func() {
+			defer group.Done()
+			fixture.service.storeJar(fixture.record.TokenRef, cookie)
+		}()
+		go func() {
+			defer group.Done()
+			fixture.service.storeFlowCookies(fixture.record.TokenRef, map[string]string{"OSID": value})
+		}()
+		group.Wait()
+		if got := storedCredential(t, fixture); got.Cookie != cookie || got.FlowCookies["OSID"] != value || got.AuthUser != 2 {
+			t.Fatalf("round %d: stored credential = %+v, want both writes", round, got)
+		}
+	}
+}
+
+func TestFlowCookiesAreRestrictedAtTheDecodeBoundary(t *testing.T) {
+	token := func(flow any) string {
+		raw, err := json.Marshal(map[string]any{"cookie": "SID=a", "auth_user": 0, "flow_cookies": flow})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "gemini-web:v1:" + base64.RawURLEncoding.EncodeToString(raw)
+	}
+	valid := map[string]string{"OSID": flowOSID, "__Secure-OSID": flowSecureOSID}
+	if _, err := parseToken(token(valid)); err != nil {
+		t.Fatalf("login rejected scoped Flow cookies: %v", err)
+	}
+	credential, err := decodeWebCredential(sessionToken{token(valid)})
+	if err != nil || !reflect.DeepEqual(credential.FlowCookies, valid) {
+		t.Fatalf("decoded = %+v, %v", credential, err)
+	}
+	for name, flow := range map[string]map[string]string{
+		"other name":  {"SID": "x"},
+		"root twin":   {"OSID": "x", "SAPISID": "y"},
+		"empty value": {"OSID": ""},
+		"semicolon":   {"OSID": "a;b"},
+		"space":       {"OSID": "a b"},
+		"comma":       {"__Secure-OSID": "a,b"},
+		"quote":       {"OSID": `"q"`},
+		"non ASCII":   {"__Secure-OSID": "\u00e9"},
+		"control":     {"OSID": "a\x7fb"},
+	} {
+		if _, err := decodeWebCredential(sessionToken{token(flow)}); err == nil {
+			t.Errorf("%s: decode accepted %v", name, flow)
+		}
+		if _, err := parseToken(token(flow)); err == nil {
+			t.Errorf("%s: login accepted %v", name, flow)
+		}
+	}
+	// A token without Flow cookies keeps the exact wire shape it always had.
+	plain := encodeWebCredential(webCredential{Cookie: "a", AuthUser: 2})
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(plain.value, "gemini-web:v1:"))
+	if err != nil || string(raw) != `{"cookie":"a","auth_user":2}` {
+		t.Fatalf("plain payload = %s, %v", raw, err)
 	}
 }

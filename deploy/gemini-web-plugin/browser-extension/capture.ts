@@ -69,7 +69,7 @@ const partitionSchema = z.object({ partitionKey: z.strictObject({
   topLevelSite: z.literal("https://google.com"),
   hasCrossSiteAncestor: z.literal(false),
 }) });
-const cookiesSchema = z.array(z.object({
+const cookieSchema = z.object({
   name: z.string().regex(/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/),
   value: z.string().regex(/^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*$/),
   domain: z.string(),
@@ -77,7 +77,15 @@ const cookiesSchema = z.array(z.object({
   path: z.string(),
   storeId: z.string(),
   partitionKey: z.unknown().optional(),
-})).min(1);
+});
+const cookiesSchema = z.array(cookieSchema).min(1);
+
+// Flow keeps two host-only auth cookies that no Gemini URL returns. They travel
+// in their own token field so the Gemini cookie header stays exactly as before.
+const FLOW_URL = "https://flow.google.com/projects";
+const FLOW_HOST = "flow.google.com";
+const FLOW_COOKIE_NAMES = ["OSID", "__Secure-OSID"] as const;
+export type FlowCookies = Readonly<Partial<Record<(typeof FLOW_COOKIE_NAMES)[number], string>>>;
 
 export function authUserFromUrl(raw: string): z.output<typeof authUserSchema> {
   const url = URL.parse(raw);
@@ -181,13 +189,45 @@ async function cookieHeader(browser: ChromeCaptureApi, scope: {
     .map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
 }
 
+async function flowCookies(browser: ChromeCaptureApi, scope: {
+  readonly storeId: string;
+  readonly partitionKey: Readonly<chrome.cookies.CookiePartitionKey>;
+}): Promise<FlowCookies> {
+  const { storeId, partitionKey } = scope;
+  const isFlowCookie = (cookie: { readonly name: string; readonly domain: string }) =>
+    (FLOW_COOKIE_NAMES as readonly string[]).includes(cookie.name) && cookie.domain.replace(/^\./, "") === FLOW_HOST;
+  const partitioned = z.array(cookieSchema).safeParse(await browser.cookies.getAll({ url: FLOW_URL, storeId, partitionKey }));
+  if (!partitioned.success) throw new CaptureError("cookie_header_invalid");
+  if (partitioned.data.some(isFlowCookie)) throw new CaptureError("cookie_scope_unsupported");
+  const parsed = z.array(cookieSchema).safeParse(await browser.cookies.getAll({ url: FLOW_URL, storeId }));
+  if (!parsed.success) throw new CaptureError("cookie_header_invalid");
+  const found = new Map<string, string>();
+  for (const cookie of parsed.data.filter(isFlowCookie)) {
+    if (!cookie.hostOnly || cookie.path !== "/" || cookie.storeId !== storeId
+      || cookie.partitionKey !== undefined || found.has(cookie.name)) {
+      throw new CaptureError("cookie_scope_unsupported");
+    }
+    if (cookie.value !== "") found.set(cookie.name, cookie.value);
+  }
+  const flow: Partial<Record<(typeof FLOW_COOKIE_NAMES)[number], string>> = {};
+  for (const name of FLOW_COOKIE_NAMES) {
+    const value = found.get(name);
+    if (value !== undefined) flow[name] = value;
+  }
+  return flow;
+}
+
 export async function captureGeminiSession(browser: ChromeCaptureApi, selection: CaptureSelection): Promise<CapturedSession> {
   try {
     const request = selectionSchema.safeParse(selection);
     if (!request.success) throw new CaptureError("invalid_selection");
     const before = await snapshot(browser, request.data);
     const header = await cookieHeader(browser, before);
-    const payload = new TextEncoder().encode(JSON.stringify({ cookie: header, auth_user: before.authUser }));
+    const flow = await flowCookies(browser, before);
+    const payload = new TextEncoder().encode(JSON.stringify({
+      cookie: header, auth_user: before.authUser,
+      ...(Object.keys(flow).length === 0 ? {} : { flow_cookies: flow }),
+    }));
     const encoded = btoa(Array.from(payload, (byte) => String.fromCharCode(byte)).join(""))
       .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
     const token = TOKEN_PREFIX + encoded;
@@ -202,6 +242,7 @@ export async function captureGeminiSession(browser: ChromeCaptureApi, selection:
       if (url === before.url) continue;
       if (await cookieHeader(browser, { ...before, url }) !== header) throw new CaptureError("cookies_changed");
     }
+    if (JSON.stringify(await flowCookies(browser, before)) !== JSON.stringify(flow)) throw new CaptureError("cookies_changed");
     const after = await snapshot(browser, { tabId: request.data.tabId });
     if (before.url !== after.url || before.authUser !== after.authUser || before.storeId !== after.storeId
       || before.documentId !== after.documentId || before.accountSHA256 !== after.accountSHA256) {

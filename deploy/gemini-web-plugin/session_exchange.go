@@ -156,6 +156,18 @@ func sessionExchangeHeaders(caller http.Header, prefix string, credential webCre
 	return headers
 }
 
+// sessionExchangeFlowCookie adds the Flow host-only cookies to the root jar for
+// a Flow request. They replace a same-named root cookie in place and otherwise
+// append in a fixed order; no other request ever calls this.
+func sessionExchangeFlowCookie(cookie string, flow map[string]string) string {
+	for _, name := range webFlowCookieNames {
+		if value, ok := flow[name]; ok {
+			cookie = webMergeCookies(cookie, map[string]string{name: value})
+		}
+	}
+	return cookie
+}
+
 // sessionExchange performs one allowlisted request as a configured account.
 func (service *service) sessionExchange(ctx context.Context, request managementRequest) (interface{}, error) {
 	var body sessionExchangeRequest
@@ -213,7 +225,10 @@ func (service *service) sessionExchange(ctx context.Context, request managementR
 	session := service.newSession(credential)
 	service.trackJar(record.TokenRef, session)
 
-	if target.Hostname() == sessionExchangeFlowHost {
+	// Decided before the test origin override rewrites the host, so the Flow
+	// cookies follow the requested origin and never the fixture's.
+	flowTarget := target.Hostname() == sessionExchangeFlowHost
+	if flowTarget {
 		target.Path, target.RawPath = session.prefix+target.Path, ""
 		target.RawQuery = sessionExchangeSourcePath(target.RawQuery, session.prefix)
 	} else if target.Hostname() == "accounts.google.com" {
@@ -221,7 +236,11 @@ func (service *service) sessionExchange(ctx context.Context, request managementR
 		query.Set("authuser", strconv.Itoa(credential.AuthUser))
 		target.RawQuery = query.Encode()
 	}
-	headers := sessionExchangeHeaders(body.Headers, session.prefix, credential, session.cookie)
+	cookie := session.cookie
+	if flowTarget {
+		cookie = sessionExchangeFlowCookie(cookie, session.flowCookies)
+	}
+	headers := sessionExchangeHeaders(body.Headers, session.prefix, credential, cookie)
 	if override := service.sessionExchangeOriginOverride; override != "" {
 		origin, err := url.Parse(override)
 		if err != nil {
@@ -253,6 +272,9 @@ func (service *service) sessionExchange(ctx context.Context, request managementR
 		}
 	}()
 	session.absorb(response)
+	if flowTarget {
+		session.absorbFlow(response)
+	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, sessionExchangeLimit+1))
 	if err != nil {
 		return nil, sessionExchangeError(502, "response_failed")

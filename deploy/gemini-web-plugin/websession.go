@@ -54,8 +54,8 @@ func webAccountDigest(page string) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func encodeWebCredential(cookie string, authUser int) sessionToken {
-	payload, err := json.Marshal(webCredential{Cookie: cookie, AuthUser: authUser})
+func encodeWebCredential(credential webCredential) sessionToken {
+	payload, err := json.Marshal(credential)
 	if err != nil {
 		return sessionToken{}
 	}
@@ -170,7 +170,7 @@ func (service *service) nativeRenew(ctx context.Context, reference string, token
 	if err != nil {
 		return sessionToken{}, credentialInspection{}, err
 	}
-	rotated := webCredential{Cookie: cookie, AuthUser: credential.AuthUser}
+	rotated := webCredential{Cookie: cookie, AuthUser: credential.AuthUser, FlowCookies: credential.FlowCookies}
 	after, err := service.webIdentity(ctx, reference, rotated)
 	if err != nil {
 		return sessionToken{}, credentialInspection{}, err
@@ -178,7 +178,7 @@ func (service *service) nativeRenew(ctx context.Context, reference string, token
 	if after != before {
 		return sessionToken{}, credentialInspection{}, failure(502, "session_renewal_identity_mismatch")
 	}
-	renewed := encodeWebCredential(cookie, credential.AuthUser)
+	renewed := encodeWebCredential(rotated)
 	if renewed.value == "" {
 		return sessionToken{}, credentialInspection{}, failure(500, "session_renewal_invalid")
 	}

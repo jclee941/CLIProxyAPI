@@ -29,7 +29,7 @@ test("touches only the selected tab and store when other tabs and partitions exi
   const queries = browser.calls.filter((call) => call.method === "cookies").map((call) => call.query);
   expect(queries.length).toBeGreaterThan(0);
   expect(queries.every((query) => query.storeId === SELECTED_STORE
-    && query.url?.startsWith("https://gemini.google.com/u/2/")
+    && (query.url?.startsWith("https://gemini.google.com/u/2/") || query.url === "https://flow.google.com/projects")
     && !query.name && !query.domain && !query.path && query.session === undefined)).toBe(true);
   expect(browser.forbiddenReads).toEqual([]);
 });

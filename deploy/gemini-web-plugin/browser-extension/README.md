@@ -152,11 +152,16 @@ type CapturedSession = {
 ```
 
 `token` is `gemini-web:v1:` followed by canonical unpadded base64url of UTF-8 JSON
-with exactly `{"cookie":"<full ASCII header>","auth_user":<integer>}` in that order.
+with `{"cookie":"<full ASCII header>","auth_user":<integer>}` in that order.
+When the selected browser store contains Flow's host-only `OSID` or
+`__Secure-OSID` cookies, an optional `flow_cookies` object follows those fields.
+These cookies are stored with the same encrypted credential but are sent only
+to `flow.google.com`, never to Gemini or the reCAPTCHA endpoint. The selected
+store and partition are checked twice, just as for the Gemini cookie header.
 The complete encoded token, including its prefix, must be at most 32768 bytes.
 The payload is encoded with `TextEncoder`; Gaia is hashed with Web Crypto SHA-256.
-This matches the existing Go `credentials.go` parser and `contract_test.go`
-RawURLEncoding example without changing either protocol.
+This matches the Go `credentials.go` parser; tokens without Flow cookies retain
+the original encoding and remain compatible with existing captures.
 
 Encoding is not encryption. The token is returned only in memory. This module
 does not log, display, download, copy, persist, or transmit it. The caller must

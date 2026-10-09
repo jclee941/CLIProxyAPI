@@ -28,7 +28,7 @@ func gaiaDigest(gaia string) string {
 }
 
 func encodedTokenUser(cookie string, authUser int) string {
-	return encodeWebCredential(cookie, authUser).value
+	return encodeWebCredential(webCredential{Cookie: cookie, AuthUser: authUser}).value
 }
 
 // sidecarPath maps the native credential routes onto the bridge names the tests
@@ -79,7 +79,7 @@ func nativeIdentityPage(gaia string) string {
 // rotatedToken is what a renewal produces for a starting cookie, so a test can
 // assert on the replacement without knowing how the jar is merged.
 func rotatedToken(cookie string) string {
-	return encodeWebCredential(webMergeCookies(cookie, map[string]string{rotatingCookie: "rotated"}), 2).value
+	return encodeWebCredential(webCredential{Cookie: webMergeCookies(cookie, map[string]string{rotatingCookie: "rotated"}), AuthUser: 2}).value
 }
 
 func nativeCredentials(t *testing.T, service *service) *httptest.Server {

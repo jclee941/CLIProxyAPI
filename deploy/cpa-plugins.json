@@ -11,6 +11,7 @@
   ],
   "files": [
     {"artifact": "deploy/gemini-web-plugin/web/index.html", "target": "gemini-web/index.html"},
+    {"artifact": "deploy/gemini-web-plugin/browser-extension/artifacts/gemini-web-login-companion-0.2.0.zip", "target": "gemini-web/gemini-web-login-companion.zip"},
     {"artifact": "deploy/chatgpt-web-plugin/web/index.html", "target": "chatgpt-web/index.html"}
   ]
 }

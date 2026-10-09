@@ -147,10 +147,80 @@ test.each([[24534, true], [24535, false], [32768, false]] as const)(
       expect(new TextEncoder().encode(captured.token)).toHaveLength(32768);
     } else {
       await expect(outcome).rejects.toMatchObject({ code: "token_too_large" });
-      expect(browser.calls.filter((call) => call.method === "cookies")).toHaveLength(2);
+      expect(browser.calls.filter((call) => call.method === "cookies")).toHaveLength(4);
     }
   },
 );
+
+const flowCookie = (overrides: Partial<chrome.cookies.Cookie> = {}) =>
+  cookie({ name: "OSID", value: "SYNTHETIC-flow-osid", domain: "flow.google.com", hostOnly: true, ...overrides });
+
+test("carries the two host-only Flow cookies in flow_cookies and keeps them out of the Gemini header", async () => {
+  const browser = new FakeChrome();
+  browser.jar.push(flowCookie({ name: "__Secure-OSID", value: "SYNTHETIC-flow-secure" }), flowCookie());
+
+  const captured = await captureGeminiSession(browser, { tabId: SELECTED_TAB });
+
+  const payload = JSON.parse(Buffer.from(captured.token.slice(14), "base64url").toString("utf8"));
+  expect(payload.cookie).not.toContain("OSID");
+  expect(payload.flow_cookies).toEqual({ OSID: "SYNTHETIC-flow-osid", "__Secure-OSID": "SYNTHETIC-flow-secure" });
+  expect(Object.keys(payload)).toEqual(["cookie", "auth_user", "flow_cookies"]);
+  expect(Object.keys(payload.flow_cookies)).toEqual(["OSID", "__Secure-OSID"]);
+  expect(Object.keys(captured).sort()).toEqual(["account_sha256", "auth_user", "token"]);
+});
+
+test("reads Flow cookies only from the resolved store and document partition", async () => {
+  const browser = new FakeChrome();
+  browser.jar.push(flowCookie());
+
+  await captureGeminiSession(browser, { tabId: SELECTED_TAB });
+
+  const flowQueries = browser.calls.flatMap((call) => call.method === "cookies" && call.query.url?.startsWith("https://flow.google.com/") ? [call.query] : []);
+  expect(flowQueries.length).toBeGreaterThan(0);
+  expect(flowQueries.every((query) => query.storeId === SELECTED_STORE && !query.name && !query.domain)).toBe(true);
+  expect(flowQueries.some((query) => query.partitionKey !== undefined)).toBe(true);
+});
+
+test("does not mistake a root-domain OSID for a Flow cookie", async () => {
+  const browser = new FakeChrome();
+  browser.jar.push(cookie({ name: "OSID", value: "SYNTHETIC-root-osid" }));
+
+  const captured = await captureGeminiSession(browser, { tabId: SELECTED_TAB });
+
+  const payload = JSON.parse(Buffer.from(captured.token.slice(14), "base64url").toString("utf8"));
+  expect(payload.cookie).toContain("OSID=SYNTHETIC-root-osid");
+  expect(payload).not.toHaveProperty("flow_cookies");
+});
+
+test.each([
+  ["a path-scoped", [flowCookie({ path: "/projects" })]],
+  ["a domain-wide", [flowCookie({ domain: ".flow.google.com", hostOnly: false })]],
+  ["a partitioned", [flowCookie({ partitionKey: { ...FIRST_PARTY } })]],
+  ["a duplicated", [flowCookie(), flowCookie({ value: "SYNTHETIC-conflict" })]],
+] as const)("rejects %s Flow cookie instead of dropping or deduplicating it", async (_name, entries) => {
+  const browser = new FakeChrome();
+  browser.jar.push(...entries);
+
+  const outcome = captureGeminiSession(browser, { tabId: SELECTED_TAB });
+
+  await expect(outcome).rejects.toMatchObject({ code: "cookie_scope_unsupported" });
+});
+
+test("fails closed when a Flow cookie rotates while the capture is reading", async () => {
+  const browser = new FakeChrome();
+  browser.jar.push(flowCookie());
+  let rotated = false;
+  browser.afterCall = (call) => {
+    if (!rotated && call.method === "cookies" && call.query.url?.startsWith("https://flow.google.com/") && call.query.partitionKey === undefined) {
+      rotated = true;
+      browser.jar = browser.jar.map((entry) => entry.name === "OSID" ? { ...entry, value: "SYNTHETIC-flow-rotated" } : entry);
+    }
+  };
+
+  const outcome = captureGeminiSession(browser, { tabId: SELECTED_TAB });
+
+  await expect(outcome).rejects.toMatchObject({ code: "cookies_changed" });
+});
 
 test("queries only the resolved store when the default execution store differs", async () => {
   const browser = new FakeChrome();

@@ -25,10 +25,11 @@ func parseToken(raw string) (sessionToken, error) {
 		return sessionToken{}, failure(400, "invalid_session_token")
 	}
 	var session struct {
-		Cookie   string  `json:"cookie"`
-		AuthUser *uint64 `json:"auth_user"`
+		Cookie      string            `json:"cookie"`
+		AuthUser    *uint64           `json:"auth_user"`
+		FlowCookies map[string]string `json:"flow_cookies"`
 	}
-	if err := strictJSON(payload, &session); err != nil || session.AuthUser == nil || strings.TrimSpace(session.Cookie) == "" {
+	if err := strictJSON(payload, &session); err != nil || session.AuthUser == nil || strings.TrimSpace(session.Cookie) == "" || !validFlowCookies(session.FlowCookies) {
 		return sessionToken{}, failure(400, "invalid_session_token")
 	}
 	for _, character := range session.Cookie {

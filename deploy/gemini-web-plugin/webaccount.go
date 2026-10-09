@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +46,31 @@ var (
 type webCredential struct {
 	Cookie   string `json:"cookie"`
 	AuthUser int    `json:"auth_user"`
+	// FlowCookies are the host-only cookies flow.google.com keeps that the Gemini
+	// capture cannot see. They live in this record so Gemini stays the sole
+	// holder of the account, and they are sent to the Flow host only.
+	FlowCookies map[string]string `json:"flow_cookies,omitempty"`
+}
+
+// webFlowCookieNames are the only host-only Flow cookies the credential may
+// carry, in the order they are attached to a Flow request.
+var webFlowCookieNames = []string{"OSID", "__Secure-OSID"}
+
+var webFlowCookieValue = regexp.MustCompile(`^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]+$`)
+
+func validFlowCookie(name, value string) bool {
+	return slices.Contains(webFlowCookieNames, name) && webFlowCookieValue.MatchString(value)
+}
+
+// validFlowCookies is the decode-boundary check: nothing outside the two names
+// and no value that could not travel in a Cookie header is accepted.
+func validFlowCookies(cookies map[string]string) bool {
+	for name, value := range cookies {
+		if !validFlowCookie(name, value) {
+			return false
+		}
+	}
+	return true
 }
 
 // decodeWebCredential reads the cookie the session token carries. The token is an
@@ -58,7 +85,7 @@ func decodeWebCredential(token sessionToken) (webCredential, error) {
 		return webCredential{}, failure(400, "invalid_credential")
 	}
 	var credential webCredential
-	if json.Unmarshal(payload, &credential) != nil || credential.Cookie == "" {
+	if json.Unmarshal(payload, &credential) != nil || credential.Cookie == "" || !validFlowCookies(credential.FlowCookies) {
 		return webCredential{}, failure(400, "invalid_credential")
 	}
 	return credential, nil
@@ -77,8 +104,11 @@ type webSession struct {
 	generationFrame func([]byte) error
 	rotated         bool
 	onRotate        func(string)
-	onCut           func(map[string]any)
-	uploadOrigin    string
+	// flowCookies is never part of cookie, so no Gemini request can carry it.
+	flowCookies  map[string]string
+	onFlowRotate func(map[string]string)
+	onCut        func(map[string]any)
+	uploadOrigin string
 	// diag, when set, records what the video candidates looked like for the
 	// one-line turn report. It is read-only with respect to the turn.
 	diag *videoTurnDiag
@@ -91,6 +121,7 @@ func newWebSession(client *http.Client, credential webCredential, origin string)
 		origin = webOrigin
 	}
 	session := &webSession{client: client, origin: origin, cookie: credential.Cookie, requestID: 100000, uploadOrigin: webUploadOrigin}
+	session.flowCookies = maps.Clone(credential.FlowCookies)
 	for _, pair := range strings.Split(credential.Cookie, ";") {
 		name, value, found := strings.Cut(strings.TrimSpace(pair), "=")
 		if found && name == "SAPISID" {
@@ -240,6 +271,32 @@ func (session *webSession) absorb(response *http.Response) {
 		if found && name == "SAPISID" {
 			session.sapisid = value
 		}
+	}
+}
+
+// absorbFlow takes the host-only cookies flow.google.com sets on its own
+// origin, which the root-domain filter in absorb deliberately ignores. Only the
+// two scoped names are kept, and only as the Flow-bound set.
+func (session *webSession) absorbFlow(response *http.Response) {
+	updates := map[string]string{}
+	for _, cookie := range response.Cookies() {
+		domain := strings.TrimPrefix(strings.ToLower(cookie.Domain), ".")
+		if cookie.Path != "/" || (domain != "" && domain != "flow.google.com") || !validFlowCookie(cookie.Name, cookie.Value) {
+			continue
+		}
+		if session.flowCookies[cookie.Name] != cookie.Value {
+			updates[cookie.Name] = cookie.Value
+		}
+	}
+	if len(updates) == 0 {
+		return
+	}
+	if session.flowCookies == nil {
+		session.flowCookies = map[string]string{}
+	}
+	maps.Copy(session.flowCookies, updates)
+	if session.onFlowRotate != nil {
+		session.onFlowRotate(updates)
 	}
 }
 

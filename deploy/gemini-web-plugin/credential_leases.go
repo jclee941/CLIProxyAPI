@@ -31,8 +31,10 @@ type credentialState struct {
 }
 
 type credentialLease struct {
-	guard   sync.RWMutex
-	mu      sync.Mutex
+	guard sync.RWMutex
+	mu    sync.Mutex
+	// jar serializes read-modify-write of the stored credential record.
+	jar     sync.Mutex
 	state   credentialState
 	retired map[string]bool
 }
