@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Gemini Omni Video and Files API",
-    "version": "2026-09-30",
-    "summary": "Generate, extend, and retrieve videos, plus upload and manage files.",
+    "title": "Gemini and Google Flow Media API",
+    "version": "2026-10-09",
+    "summary": "Generate Flow images and videos, extend Gemini videos, and manage files.",
     "description": "Authenticate with an API key as a Bearer token, in the x-goog-api-key header, or in the key query parameter. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait, where the official default is 16:9. A new video goes to an account below 80% of its five-hour usage and 90% of its weekly usage with enough video allowance left; when none qualifies, creation fails with 409 account_unavailable until usage resets. A continuation runs in its original conversation while that account can serve; otherwise another account continues from the stored video and returns a new id to continue from.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. The other official resolutions (360p, 1080p, 4k), explicit duration controls, and tasks other than extend are rejected. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data. Each serving account keeps its 16 newest stored interactions; an older id can no longer be retrieved or continued.\n\nErrors answer {\"error\": {\"code\", \"message\"}}: code is the identifier, such as account_unavailable, and message repeats it, behind a gemini_web_omni: prefix for a failure raised during a turn, continuing after ': ' with the product's reply when a turn was answered without a video. Failures the gateway raises before a request reaches this service answer the gateway's own object with message and type: a non-boolean stream, or every account held back by the gateway itself. A missing or unknown API key answers 401 with error as a string.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error.",
     "license": {
       "name": "MIT",
@@ -33,6 +33,64 @@
     }
   ],
   "paths": {
+    "/models/{model}:generateContent": {
+      "post": {
+        "operationId": "generateFlowMedia",
+        "summary": "Generate an image or video through Google Flow.",
+        "description": "Returns one completed media item as base64 inlineData. The flow-nano-banana-2 alias serves Nano Banana 2.1. Use flow-omni-1.1-flash or flow-veo-3.1-fast for videos. Each Flow request is an independent generation; previous_interaction_id is not supported. Allow the response to finish and never automatically replay an ambiguous submission. A flow_unauthenticated message refers to the linked Google session, not necessarily the caller's API key.",
+        "parameters": [
+          {
+            "name": "model",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["flow-nano-banana-2", "flow-omni-1.1-flash", "flow-veo-3.1-fast"]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/FlowGenerateRequest"},
+              "examples": {
+                "image": {
+                  "summary": "Portrait image",
+                  "value": {
+                    "contents": [{"role": "user", "parts": [{"text": "A yellow paper boat on calm blue water, no text."}]}],
+                    "generationConfig": {"imageConfig": {"aspectRatio": "9:16"}}
+                  }
+                },
+                "video": {
+                  "summary": "Four-second portrait video",
+                  "value": {
+                    "contents": [{"role": "user", "parts": [{"text": "A yellow paper boat floating on calm blue water, gentle ripples, static camera."}]}],
+                    "generationConfig": {"aspectRatio": "9:16", "durationSeconds": 4}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One generated image or MP4 video.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/FlowGenerateResponse"}
+              }
+            }
+          },
+          "400": {"description": "Invalid or unsupported generation options."},
+          "401": {"description": "Caller authentication or the linked Google session was rejected."},
+          "409": {"description": "The account is busy or requires operator reconciliation."},
+          "429": {"description": "Google Flow credits or quota are exhausted."},
+          "502": {"description": "Upstream generation failed. Do not automatically replay flow_submission_outcome_unknown."},
+          "503": {"description": "The token provider or shared session service is unavailable."}
+        }
+      }
+    },
     "/interactions": {
       "post": {
         "operationId": "createInteraction",
@@ -1204,6 +1262,109 @@
       }
     },
     "schemas": {
+      "FlowGenerateRequest": {
+        "type": "object",
+        "required": ["contents"],
+        "properties": {
+          "contents": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["parts"],
+              "properties": {
+                "role": {"type": "string", "const": "user"},
+                "parts": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": ["text"],
+                    "properties": {"text": {"type": "string", "minLength": 1}}
+                  }
+                }
+              }
+            }
+          },
+          "generationConfig": {
+            "type": "object",
+            "properties": {
+              "candidateCount": {"type": "integer", "const": 1},
+              "aspectRatio": {
+                "type": "string",
+                "enum": ["9:16", "16:9"],
+                "default": "9:16",
+                "description": "Video orientation."
+              },
+              "durationSeconds": {
+                "type": "integer",
+                "enum": [4, 6, 8, 10],
+                "default": 8,
+                "description": "Video duration; 10 seconds is available only for Omni."
+              },
+              "imageConfig": {
+                "type": "object",
+                "properties": {
+                  "aspectRatio": {
+                    "type": "string",
+                    "enum": ["1:1", "9:16", "16:9", "4:3", "3:4"],
+                    "default": "1:1"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "FlowGenerateResponse": {
+        "type": "object",
+        "required": ["modelVersion", "candidates"],
+        "properties": {
+          "modelVersion": {"type": "string"},
+          "candidates": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["content", "finishReason"],
+              "properties": {
+                "index": {"type": "integer"},
+                "finishReason": {"type": "string", "const": "STOP"},
+                "content": {
+                  "type": "object",
+                  "required": ["role", "parts"],
+                  "properties": {
+                    "role": {"type": "string", "const": "model"},
+                    "parts": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 1,
+                      "items": {
+                        "type": "object",
+                        "required": ["inlineData"],
+                        "properties": {
+                          "inlineData": {
+                            "type": "object",
+                            "required": ["mimeType", "data"],
+                            "properties": {
+                              "mimeType": {
+                                "type": "string",
+                                "enum": ["image/jpeg", "image/png", "image/webp", "video/mp4"]
+                              },
+                              "data": {"type": "string", "contentEncoding": "base64"}
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "InteractionCreate": {
         "type": "object",
         "required": [

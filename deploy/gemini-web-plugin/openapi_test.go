@@ -25,8 +25,10 @@ func TestOpenAPIDocumentIsServedWithoutAnyAssetOnDisk(t *testing.T) {
 	if json.Unmarshal(response.Body, &document) != nil || document.OpenAPI == "" {
 		t.Fatalf("the served document is not a spec: %.200s", response.Body)
 	}
-	if _, found := document.Paths["/interactions"]; !found {
-		t.Fatalf("the create route is undocumented: %v", document.Paths)
+	for _, path := range []string{"/interactions", "/models/{model}:generateContent"} {
+		if _, found := document.Paths[path]; !found {
+			t.Fatalf("the create route %s is undocumented", path)
+		}
 	}
 	if !strings.Contains(string(response.Body), `"extend"`) {
 		t.Fatal("the extend task is undocumented")
