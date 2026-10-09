@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type exchangeSeen struct {
@@ -380,6 +381,58 @@ func TestSessionExchangeAllowsOnlyPassiveFlowLogin(t *testing.T) {
 	}
 	if len(fixture.requests()) != 1 {
 		t.Fatal("refused login reached upstream")
+	}
+}
+
+func TestSessionExchangePreservesInterruptedGeminiIntent(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		state       localState
+		maintenance maintenanceState
+		active      bool
+		allowed     bool
+	}{
+		{"recoverable submission", localSubmitting, maintenanceOperator, true, true},
+		{"untracked submission", localSubmitting, maintenanceOperator, false, false},
+		{"renewal", localRenewing, maintenanceOperator, true, false},
+		{"host sync", localHostPending, maintenanceHostPending, false, false},
+		{"fenced submission", localSubmitting, maintenanceFenced, true, false},
+		{"operator without intent", localReady, maintenanceOperator, false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newExchangeFixture(t, 0, exchangeOK)
+			local, err := fixture.service.localStore().read(fixture.record.TokenRef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			local.State = test.state
+			if test.active {
+				local.ContinuationActive = strings.Repeat("a", 64)
+			}
+			if err := fixture.service.localStore().write(local); err != nil {
+				t.Fatal(err)
+			}
+			now := fixture.service.now()
+			fixture.service.now = func() time.Time { return now }
+			lease := fixture.service.leases.get(fixture.record.TokenRef)
+			lease.set(credentialState{state: test.maintenance, nextDue: now.Add(time.Hour)})
+
+			_, err = fixture.exchange(t, sessionExchangeRequest{AuthID: fixture.record.ID, Method: "POST", URL: "https://flow.google.com/_/AiSandboxAngularFrontend/data/batchexecute", Body: []byte("f.req=fixture")})
+
+			if test.allowed != (err == nil) {
+				t.Fatalf("allowed=%t, error=%v", test.allowed, err)
+			}
+			if len(fixture.requests()) != map[bool]int{true: 1, false: 0}[test.allowed] {
+				t.Fatal("unexpected upstream call")
+			}
+			after, err := fixture.service.localStore().read(fixture.record.TokenRef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.State != local.State || after.ContinuationActive != local.ContinuationActive || lease.snapshot().state != test.maintenance {
+				t.Fatal("the independent exchange changed the Gemini intent or maintenance state")
+			}
+		})
 	}
 }
 

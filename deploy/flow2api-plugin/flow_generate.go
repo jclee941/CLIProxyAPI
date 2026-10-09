@@ -26,7 +26,7 @@ type flowModel struct {
 }
 
 var flowCatalog = []flowModel{
-	{id: "flow-nano-banana-2", display: "Nano Banana 2 (Google Flow)", imageModel: "NARWHAL"},
+	{id: "flow-nano-banana-2", display: "Nano Banana 2.1 (Google Flow)", imageModel: "BELUGA"},
 	{id: "flow-nano-banana-pro", display: "Nano Banana Pro (Google Flow)", imageModel: "GEM_PIX_2"},
 	{id: "flow-veo-3.1-fast", display: "Veo 3.1 Fast (Google Flow)", video: true, family: "fast"},
 	{id: "flow-veo-3.1-quality", display: "Veo 3.1 Quality (Google Flow)", video: true, family: "quality"},
@@ -261,7 +261,7 @@ func flowVideoKey(family string, seconds int, portrait, references bool) (string
 		}
 	}
 	keys := map[string]map[int]string{
-		"fast":    {4: "veo_3_1_t2v_fast_4s_relaxed", 6: "veo_3_1_t2v_fast_6s_relaxed", 8: "veo_3_1_t2v_fast"},
+		"fast":    {4: "veo_3_1_t2v_fast_4s", 6: "veo_3_1_t2v_fast_6s", 8: "veo_3_1_t2v_fast"},
 		"quality": {4: "veo_3_1_t2v_quality_4s", 6: "veo_3_1_t2v_quality_6s", 8: "veo_3_1_t2v"},
 		"lite":    {4: "veo_3_1_t2v_lite_4s", 6: "veo_3_1_t2v_lite_6s", 8: "veo_3_1_t2v_lite"},
 	}
@@ -292,7 +292,7 @@ func flowImageArgs(project, token, imageModel, aspect, prompt string, references
 		}
 		images = list
 	}
-	request := []any{nil, nil, images, flowSeed(), flowImageAspect(aspect), imageModel, nil, context, []any{[]any{[]any{prompt}}}, nil, nil, nil, nil, session, flowID()}
+	request := []any{nil, nil, images, flowSeed(), flowImageAspect(aspect), imageModel, nil, context, []any{[]any{[]any{prompt}}}, nil, nil, nil, flowID(), flowID()}
 	return []any{nil, []any{request}, 1, context, []any{session}}
 }
 

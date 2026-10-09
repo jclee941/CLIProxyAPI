@@ -200,22 +200,25 @@ func (service *service) sessionExchange(ctx context.Context, request managementR
 	if !localReferencePattern.MatchString(record.TokenRef) {
 		return nil, sessionExchangeError(400, "credential_invalid")
 	}
-	if _, err := service.accountLease(record); err != nil {
+	lease, err := service.accountLease(record)
+	if err != nil {
 		return nil, sessionExchangeFailure(err)
 	}
-	lease, err := service.acquireCredential(record.TokenRef, false)
-	if err != nil {
-		if safeCredentialCode(err) == "session_busy" {
-			return nil, sessionExchangeError(409, "busy")
-		}
-		return nil, sessionExchangeFailure(err)
+	if !lease.guard.TryRLock() {
+		return nil, sessionExchangeError(409, "busy")
 	}
 	defer lease.guard.RUnlock()
-	token, err := service.resolveLocal(record)
+	// Borrowing the credential must not resolve or replay the Gemini turn.
+	// The model snapshot already distinguishes recoverable submissions from
+	// renewals, untracked intents and live credential fences.
+	local, err := service.localModelSnapshot(record)
 	if err != nil {
 		return nil, sessionExchangeFailure(err)
 	}
-	credential, err := decodeWebCredential(token)
+	if local.State == localHostPending {
+		return nil, failure(409, "host_sync_pending")
+	}
+	credential, err := decodeWebCredential(sessionToken{local.Token})
 	if err != nil {
 		return nil, sessionExchangeFailure(err)
 	}

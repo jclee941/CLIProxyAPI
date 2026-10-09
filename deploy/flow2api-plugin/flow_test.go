@@ -367,7 +367,8 @@ func TestFlowVideoKeysMatchTheWebApp(t *testing.T) {
 	}{
 		{"fast", 8, false, false, "veo_3_1_t2v_fast"},
 		{"fast", 8, true, false, "veo_3_1_t2v_fast_portrait"},
-		{"fast", 4, true, false, "veo_3_1_t2v_fast_4s_relaxed"},
+		{"fast", 4, true, false, "veo_3_1_t2v_fast_4s"},
+		{"fast", 6, false, false, "veo_3_1_t2v_fast_6s"},
 		{"quality", 8, true, false, "veo_3_1_t2v_portrait"},
 		{"quality", 6, false, false, "veo_3_1_t2v_quality_6s"},
 		{"lite", 8, true, false, "veo_3_1_t2v_lite"},
@@ -396,10 +397,16 @@ func TestFlowArgumentSlots(t *testing.T) {
 	if context[1] != 22 || context[5] != flowTestProject || !slices.Equal(context[10].([]any), []any{"tok", 1}) || len(context) != 11 {
 		t.Fatalf("context = %v", context)
 	}
-	args := flowImageArgs(flowTestProject, "tok", "NARWHAL", "16:9", "an apple", []string{flowTestMedia})
+	args := flowImageArgs(flowTestProject, "tok", "BELUGA", "16:9", "an apple", []string{flowTestMedia})
 	request := args[1].([]any)[0].([]any)
-	if request[4] != 3 || request[5] != "NARWHAL" || request[13] != args[4].([]any)[0] || len(request) != 15 {
+	if len(request) != 14 || request[4] != 3 || request[5] != "BELUGA" {
 		t.Fatalf("image request = %v", request)
+	}
+	for _, index := range []int{12, 13} {
+		id, ok := request[index].(string)
+		if !ok || !flowUUIDPattern.MatchString(id) || id == args[4].([]any)[0] {
+			t.Fatalf("image request ID slot %d = %v", index, request[index])
+		}
 	}
 	if reference := request[2].([]any)[0].([]any); reference[0] != flowTestMedia || reference[4] != 1 {
 		t.Fatalf("image reference = %v", reference)
@@ -460,6 +467,9 @@ func TestFlowImageGenerationEndToEnd(t *testing.T) {
 		t.Fatalf("the project was created %d times, want once", count)
 	}
 	args := fixture.args("ogiZ0b", 0)
+	if model := jsonField(args, 1, 0, 5); model != "BELUGA" {
+		t.Fatalf("image model = %v, want the current Nano Banana model", model)
+	}
 	if token := jsonField(args, 3, 10, 0); token != "token-1" {
 		t.Fatalf("the generation carried token %v", token)
 	}
@@ -497,7 +507,7 @@ func TestFlowVideoGenerationPollsUntilTheVideoExists(t *testing.T) {
 		t.Fatalf("video = %s %d bytes", mimeType, len(data))
 	}
 	args := fixture.args("YhhmEf", 0)
-	if key, orientation := jsonField(args, 0, 0, 1), jsonField(args, 0, 0, 2); key != "veo_3_1_t2v_fast_4s_relaxed" || orientation != float64(2) {
+	if key, orientation := jsonField(args, 0, 0, 1), jsonField(args, 0, 0, 2); key != "veo_3_1_t2v_fast_4s" || orientation != float64(2) {
 		t.Fatalf("video request = %v %v", key, orientation)
 	}
 	if status := fixture.args("jwpduf", 1); jsonField(status, 2, 0, 0) != flowTestOp {
