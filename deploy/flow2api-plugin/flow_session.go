@@ -12,12 +12,8 @@ import (
 	"time"
 )
 
-// Google Flow (flow.google.com) runs on the same Google account session as the
-// Gemini web app: its batchexecute endpoint authenticates with the account's
-// cookies, and Google rotates them on Flow responses just as it does on Gemini
-// ones. Flow calls therefore go through the account's own jar in this plugin.
-// A second holder of the same session would fork the rotation and leave one of
-// the two with cookies Google has already retired.
+// Cookie ownership and rotation remain in Gemini's session broker. Flow only
+// receives response bodies and selected headers, never a copy of the jar.
 
 const (
 	flowOrigin       = "https://flow.google.com"
@@ -80,17 +76,38 @@ func (session *flowSession) send(ctx context.Context, method, target string, bod
 	if header.Get("User-Agent") == "" {
 		header.Set("User-Agent", flowUserAgent)
 	}
-	response, err := session.service.exchange(ctx, session.accountID, method, target, body, header)
-	if err != nil {
-		return nil, err
+	for hop := 0; hop < 6; hop++ {
+		response, err := session.service.exchange(ctx, session.accountID, method, target, body, header)
+		if err != nil {
+			return nil, err
+		}
+		if response.StatusCode >= 300 && response.StatusCode < 400 {
+			if method != http.MethodGet {
+				return nil, failure(401, "flow_unauthenticated")
+			}
+			base, err := url.Parse(target)
+			if err != nil {
+				return nil, failure(502, "flow_redirect_invalid")
+			}
+			next, err := base.Parse(response.Headers.Get("Location"))
+			if err != nil || next.Scheme != "https" || next.User != nil {
+				return nil, failure(401, "flow_unauthenticated")
+			}
+			if next.Host != "flow.google.com" && !(next.Host == "accounts.google.com" && next.Path == "/ServiceLogin") {
+				return nil, failure(401, "flow_unauthenticated")
+			}
+			target = next.String()
+			continue
+		}
+		if response.StatusCode == 401 {
+			return nil, failure(401, "flow_unauthenticated")
+		}
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			return nil, &publicError{Code: "flow_upstream_status", Message: fmt.Sprintf("flow_upstream_status: HTTP %d", response.StatusCode), HTTPStatus: 502}
+		}
+		return response.Body, nil
 	}
-	if response.StatusCode == 401 || response.StatusCode >= 300 && response.StatusCode < 400 {
-		return nil, failure(401, "flow_unauthenticated")
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, &publicError{Code: "flow_upstream_status", Message: fmt.Sprintf("flow_upstream_status: HTTP %d", response.StatusCode), HTTPStatus: 502}
-	}
-	return response.Body, nil
+	return nil, failure(502, "flow_redirect_loop")
 }
 
 func (session *flowSession) bootstrap(ctx context.Context, sourcePath string) error {

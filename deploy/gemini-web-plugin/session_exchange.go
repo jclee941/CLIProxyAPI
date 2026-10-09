@@ -52,9 +52,8 @@ func sessionExchangeError(status int, name string) *publicError {
 	return failure(status, "session_exchange_"+name)
 }
 
-// sessionExchangeTarget validates the destination before any credential is
-// touched. Only the two exact HTTPS hosts are reachable, on the default port,
-// with no userinfo, and reCAPTCHA is limited to its own path prefix.
+// sessionExchangeTarget limits cookie-bearing requests to Flow, reCAPTCHA and
+// passive Google sign-in returning to Flow; interactive login is not exposed.
 func sessionExchangeTarget(raw string) (*url.URL, error) {
 	if strings.ContainsAny(raw, "\\\r\n") {
 		return nil, sessionExchangeError(400, "url_invalid")
@@ -81,6 +80,21 @@ func sessionExchangeTarget(raw string) (*url.URL, error) {
 	case sessionExchangeGoogle:
 		if !strings.HasPrefix(target.Path, sessionExchangeCaptcha) {
 			return nil, sessionExchangeError(403, "url_denied")
+		}
+	case "accounts.google.com":
+		query := target.Query()
+		if target.Path != "/ServiceLogin" || query.Get("passive") != "1209600" {
+			return nil, sessionExchangeError(403, "url_denied")
+		}
+		for _, field := range []string{"continue", "followup"} {
+			value := query.Get(field)
+			if field == "followup" && value == "" {
+				continue
+			}
+			next, err := url.Parse(value)
+			if err != nil || next.Scheme != "https" || next.Host != sessionExchangeFlowHost || next.User != nil {
+				return nil, sessionExchangeError(403, "url_denied")
+			}
 		}
 	default:
 		return nil, sessionExchangeError(403, "url_denied")
@@ -158,6 +172,9 @@ func (service *service) sessionExchange(ctx context.Context, request managementR
 	if err != nil {
 		return nil, err
 	}
+	if target.Hostname() == "accounts.google.com" && body.Method != http.MethodGet {
+		return nil, sessionExchangeError(403, "method_invalid")
+	}
 	record, enabled, err := service.findRecord(request.HostCallbackID, body.AuthID)
 	if err != nil {
 		if safeCredentialCode(err) == "account_not_found" {
@@ -199,6 +216,10 @@ func (service *service) sessionExchange(ctx context.Context, request managementR
 	if target.Hostname() == sessionExchangeFlowHost {
 		target.Path, target.RawPath = session.prefix+target.Path, ""
 		target.RawQuery = sessionExchangeSourcePath(target.RawQuery, session.prefix)
+	} else if target.Hostname() == "accounts.google.com" {
+		query := target.Query()
+		query.Set("authuser", strconv.Itoa(credential.AuthUser))
+		target.RawQuery = query.Encode()
 	}
 	headers := sessionExchangeHeaders(body.Headers, session.prefix, credential, session.cookie)
 	if override := service.sessionExchangeOriginOverride; override != "" {

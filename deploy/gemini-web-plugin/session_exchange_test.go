@@ -351,3 +351,32 @@ func TestSessionExchangeNamesTransportFailureWithoutDetail(t *testing.T) {
 		t.Fatalf("encoded error = %s, %v", encoded, marshalErr)
 	}
 }
+
+func TestSessionExchangeAllowsOnlyPassiveFlowLogin(t *testing.T) {
+	fixture := newExchangeFixture(t, 2, exchangeOK)
+	request := sessionExchangeRequest{
+		AuthID: fixture.record.ID, Method: "GET",
+		URL: "https://accounts.google.com/ServiceLogin?passive=1209600&continue=https%3A%2F%2Fflow.google.com%2Fprojects&authuser=9",
+	}
+	if _, err := fixture.exchange(t, request); err != nil {
+		t.Fatalf("passive Flow login refused: %v", err)
+	}
+	got := fixture.requests()[0]
+	query, err := url.ParseQuery(got.rawQuery)
+	if err != nil || got.path != "/ServiceLogin" || query.Get("authuser") != "2" {
+		t.Fatalf("passive login lost account binding: %s ?%s", got.path, got.rawQuery)
+	}
+	for _, target := range []string{
+		"https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fflow.google.com%2Fprojects",
+		"https://accounts.google.com/ServiceLogin?passive=1209600&continue=https%3A%2F%2Fevil.example",
+		"https://accounts.google.com/ServiceLogin?passive=1209600&continue=https%3A%2F%2Fflow.google.com%2Fprojects&followup=https%3A%2F%2Fevil.example",
+	} {
+		request.URL = target
+		if _, err := fixture.exchange(t, request); err == nil {
+			t.Fatalf("unsafe login accepted: %s", target)
+		}
+	}
+	if len(fixture.requests()) != 1 {
+		t.Fatal("refused login reached upstream")
+	}
+}
