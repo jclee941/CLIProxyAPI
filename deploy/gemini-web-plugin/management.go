@@ -97,6 +97,8 @@ func (service *service) managementOperation(ctx context.Context, request managem
 		inspections.Wait()
 		service.storeAccounts(scope, accounts)
 		return accountListResponse{accounts, provider, service.generationUnits()}, nil
+	case request.Method == "POST" && request.Path == sessionExchangePath:
+		return service.sessionExchange(ctx, request)
 	case request.Method == "POST" && request.Path == "/v0/management"+maintainPath:
 		return service.maintain(ctx, request)
 	case request.Method == "POST" && request.Path == resolvePath:

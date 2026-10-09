@@ -89,3 +89,30 @@ func TestSessionReconfigurationPreservesActiveCalls_whenProviderConfigIsUnchange
 		})
 	}
 }
+
+func TestSessionReconfigurationPreservesStore_whenSessionExchangePolicyChanges(t *testing.T) {
+	service, _ := loginFixture(t)
+	original := service.settings()
+	store, keyHash := service.localStore(), service.sessionKeyHash
+	config := original
+	config.SessionExchangeAccounts = []string{"gemini-web-a.json"}
+	configYAML, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.lifecycle.enter(); err != nil {
+		t.Fatal(err)
+	}
+	defer service.lifecycle.leave()
+
+	result := invoke(t, service, "plugin.reconfigure", struct {
+		ConfigYAML []byte `json:"config_yaml"`
+	}{configYAML})
+
+	if !result.OK {
+		t.Fatalf("session exchange policy change rejected during active work: %+v", result.Error)
+	}
+	if !reflect.DeepEqual(service.settings(), config) || service.localStore() != store || service.sessionKeyHash != keyHash || service.leases.epoch != 0 {
+		t.Fatal("session exchange policy was not applied without replacing the active session state")
+	}
+}

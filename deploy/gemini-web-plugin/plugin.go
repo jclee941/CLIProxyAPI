@@ -26,9 +26,10 @@ type pluginConfig struct {
 	// NativeGeneration serves text turns by speaking to the web product directly
 	// instead of delegating to the sidecar. Off until the native path has been
 	// compared against the sidecar on a real account.
-	NativeGeneration   bool          `yaml:"native_generation"`
-	NativeContinuation bool          `yaml:"native_continuation"`
-	VideoWireMode      videoWireMode `yaml:"video_wire_mode"`
+	NativeGeneration        bool          `yaml:"native_generation"`
+	NativeContinuation      bool          `yaml:"native_continuation"`
+	VideoWireMode           videoWireMode `yaml:"video_wire_mode"`
+	SessionExchangeAccounts []string      `yaml:"session_exchange_accounts,omitempty"`
 	// Drive credentials live here as well as in the environment because the
 	// configuration is mounted and hot reloaded, while the environment can only
 	// change by recreating the container.
@@ -64,8 +65,9 @@ type service struct {
 	webOriginOverride string
 	// webRotateOverride redirects cookie rotation, which lives on a different
 	// Google origin than the rest of the native calls.
-	webRotateOverride string
-	webUploadOverride string
+	webRotateOverride             string
+	webUploadOverride             string
+	sessionExchangeOriginOverride string
 	// driveOverride redirects the Drive fetch, which lives on a Google API origin
 	// none of the other native calls use, and driveTokenOverride does the same for
 	// the OAuth exchange, which lives on a third.
@@ -150,15 +152,20 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	default:
 		return nil, failure(400, "invalid_plugin_config")
 	}
+	if len(config.SessionExchangeAccounts) == 0 {
+		config.SessionExchangeAccounts = nil
+	}
 	current := service.config
 	current.HostEnabled, current.HostPriority = config.HostEnabled, config.HostPriority
 	wireChanged := current.VideoWireMode != config.VideoWireMode
 	current.VideoWireMode = config.VideoWireMode
+	current.SessionExchangeAccounts = config.SessionExchangeAccounts
 	unchanged := reflect.DeepEqual(current, config) && (config.SessionDir == "" || service.sessions != nil && service.sessionKeyHash == sha256.Sum256([]byte(os.Getenv("GEMINI_WEB_SESSION_KEY"))))
 	if unchanged {
 		// This policy is read at submission; it does not replace session state
 		// or alter a request whose wire variant has already been selected.
 		service.config.VideoWireMode = config.VideoWireMode
+		service.config.SessionExchangeAccounts = config.SessionExchangeAccounts
 	} else {
 		if err := service.lifecycle.reconfigure(func() error {
 			if err := service.reconfigureCredentials(config); err != nil {
@@ -240,7 +247,7 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 			Models   []modelInfo
 		}{provider, []modelInfo{}}, nil
 	case "management.register":
-		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/refresh"},{"Method":"POST","Path":"/plugins/gemini-web/maintain"},{"Method":"POST","Path":"/plugins/gemini-web/resolve"},{"Method":"POST","Path":"/plugins/gemini-web/recover"},{"Method":"POST","Path":"/plugins/gemini-web/label"},{"Method":"POST","Path":"/plugins/gemini-web/detach"},{"Method":"POST","Path":"/plugins/gemini-web/login/start"},{"Method":"POST","Path":"/plugins/gemini-web/login/complete"},{"Method":"POST","Path":"/plugins/gemini-web/login/status"},{"Method":"POST","Path":"/plugins/gemini-web/login/cancel"},{"Method":"POST","Path":"/plugins/gemini-web/login/reconcile"}],"resources":[{"Path":"/extension"},{"Path":"/openapi.json"},{"Path":"/index","Menu":"Gemini Web","Description":"Account models and measured usage dashboard"}]}`), nil
+		return json.RawMessage(`{"routes":[{"Method":"POST","Path":"/plugins/gemini-web/session/exchange"},{"Method":"GET","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/refresh"},{"Method":"POST","Path":"/plugins/gemini-web/maintain"},{"Method":"POST","Path":"/plugins/gemini-web/resolve"},{"Method":"POST","Path":"/plugins/gemini-web/recover"},{"Method":"POST","Path":"/plugins/gemini-web/label"},{"Method":"POST","Path":"/plugins/gemini-web/detach"},{"Method":"POST","Path":"/plugins/gemini-web/login/start"},{"Method":"POST","Path":"/plugins/gemini-web/login/complete"},{"Method":"POST","Path":"/plugins/gemini-web/login/status"},{"Method":"POST","Path":"/plugins/gemini-web/login/cancel"},{"Method":"POST","Path":"/plugins/gemini-web/login/reconcile"}],"resources":[{"Path":"/extension"},{"Path":"/openapi.json"},{"Path":"/index","Menu":"Gemini Web","Description":"Account models and measured usage dashboard"}]}`), nil
 	case "management.handle":
 		return service.management(ctx, raw)
 	case "frontend_http.register":

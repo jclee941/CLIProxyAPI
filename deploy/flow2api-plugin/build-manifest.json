@@ -1,0 +1,17 @@
+{
+  "plugin_id": "flow2api",
+  "version": "0.1.0",
+  "abi_version": 1,
+  "schema_version": 6,
+  "format": "c-shared",
+  "artifact": "flow2api.so",
+  "artifact_sha256": "bb6fcdf71fc25b4e63427d31976e4b88d6eeebf6e89b3150ff59e519131c113a",
+  "generated_header": "flow2api.h",
+  "header_sha256": "8fa2dec5d2fb3fcb51fed78551bb608eefa9ae5900a2729455963dcb7e547612",
+  "platform": "linux/amd64",
+  "libc": "glibc",
+  "verified_go_version": "go1.26.9",
+  "build_image": "golang:1.26-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c",
+  "build": "make check",
+  "session_owner": "gemini-web"
+}

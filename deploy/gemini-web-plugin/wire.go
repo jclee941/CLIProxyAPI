@@ -7,18 +7,19 @@ import (
 )
 
 const (
-	provider      = "gemini-web"
-	flashModel    = "gemini-web-flash-3.8"
-	omniModel     = "gemini-web-omni"
-	sidecarBase   = "http://gemini-web2api:8081"
-	resourcePath  = "/v0/resource/plugins/gemini-web/index"
-	extensionPath = "/v0/resource/plugins/gemini-web/extension"
-	openapiPath   = "/v0/resource/plugins/gemini-web/openapi.json"
-	accountsPath  = "/v0/management/plugins/gemini-web/accounts"
-	refreshPath   = "/v0/management/plugins/gemini-web/refresh"
-	resolvePath   = "/v0/management/plugins/gemini-web/resolve"
-	labelPath     = "/v0/management/plugins/gemini-web/label"
-	detachPath    = "/v0/management/plugins/gemini-web/detach"
+	provider            = "gemini-web"
+	flashModel          = "gemini-web-flash-3.8"
+	omniModel           = "gemini-web-omni"
+	sidecarBase         = "http://gemini-web2api:8081"
+	resourcePath        = "/v0/resource/plugins/gemini-web/index"
+	extensionPath       = "/v0/resource/plugins/gemini-web/extension"
+	openapiPath         = "/v0/resource/plugins/gemini-web/openapi.json"
+	accountsPath        = "/v0/management/plugins/gemini-web/accounts"
+	sessionExchangePath = "/v0/management/plugins/gemini-web/session/exchange"
+	refreshPath         = "/v0/management/plugins/gemini-web/refresh"
+	resolvePath         = "/v0/management/plugins/gemini-web/resolve"
+	labelPath           = "/v0/management/plugins/gemini-web/label"
+	detachPath          = "/v0/management/plugins/gemini-web/detach"
 )
 
 type envelope struct {
