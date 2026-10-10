@@ -45,6 +45,11 @@ Each request is one submission. Never replay a request after an uncertain
 submission or connection loss, and never retry `409 flow_session_exchange_busy`
 automatically if the first attempt may have been accepted.
 
+A failed request answers `{"error":{"code":"flow_...","message":"..."}}` on the
+Gemini, Chat and Responses routes; Claude callers get the usual Claude error
+object with the same message. `401 flow_unauthenticated` means the linked Google
+session needs a new login, not that the API key is wrong.
+
 ## Parameters
 
 Parameters go in `generationConfig`. Unknown keys return
