@@ -157,7 +157,7 @@ func TestFlowImageCropAndUpscaleKeepTheirParameters(t *testing.T) {
 
 	// When: a caller combines the cropped input with 2K output.
 	result := flowExecute(t, service, record, "flow-nano-banana-pro",
-		`{"contents":[{"parts":[{"text":"fixture"}]}],"generationConfig":{"imageConfig":{"imageSize":"2K"},"flow":{"projectId":"`+flowTestProject+`","referenceImages":[{"mediaId":"source","cropCoordinates":{"top":0.1,"left":0.2,"bottom":0.8,"right":0.9}}]}}}`)
+		`{"generationConfig":{"imageConfig":{"imageSize":"2K"},"flow":{"projectId":"`+flowTestProject+`","referenceImages":[{"mediaId":"source","cropCoordinates":{"top":0.1,"left":0.2,"bottom":0.8,"right":0.9}}],"structuredPrompt":{"parts":[{"text":"fixture "},{"reference":{"mediaId":"source"}}]}}}}`)
 
 	// Then: the crop result, not the uncropped source, is used and upscaled.
 	flowInlineMedia(t, result)
@@ -165,6 +165,7 @@ func TestFlowImageCropAndUpscaleKeepTheirParameters(t *testing.T) {
 	generate, upscale := fixture.args("ogiZ0b", 0), fixture.args("SPrCad", 0)
 	if jsonField(crop, 3, 0) != .1 || jsonField(crop, 3, 3) != .9 ||
 		jsonField(generate, 1, 0, 2, 0, 0) != cropped ||
+		jsonField(generate, 1, 0, 8, 0, 1, 1, 0, 0) != cropped ||
 		jsonField(upscale, 0) != flowTestMedia || jsonField(upscale, 1) != float64(1) {
 		t.Fatalf("crop=%+v generate=%+v upscale=%+v", crop, generate, upscale)
 	}

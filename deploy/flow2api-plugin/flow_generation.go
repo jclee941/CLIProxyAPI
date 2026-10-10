@@ -135,6 +135,11 @@ func (service *service) prepareFlowReferences(ctx context.Context, record storag
 				if id == "" {
 					return failure(502, "flow_crop_result_missing")
 				}
+				for index := range input.options.StructuredPrompt {
+					if input.options.StructuredPrompt[index].MediaID == reference.MediaID {
+						input.options.StructuredPrompt[index].MediaID = id
+					}
+				}
 				reference.MediaID, reference.CropCoordinates = id, nil
 				return nil
 			})
