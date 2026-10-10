@@ -594,6 +594,15 @@ func TestFlowVideoReportsTheRefusalFlowRecorded(t *testing.T) {
 	}
 }
 
+func TestFlowAnswersOptionalHostMethodsAsUnsupported(t *testing.T) {
+	// A hot reload first asks the replaced plugin to quiesce; the host treats
+	// unknown_method as a method the plugin does not offer, not as a failure.
+	result := invoke(t, newService(nil), "plugin.quiesce", struct{}{})
+	if result.OK || result.Error.Code != "unknown_method" || result.Error.HTTPStatus != 400 {
+		t.Fatalf("quiesce = %+v", result.Error)
+	}
+}
+
 func TestFlowExecutionFailureReachesTheHostAsAnErrorObject(t *testing.T) {
 	// Given: Flow refusing the generation because the session is signed out.
 	fixture := newFlowFixture(t)

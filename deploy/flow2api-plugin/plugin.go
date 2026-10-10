@@ -238,7 +238,9 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 		body, err := json.Marshal(result)
 		return httpResponse{StatusCode: 200, Headers: http.Header{"Content-Type": {"application/json"}, "Cache-Control": {"no-store"}}, Body: body}, err
 	default:
-		return nil, failure(400, "flow_unknown_method")
+		// The host reads unknown_method as an optional method this plugin
+		// does not offer, such as the quiesce a hot reload asks for first.
+		return nil, failure(400, "unknown_method")
 	}
 }
 
