@@ -272,9 +272,12 @@ func flowVideoRecords(value any, visit func([]any)) {
 		return
 	}
 	if len(list) >= 3 {
-		operation, okOperation := list[0].(string)
-		media, okMedia := list[2].(string)
-		if okOperation && okMedia && flowUUIDPattern.MatchString(operation) && flowUUIDPattern.MatchString(media) {
+		mediaID, okMedia := list[0].(string)
+		projectID, okProject := list[1].(string)
+		workflowID, okWorkflow := list[2].(string)
+		baseID, _, _ := strings.Cut(mediaID, "_")
+		if okMedia && okProject && okWorkflow && flowIdentifier(mediaID) &&
+			flowUUIDPattern.MatchString(baseID) && flowUUIDPattern.MatchString(projectID) && flowUUIDPattern.MatchString(workflowID) {
 			visit(list)
 			return
 		}

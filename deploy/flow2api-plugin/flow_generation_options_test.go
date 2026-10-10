@@ -98,7 +98,8 @@ func TestFlowExplicitVideoUpscaleUsesSourceAndSeed(t *testing.T) {
 	// Given: an existing video can be upscaled without a new text generation.
 	fixture := newFlowFixture(t)
 	fixture.reply("as29s", rpcEnvelope(t, "as29s", []any{"source-video", fixture.link("video")}))
-	operation := []any{flowTestOp, flowTestProject, flowTestMedia}
+	upscaledID := flowTestOp + "_1080p_upsampled"
+	operation := []any{upscaledID, flowTestProject, flowTestMedia}
 	fixture.reply("p0UkFb", rpcEnvelope(t, "p0UkFb", []any{[]any{operation}}))
 	fixture.reply("jwpduf", rpcEnvelope(t, "jwpduf", []any{[]any{append(slices.Clone(operation), fixture.link("video"))}}))
 	service, record := flowService(t, fixture)
@@ -114,6 +115,9 @@ func TestFlowExplicitVideoUpscaleUsesSourceAndSeed(t *testing.T) {
 		jsonField(args, 0, 0, 6) != float64(2) || jsonField(args, 0, 0, 31) != "veo_3_1_upsampler_1080p" ||
 		fixture.count("YhhmEf") != 0 {
 		t.Fatalf("upscale request = %+v", args)
+	}
+	if jsonField(fixture.args("jwpduf", 0), 2, 0, 0) != upscaledID {
+		t.Fatal("upscaled media suffix was lost during polling")
 	}
 }
 
