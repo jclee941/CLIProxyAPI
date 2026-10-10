@@ -51,6 +51,8 @@ func newFlowFixture(t *testing.T) *flowFixture {
 	fixture := &flowFixture{t: t, calls: map[string][]url.Values{}, agents: map[string][]string{}, replies: map[string][]string{}, polls: map[string]int{}}
 	fixture.server = httptest.NewTLSServer(http.HandlerFunc(fixture.serve))
 	t.Cleanup(fixture.server.Close)
+	fixture.reply("nzlxg", rpcEnvelope(t, "nzlxg", []any{142, 2, 3, 3}))
+	fixture.reply("HTrJv", rpcEnvelope(t, "HTrJv", flowModelFixture(t)))
 	return fixture
 }
 
@@ -338,10 +340,10 @@ func TestFlowRequestRefusesWhatFlowCannotHonour(t *testing.T) {
 		"ten second veo":     {video, `{"contents":[{"parts":[{"text":"x"}]}],"generationConfig":{"durationSeconds":10}}`, "flow_invalid_duration"},
 		"unknown option":     {video, `{"contents":[{"parts":[{"text":"x"}]}],"generationConfig":{"negativePrompt":"no"}}`, "flow_unsupported_generation_option"},
 		"image duration":     {image, `{"contents":[{"parts":[{"text":"x"}]}],"generationConfig":{"durationSeconds":4}}`, "flow_unsupported_generation_option"},
-		"two candidates":     {image, `{"contents":[{"parts":[{"text":"x"}]}],"generationConfig":{"candidateCount":2}}`, "flow_single_candidate_only"},
+		"five candidates":    {image, `{"contents":[{"parts":[{"text":"x"}]}],"generationConfig":{"candidateCount":5}}`, "flow_invalid_candidate_count"},
 		"file reference":     {video, `{"contents":[{"parts":[{"text":"x"},{"fileData":{"fileUri":"files/a"}}]}]}`, "flow_file_reference_unsupported"},
 		"pdf reference":      {video, `{"contents":[{"parts":[{"text":"x"},{"inlineData":{"mimeType":"application/pdf","data":"AAAA"}}]}]}`, "flow_reference_type_unsupported"},
-		"four references":    {omni, `{"contents":[{"parts":[{"text":"x"},` + strings.Repeat(reference+",", 3) + reference + `]}]}`, "flow_too_many_references"},
+		"eleven references":  {image, `{"contents":[{"parts":[{"text":"x"},` + strings.Repeat(reference+",", 10) + reference + `]}]}`, "flow_too_many_references"},
 		"undecodable image":  {omni, `{"contents":[{"parts":[{"text":"x"},{"inlineData":{"mimeType":"image/png","data":"!!"}}]}]}`, "flow_reference_invalid"},
 		"unknown image size": {image, `{"contents":[{"parts":[{"text":"x"}]}],"generationConfig":{"imageConfig":{"imageSize":"8K"}}}`, "flow_invalid_image_size"},
 	} {
@@ -358,6 +360,10 @@ func TestFlowRequestRefusesWhatFlowCannotHonour(t *testing.T) {
 }
 
 func TestFlowVideoKeysMatchTheWebApp(t *testing.T) {
+	usages, err := decodeFlowModels(flowModelFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range []struct {
 		family     string
 		seconds    int
@@ -365,8 +371,8 @@ func TestFlowVideoKeysMatchTheWebApp(t *testing.T) {
 		references bool
 		key        string
 	}{
-		{"fast", 8, false, false, "veo_3_1_t2v_fast"},
-		{"fast", 8, true, false, "veo_3_1_t2v_fast_portrait"},
+		{"fast", 8, false, false, "veo_3_1_t2v_fast_ultra"},
+		{"fast", 8, true, false, "veo_3_1_t2v_fast_portrait_ultra"},
 		{"fast", 4, true, false, "veo_3_1_t2v_fast_4s"},
 		{"fast", 6, false, false, "veo_3_1_t2v_fast_6s"},
 		{"quality", 8, true, false, "veo_3_1_t2v_portrait"},
@@ -374,18 +380,26 @@ func TestFlowVideoKeysMatchTheWebApp(t *testing.T) {
 		{"lite", 8, true, false, "veo_3_1_t2v_lite"},
 		{"omni", 10, true, false, "abra_t2v_10s"},
 		{"omni", 6, false, true, "abra_r2v_6s"},
-		{"fast", 8, true, true, "veo_3_1_r2v_fast_portrait"},
+		{"fast", 8, true, true, "veo_3_1_r2v_fast_portrait_ultra"},
 		{"lite", 8, false, true, "veo_3_1_r2v_lite"},
 	} {
-		key, err := flowVideoKey(test.family, test.seconds, test.portrait, test.references)
-		if err != nil || key != test.key {
-			t.Errorf("%+v = %q, %v", test, key, err)
+		family := map[string]string{"fast": "veo_3_1_fast", "quality": "veo_3_1_quality", "lite": "veo_3_1_lite", "omni": "abra"}[test.family]
+		selection := flowModelSelection{family: family, video: true, tier: 3, aspect: 2, duration: test.seconds, resolution: 1, inputs: []int{1}}
+		if test.portrait {
+			selection.aspect = 1
+		}
+		if test.references {
+			selection.inputs = append(selection.inputs, 6)
+		}
+		usage, err := selectFlowModel(usages, selection)
+		if err != nil || usage.key != test.key {
+			t.Errorf("%+v = %q, %v", test, usage.key, err)
 		}
 	}
-	if _, err := flowVideoKey("quality", 8, true, true); safeCredentialCode(err) != "flow_reference_images_unsupported" {
+	if _, err := selectFlowModel(usages, flowModelSelection{family: "veo_3_1_quality", video: true, tier: 3, aspect: 1, duration: 8, resolution: 1, inputs: []int{1, 6}}); safeCredentialCode(err) != "flow_model_options_unsupported" {
 		t.Fatalf("quality references = %v", err)
 	}
-	if _, err := flowVideoKey("fast", 4, true, true); safeCredentialCode(err) != "flow_reference_duration_unsupported" {
+	if _, err := selectFlowModel(usages, flowModelSelection{family: "veo_3_1_fast", video: true, tier: 3, aspect: 1, duration: 4, resolution: 1, inputs: []int{1, 6}}); safeCredentialCode(err) != "flow_model_options_unsupported" {
 		t.Fatalf("short fast references = %v", err)
 	}
 }
@@ -397,7 +411,7 @@ func TestFlowArgumentSlots(t *testing.T) {
 	if context[1] != 22 || context[5] != flowTestProject || !slices.Equal(context[10].([]any), []any{"tok", 1}) || len(context) != 11 {
 		t.Fatalf("context = %v", context)
 	}
-	args := flowImageArgs(flowTestProject, "tok", "BELUGA", "16:9", "an apple", []string{flowTestMedia})
+	_, args := flowBatchArgs(flowTestProject, "tok", flowInput{prompt: "an apple", count: 1, references: []flowReference{{MediaID: flowTestMedia}}}, flowSelected{aspect: 3, usage: flowModelUsage{key: "BELUGA"}})
 	request := args[1].([]any)[0].([]any)
 	if len(request) != 14 || request[4] != 3 || request[5] != "BELUGA" {
 		t.Fatalf("image request = %v", request)
@@ -411,12 +425,12 @@ func TestFlowArgumentSlots(t *testing.T) {
 	if reference := request[2].([]any)[0].([]any); reference[0] != flowTestMedia || reference[4] != 1 {
 		t.Fatalf("image reference = %v", reference)
 	}
-	rpcID, video := flowVideoArgs(flowTestProject, "tok", "veo_3_1_t2v_fast_portrait", "9:16", "a fox", nil)
+	rpcID, video := flowBatchArgs(flowTestProject, "tok", flowInput{prompt: "a fox", count: 1}, flowSelected{mode: "text", aspect: 1, resolution: 1, usage: flowModelUsage{key: "veo_3_1_t2v_fast_portrait", video: true}})
 	text := video[0].([]any)[0].([]any)
 	if rpcID != "YhhmEf" || text[1] != "veo_3_1_t2v_fast_portrait" || text[2] != 1 || len(text) != 8 {
 		t.Fatalf("video request = %s %v", rpcID, text)
 	}
-	rpcID, video = flowVideoArgs(flowTestProject, "tok", "abra_r2v_8s", "16:9", "a fox", []string{flowTestMedia})
+	rpcID, video = flowBatchArgs(flowTestProject, "tok", flowInput{prompt: "a fox", count: 1, references: []flowReference{{MediaID: flowTestMedia}}}, flowSelected{mode: "references", aspect: 2, resolution: 1, usage: flowModelUsage{key: "abra_r2v_8s", video: true}})
 	references := video[0].([]any)[0].([]any)
 	if rpcID != "MZZa6b" || references[2] != "abra_r2v_8s" || references[3] != 2 || references[1].([]any)[0].([]any)[1] != flowTestMedia || len(references) != 12 {
 		t.Fatalf("reference request = %s %v", rpcID, references)

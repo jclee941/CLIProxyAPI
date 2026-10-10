@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -57,261 +56,17 @@ func flowModelInfos() []modelInfo {
 	for _, model := range flowCatalog {
 		output, description := "image", "Google Flow image generation; inline reference images are edited or combined"
 		if model.video {
-			output, description = "video", "Google Flow video generation; aspectRatio 16:9 or 9:16, durationSeconds, up to three reference images"
+			output, description = "video", "Google Flow video generation, frames, ingredients, editing, extension and upscaling; model-specific options"
 		}
 		models = append(models, modelInfo{ID: model.id, Object: "model", OwnedBy: provider, Type: provider, Name: model.id, DisplayName: model.display, Description: description, SupportedGenerationMethods: []string{"generateContent"}, SupportedInputModalities: []string{"text", "image"}, SupportedOutputModalities: []string{output}})
 	}
 	return models
 }
 
-type flowReference struct {
-	mimeType string
-	data     []byte
-}
-
-type flowInput struct {
-	prompt     string
-	references []flowReference
-	aspect     string
-	seconds    int
-	imageSize  string
-}
-
-// flowSamplingOptions are settings chat bridges attach to every request. A
-// generation has no use for them, and refusing them would refuse every caller
-// that comes through the OpenAI format.
-var flowSamplingOptions = map[string]bool{
-	"temperature": true, "topP": true, "topK": true, "maxOutputTokens": true, "responseModalities": true,
-	"thinkingConfig": true, "stopSequences": true, "presencePenalty": true, "frequencyPenalty": true,
-	"seed": true, "responseMimeType": true,
-}
-
-// parseFlowRequest reads the prompt from the last user turn, since a Flow
-// generation keeps no conversation, together with the options Flow can honour.
-func parseFlowRequest(model flowModel, raw []byte) (flowInput, error) {
-	var body struct {
-		Contents []struct {
-			Role  string `json:"role"`
-			Parts []struct {
-				Text            *string         `json:"text"`
-				InlineData      *webInlinePart  `json:"inlineData"`
-				InlineDataSnake *webInlinePart  `json:"inline_data"`
-				FileData        json.RawMessage `json:"fileData"`
-				FileDataSnake   json.RawMessage `json:"file_data"`
-			} `json:"parts"`
-		} `json:"contents"`
-		SystemInstruction *struct {
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-		} `json:"systemInstruction"`
-		GenerationConfig map[string]json.RawMessage `json:"generationConfig"`
-	}
-	if len(raw) > 64*1024*1024 || json.Unmarshal(raw, &body) != nil {
-		return flowInput{}, failure(400, "flow_request_invalid")
-	}
-	turn := -1
-	for index := len(body.Contents) - 1; index >= 0; index-- {
-		if role := body.Contents[index].Role; role == "" || role == "user" {
-			turn = index
-			break
-		}
-	}
-	if turn < 0 {
-		return flowInput{}, failure(400, "flow_prompt_required")
-	}
-	input := flowInput{}
-	var texts []string
-	if body.SystemInstruction != nil {
-		for _, part := range body.SystemInstruction.Parts {
-			if strings.TrimSpace(part.Text) != "" {
-				texts = append(texts, part.Text)
-			}
-		}
-	}
-	for _, part := range body.Contents[turn].Parts {
-		inline := part.InlineData
-		if inline == nil {
-			inline = part.InlineDataSnake
-		}
-		switch {
-		case part.Text != nil:
-			texts = append(texts, *part.Text)
-		case inline != nil:
-			if !strings.HasPrefix(inline.mimeType(), "image/") {
-				return flowInput{}, failure(400, "flow_reference_type_unsupported")
-			}
-			data, err := base64.StdEncoding.DecodeString(inline.Data)
-			if err != nil || len(data) == 0 {
-				return flowInput{}, failure(400, "flow_reference_invalid")
-			}
-			input.references = append(input.references, flowReference{mimeType: inline.mimeType(), data: data})
-		case len(part.FileData) > 0 || len(part.FileDataSnake) > 0:
-			return flowInput{}, failure(400, "flow_file_reference_unsupported")
-		}
-	}
-	input.prompt = strings.TrimSpace(strings.Join(texts, "\n"))
-	if input.prompt == "" {
-		return flowInput{}, failure(400, "flow_prompt_required")
-	}
-	if len(input.references) > 3 {
-		return flowInput{}, failure(400, "flow_too_many_references")
-	}
-	for key, value := range body.GenerationConfig {
-		var err error
-		switch key {
-		case "aspectRatio":
-			err = json.Unmarshal(value, &input.aspect)
-		case "durationSeconds":
-			if !model.video {
-				return flowInput{}, flowOptionRejection(key)
-			}
-			err = json.Unmarshal(value, &input.seconds)
-		case "imageConfig":
-			if model.video {
-				return flowInput{}, flowOptionRejection(key)
-			}
-			var config struct {
-				AspectRatio string `json:"aspectRatio"`
-				ImageSize   string `json:"imageSize"`
-			}
-			if err = json.Unmarshal(value, &config); err == nil {
-				if config.AspectRatio != "" {
-					input.aspect = config.AspectRatio
-				}
-				input.imageSize = strings.ToUpper(config.ImageSize)
-			}
-		case "candidateCount":
-			var count int
-			if json.Unmarshal(value, &count) != nil || count != 1 {
-				return flowInput{}, failure(400, "flow_single_candidate_only")
-			}
-		default:
-			if !flowSamplingOptions[key] {
-				return flowInput{}, flowOptionRejection(key)
-			}
-		}
-		if err != nil {
-			return flowInput{}, flowOptionRejection(key)
-		}
-	}
-	return input, flowDefaults(model, &input)
-}
-
-func flowOptionRejection(key string) error {
-	return &publicError{Code: "flow_unsupported_generation_option", Message: "flow_unsupported_generation_option: " + key, HTTPStatus: 400}
-}
-
-func flowDefaults(model flowModel, input *flowInput) error {
-	if model.video {
-		// Video framing defaults to portrait, matching the Gemini video path.
-		if input.aspect == "" {
-			input.aspect = "9:16"
-		}
-		if input.aspect != "9:16" && input.aspect != "16:9" {
-			return failure(400, "flow_invalid_aspect_ratio")
-		}
-		if input.seconds == 0 {
-			input.seconds = 8
-		}
-		allowed := []int{4, 6, 8}
-		if model.family == "omni" {
-			allowed = append(allowed, 10)
-		}
-		if !slices.Contains(allowed, input.seconds) {
-			return failure(400, "flow_invalid_duration")
-		}
-		return nil
-	}
-	if input.aspect == "" {
-		input.aspect = "1:1"
-	}
-	if flowImageAspect(input.aspect) == 0 {
-		return failure(400, "flow_invalid_aspect_ratio")
-	}
-	switch input.imageSize {
-	case "", "1K", "2K", "4K":
-		return nil
-	default:
-		return failure(400, "flow_invalid_image_size")
-	}
-}
-
-func flowImageAspect(aspect string) int {
-	return map[string]int{"1:1": 1, "9:16": 2, "16:9": 3, "4:3": 4, "3:4": 5}[aspect]
-}
-
-// flowVideoKey is the Flow model key a family, duration, framing and input mode
-// run on, as the live Flow web app names them.
-func flowVideoKey(family string, seconds int, portrait, references bool) (string, error) {
-	if references {
-		switch {
-		case family == "omni":
-			return fmt.Sprintf("abra_r2v_%ds", seconds), nil
-		case family == "fast" && seconds == 8 && portrait:
-			return "veo_3_1_r2v_fast_portrait", nil
-		case family == "fast" && seconds == 8:
-			return "veo_3_1_r2v_fast_landscape", nil
-		case family == "lite" && seconds == 8:
-			return "veo_3_1_r2v_lite", nil
-		case family == "quality":
-			return "", failure(400, "flow_reference_images_unsupported")
-		default:
-			return "", failure(400, "flow_reference_duration_unsupported")
-		}
-	}
-	keys := map[string]map[int]string{
-		"fast":    {4: "veo_3_1_t2v_fast_4s", 6: "veo_3_1_t2v_fast_6s", 8: "veo_3_1_t2v_fast"},
-		"quality": {4: "veo_3_1_t2v_quality_4s", 6: "veo_3_1_t2v_quality_6s", 8: "veo_3_1_t2v"},
-		"lite":    {4: "veo_3_1_t2v_lite_4s", 6: "veo_3_1_t2v_lite_6s", 8: "veo_3_1_t2v_lite"},
-	}
-	if family == "omni" {
-		return fmt.Sprintf("abra_t2v_%ds", seconds), nil
-	}
-	key := keys[family][seconds]
-	if seconds == 8 && portrait && (family == "fast" || family == "quality") {
-		key += "_portrait"
-	}
-	return key, nil
-}
-
 // flowContext is the client context every generation RPC carries, with the
 // captcha token in its last slot.
 func flowContext(project, token string) []any {
 	return []any{nil, 22, nil, nil, nil, project, nil, nil, nil, nil, []any{token, 1}}
-}
-
-func flowImageArgs(project, token, imageModel, aspect, prompt string, references []string) []any {
-	session := flowID()
-	context := flowContext(project, token)
-	var images any
-	if len(references) > 0 {
-		list := make([]any, 0, len(references))
-		for _, id := range references {
-			list = append(list, []any{id, nil, nil, nil, 1})
-		}
-		images = list
-	}
-	request := []any{nil, nil, images, flowSeed(), flowImageAspect(aspect), imageModel, nil, context, []any{[]any{[]any{prompt}}}, nil, nil, nil, flowID(), flowID()}
-	return []any{nil, []any{request}, 1, context, []any{session}}
-}
-
-func flowVideoArgs(project, token, key, aspect, prompt string, references []string) (string, []any) {
-	message := []any{nil, nil, []any{[]any{[]any{prompt}}}}
-	orientation := 2
-	if aspect == "9:16" {
-		orientation = 1
-	}
-	metadata := []any{nil, nil, nil, nil, flowID(), flowID()}
-	rpcID, request := "YhhmEf", []any{message, key, orientation, nil, metadata, nil, nil, nil}
-	if len(references) > 0 {
-		images := make([]any, 0, len(references))
-		for _, id := range references {
-			images = append(images, []any{nil, id})
-		}
-		rpcID, request = "MZZa6b", []any{message, images, key, orientation, nil, metadata, nil, nil, nil, nil, nil, nil}
-	}
-	return rpcID, []any{[]any{request}, flowContext(project, token), []any{flowID(), 2}}
 }
 
 func flowID() string {
@@ -337,7 +92,9 @@ func (service *service) executeFlow(ctx context.Context, method string, request 
 	if !hasRequestStopRules(request.AuthMetadata.RequestScopedErrors, "flow_") {
 		return nil, failure(400, "flow_requires_host_request_stop_policy")
 	}
-	if request.Format != "gemini" || request.Alt != "" {
+	stream := request.Stream || method == "executor.execute_stream"
+	if !slices.Contains([]string{"gemini", "openai", "openai-response", "claude"}, request.Format) ||
+		request.Alt != "" && !(request.Alt == "sse" && request.Format == "gemini" && stream) {
 		return nil, failure(400, "unsupported_execution_format")
 	}
 	if request.AuthProvider != provider || request.Metadata.PinnedAuthID != "" && request.Metadata.PinnedAuthID != request.AuthID {
@@ -356,17 +113,16 @@ func (service *service) executeFlow(ctx context.Context, method string, request 
 	if !service.flowAccount(record.SourceAuthID) {
 		return nil, failure(403, "flow_account_not_enabled")
 	}
-	input, err := parseFlowRequest(model, request.Payload)
+	payload, err := mergeFlowGenerationConfig(request.Payload, request.OriginalRequest)
+	if err != nil {
+		return nil, err
+	}
+	input, err := parseFlowRequest(model, payload)
 	if err != nil {
 		return nil, err
 	}
 	started := time.Now()
-	var body []byte
-	if model.video {
-		body, err = service.flowVideo(ctx, record, model, input)
-	} else {
-		body, err = service.flowImage(ctx, record, model, input)
-	}
+	body, err := service.flowGenerate(ctx, record, model, input)
 	outcome := "flow_generation_delivered"
 	if err != nil {
 		outcome = safeCredentialMessage(err)
@@ -375,109 +131,7 @@ func (service *service) executeFlow(ctx context.Context, method string, request 
 	if err != nil {
 		return nil, err
 	}
-	return webExecutionResult(body, request.Stream || method == "executor.execute_stream"), nil
-}
-
-func (service *service) flowImage(ctx context.Context, record storageRecord, model flowModel, input flowInput) ([]byte, error) {
-	project, err := service.flowProject(ctx, record)
-	if err != nil {
-		return nil, err
-	}
-	references, err := service.flowUploads(ctx, record, project, input.references)
-	if err != nil {
-		return nil, err
-	}
-	var mediaID, link string
-	var encoded []byte
-	err = service.flowSubmit(ctx, record, project, "IMAGE_GENERATION", func(token string) (string, any) {
-		return "ogiZ0b", flowImageArgs(project, token, model.imageModel, input.aspect, input.prompt, references)
-	}, func(payload any) error {
-		mediaID, link = flowGeneratedImage(payload)
-		if link == "" {
-			return failure(502, "flow_image_missing")
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if input.imageSize == "2K" || input.imageSize == "4K" {
-		resolution := 1
-		if input.imageSize == "4K" {
-			resolution = 2
-		}
-		err = service.flowSubmit(ctx, record, project, "IMAGE_GENERATION", func(token string) (string, any) {
-			return "SPrCad", []any{mediaID, resolution, flowContext(project, token)}
-		}, func(payload any) error {
-			if upscaled := flowFindURL(payload, "image"); upscaled != "" {
-				link = upscaled
-				return nil
-			}
-			if data := flowEncodedMedia(payload); data != nil {
-				encoded = data
-				return nil
-			}
-			return failure(502, "flow_upscale_missing")
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-	data := encoded
-	if data == nil {
-		if data, err = service.flowDownload(ctx, link, 64*1024*1024); err != nil {
-			return nil, err
-		}
-	}
-	mimeType := http.DetectContentType(data)
-	if !strings.HasPrefix(mimeType, "image/") {
-		return nil, failure(502, "flow_image_invalid")
-	}
-	return flowMediaResponse(model.id, mimeType, data)
-}
-
-func (service *service) flowVideo(ctx context.Context, record storageRecord, model flowModel, input flowInput) ([]byte, error) {
-	project, err := service.flowProject(ctx, record)
-	if err != nil {
-		return nil, err
-	}
-	key, err := flowVideoKey(model.family, input.seconds, input.aspect == "9:16", len(input.references) > 0)
-	if err != nil {
-		return nil, err
-	}
-	references, err := service.flowUploads(ctx, record, project, input.references)
-	if err != nil {
-		return nil, err
-	}
-	var operation flowOperation
-	var link string
-	err = service.flowSubmit(ctx, record, project, "VIDEO_GENERATION", func(token string) (string, any) {
-		return flowVideoArgs(project, token, key, input.aspect, input.prompt, references)
-	}, func(payload any) error {
-		if link = flowFindURL(payload, "video"); link != "" {
-			return nil
-		}
-		if operation = flowVideoOperation(payload, project); operation.id == "" {
-			return failure(502, "flow_operation_missing")
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if link == "" {
-		if link, err = service.flowAwaitVideo(ctx, record, project, operation); err != nil {
-			return nil, err
-		}
-	}
-	data, err := service.flowDownload(ctx, link, 512*1024*1024)
-	if err != nil {
-		return nil, err
-	}
-	if http.DetectContentType(data) != "video/mp4" {
-		return nil, failure(502, "flow_video_invalid")
-	}
-	return flowMediaResponse(model.id, "video/mp4", data)
+	return flowExecutionResult(body, request.Format, stream)
 }
 
 // flowProject is the Flow project the account's generations are filed under,
@@ -597,17 +251,6 @@ func (service *service) withFlowSession(ctx context.Context, record storageRecor
 
 type flowOperation struct {
 	id, media string
-}
-
-func flowGeneratedImage(payload any) (string, string) {
-	items, _ := jsonField(payload, 0).([]any)
-	for _, item := range items {
-		if link := flowFindURL(item, "image"); link != "" {
-			id, _ := jsonField(item, 0).(string)
-			return id, link
-		}
-	}
-	return "", ""
 }
 
 func flowUploadedMedia(payload any, project string) string {
@@ -773,23 +416,6 @@ func flowEncodedMedia(value any) []byte {
 		}
 	}
 	return nil
-}
-
-func flowMediaResponse(model, mimeType string, data []byte) ([]byte, error) {
-	body, err := json.Marshal(map[string]any{
-		"modelVersion": model,
-		"candidates": []any{map[string]any{
-			"index":        0,
-			"finishReason": "STOP",
-			"content": map[string]any{"role": "model", "parts": []any{
-				map[string]any{"inlineData": map[string]any{"mimeType": mimeType, "data": base64.StdEncoding.EncodeToString(data)}},
-			}},
-		}},
-	})
-	if err != nil {
-		return nil, failure(500, "flow_response_encoding_failed")
-	}
-	return body, nil
 }
 
 func flowCredits(payload any) (int, bool) {
