@@ -101,12 +101,10 @@ func (part webInlinePart) mimeType() string {
 }
 func webExecutionResult(body []byte, stream bool) interface{} {
 	if stream {
-		payload := append([]byte("data: "), body...)
-		payload = append(payload, '\n', '\n')
 		return struct {
 			Headers http.Header                `json:"headers"`
 			Chunks  []struct{ Payload []byte } `json:"chunks"`
-		}{http.Header{"Content-Type": {"text/event-stream"}}, []struct{ Payload []byte }{{payload}}}
+		}{http.Header{"Content-Type": {"text/event-stream"}}, []struct{ Payload []byte }{{body}}}
 	}
 	return struct {
 		Payload []byte

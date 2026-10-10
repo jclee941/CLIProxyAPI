@@ -480,7 +480,7 @@ func TestFlowExecutionResultClaudeSSE(t *testing.T) {
 	}
 }
 
-func TestFlowExecutionResultGeminiUnchanged(t *testing.T) {
+func TestFlowExecutionResultGeminiSuppliesUnframedJSONToHost(t *testing.T) {
 	body := flowOutTestBody(t)
 	for _, stream := range []bool{false, true} {
 		got, err := flowExecutionResult(body, "gemini", stream)
@@ -488,9 +488,12 @@ func TestFlowExecutionResultGeminiUnchanged(t *testing.T) {
 			t.Fatal(err)
 		}
 		gotPayload, gotChunks, _ := flowOutTestWire(t, got)
-		wantPayload, wantChunks, _ := flowOutTestWire(t, webExecutionResult(body, stream))
-		if !bytes.Equal(gotPayload, wantPayload) || len(gotChunks) != len(wantChunks) || len(gotChunks) > 0 && !bytes.Equal(gotChunks[0], wantChunks[0]) {
-			t.Fatalf("gemini result differs from webExecutionResult (stream=%v)", stream)
+		if stream {
+			if len(gotPayload) != 0 || len(gotChunks) != 1 || !json.Valid(gotChunks[0]) || !bytes.Equal(gotChunks[0], body) {
+				t.Fatal("Gemini host must receive one bare JSON chunk, without a second SSE data prefix")
+			}
+		} else if !bytes.Equal(gotPayload, body) || len(gotChunks) != 0 {
+			t.Fatal("Gemini JSON payload changed")
 		}
 	}
 }
