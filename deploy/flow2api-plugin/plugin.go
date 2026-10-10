@@ -121,13 +121,17 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	service.mu.Lock()
 	service.config = config
 	service.mu.Unlock()
-	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"flow2api","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","ConfigFields":[{"Name":"accounts","Type":"array","Description":"Existing Gemini account IDs allowed for Flow"},{"Name":"session_broker_url","Type":"string","Description":"Local core URL serving the Gemini session exchange"},{"Name":"captcha_provider","Type":"enum","EnumValues":["native","yescaptcha","capsolver"],"Description":"Flow token provider"},{"Name":"captcha_key","Type":"string","Description":"External token provider credential"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini","openai","openai-response","claude"],"management_api":true}}`), nil
+	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"flow2api","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","ConfigFields":[{"Name":"accounts","Type":"array","Description":"Existing Gemini account IDs allowed for Flow"},{"Name":"session_broker_url","Type":"string","Description":"Local core URL serving the Gemini session exchange"},{"Name":"captcha_provider","Type":"enum","EnumValues":["native","yescaptcha","capsolver"],"Description":"Flow token provider"},{"Name":"captcha_key","Type":"string","Description":"External token provider credential"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini","openai","openai-response","claude"],"management_api":true,"frontend_http":true}}`), nil
 }
 
 func (service *service) dispatch(ctx context.Context, method string, raw []byte) (interface{}, error) {
 	switch method {
 	case "plugin.register", "plugin.reconfigure":
 		return service.register(raw)
+	case "frontend_http.register":
+		return flowHTTPRegistration(), nil
+	case "frontend_http.handle":
+		return service.flowHTTP(ctx, raw)
 	case "auth.identifier", "executor.identifier":
 		return map[string]string{"identifier": provider}, nil
 	case "model.static", "model.register":
