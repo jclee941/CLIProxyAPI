@@ -19,6 +19,7 @@ try {
       await context.route(`${origin}${resource}`, route => route.fulfill({
         contentType: 'text/html',
         body: html.replace('</head>', `<script>
+          document.documentElement.dataset.theme = '${colorScheme}';
           window.__CPAMP_PLUGIN_HOST__ = {
             version: 1, pluginID: 'flow2api', resourceURL: location.href,
             request: async input => {
@@ -41,6 +42,7 @@ try {
       await page.goto(`${origin}/wrapper`);
       const frame = page.frameLocator('iframe');
       await expect(frame.locator('[data-credits="0"]')).toBeVisible();
+      await expect(frame.locator('html')).toHaveAttribute('data-theme', colorScheme);
       busy = true;
       await frame.locator('#refresh-all').click();
       await expect(frame.locator('.notice-warning')).toBeVisible();
