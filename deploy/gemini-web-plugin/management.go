@@ -99,6 +99,8 @@ func (service *service) managementOperation(ctx context.Context, request managem
 		return accountListResponse{accounts, provider, service.generationUnits()}, nil
 	case request.Method == "POST" && request.Path == sessionExchangePath:
 		return service.sessionExchange(ctx, request)
+	case request.Method == "POST" && request.Path == sessionExchangeCancelPath:
+		return service.cancelSessionExchange(request)
 	case request.Method == "POST" && request.Path == "/v0/management"+maintainPath:
 		return service.maintain(ctx, request)
 	case request.Method == "POST" && request.Path == resolvePath:

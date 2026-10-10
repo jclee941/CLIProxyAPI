@@ -40,11 +40,12 @@ var sessionExchangeDenied = []string{"Cookie", "Authorization", "Proxy-Authoriza
 var sessionExchangeUploadHeaders = []string{"X-Goog-Upload-URL", "X-Goog-Upload-Status", "X-Goog-Upload-Chunk-Granularity", "X-Goog-Upload-Size-Received"}
 
 type sessionExchangeRequest struct {
-	AuthID  string      `json:"auth_id"`
-	Method  string      `json:"method"`
-	URL     string      `json:"url"`
-	Headers http.Header `json:"headers"`
-	Body    []byte      `json:"body"`
+	AuthID    string                   `json:"auth_id"`
+	RequestID sessionExchangeRequestID `json:"request_id,omitempty"`
+	Method    string                   `json:"method"`
+	URL       string                   `json:"url"`
+	Headers   http.Header              `json:"headers"`
+	Body      []byte                   `json:"body"`
 }
 
 type sessionExchangeResult struct {
@@ -205,6 +206,11 @@ func (service *service) sessionExchange(ctx context.Context, request managementR
 	if !localReferencePattern.MatchString(record.TokenRef) {
 		return nil, sessionExchangeError(400, "credential_invalid")
 	}
+	owned, finish, err := service.beginSessionExchange(ctx, sessionExchangeKey{AuthID: record.ID, RequestID: body.RequestID})
+	if err != nil {
+		return nil, err
+	}
+	defer finish()
 	lease, err := service.accountLease(record)
 	if err != nil {
 		return nil, sessionExchangeFailure(err)
@@ -262,7 +268,7 @@ func (service *service) sessionExchange(ctx context.Context, request managementR
 	if len(body.Body) > 0 {
 		reader = bytes.NewReader(body.Body)
 	}
-	outgoing, err := http.NewRequestWithContext(ctx, body.Method, target.String(), reader)
+	outgoing, err := http.NewRequestWithContext(owned, body.Method, target.String(), reader)
 	if err != nil {
 		return nil, sessionExchangeError(400, "request_invalid")
 	}
@@ -273,6 +279,9 @@ func (service *service) sessionExchange(ctx context.Context, request managementR
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	response, err := client.Do(outgoing)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(owned.Err(), context.Canceled) {
+			return nil, sessionExchangeError(499, "cancelled")
+		}
 		return nil, sessionExchangeError(502, "transport_failed")
 	}
 	defer func() {
@@ -286,6 +295,9 @@ func (service *service) sessionExchange(ctx context.Context, request managementR
 	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, sessionExchangeLimit+1))
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(owned.Err(), context.Canceled) {
+			return nil, sessionExchangeError(499, "cancelled")
+		}
 		return nil, sessionExchangeError(502, "response_failed")
 	}
 	if len(raw) > sessionExchangeLimit {

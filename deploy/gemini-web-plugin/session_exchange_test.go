@@ -337,7 +337,7 @@ func TestSessionExchangeReportsBusyWithoutSending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := sessionExchangeRequest{AuthID: fixture.record.ID, Method: "GET", URL: "https://flow.google.com/projects"}
+	request := sessionExchangeRequest{AuthID: fixture.record.ID, RequestID: "lease_busy", Method: "GET", URL: "https://flow.google.com/projects"}
 	_, err = fixture.exchange(t, request)
 	if code := exchangeCode(t, err, 409); code != "session_exchange_busy" {
 		t.Fatalf("code = %q", code)
@@ -365,7 +365,7 @@ func TestSessionExchangeBoundsTheResponse(t *testing.T) {
 			}
 		}
 	})
-	request := sessionExchangeRequest{AuthID: fixture.record.ID, Method: "GET", URL: "https://flow.google.com/blob?size=" + strconv.Itoa(sessionExchangeLimit)}
+	request := sessionExchangeRequest{AuthID: fixture.record.ID, RequestID: "body_limit", Method: "GET", URL: "https://flow.google.com/blob?size=" + strconv.Itoa(sessionExchangeLimit)}
 	result, err := fixture.exchange(t, request)
 	if err != nil || len(result.Body) != sessionExchangeLimit {
 		t.Fatalf("limit-sized response = %d bytes, %v", len(result.Body), err)
@@ -374,6 +374,9 @@ func TestSessionExchangeBoundsTheResponse(t *testing.T) {
 	_, err = fixture.exchange(t, request)
 	if code := exchangeCode(t, err, 502); code != "session_exchange_response_too_large" {
 		t.Fatalf("code = %q", code)
+	}
+	if requestExchangeCancel(t, fixture.service, sessionExchangeKey{AuthID: request.AuthID, RequestID: request.RequestID}) {
+		t.Fatal("oversized response left an active exchange")
 	}
 }
 
@@ -397,7 +400,7 @@ func TestSessionExchangeReturnsRedirectsUnfollowed(t *testing.T) {
 func TestSessionExchangeNamesTransportFailureWithoutDetail(t *testing.T) {
 	fixture := newExchangeFixture(t, 2, exchangeOK)
 	fixture.service.sessionExchangeOriginOverride = "https://127.0.0.1:1"
-	_, err := fixture.exchange(t, sessionExchangeRequest{AuthID: fixture.record.ID, Method: "GET", URL: "https://flow.google.com/projects"})
+	_, err := fixture.exchange(t, sessionExchangeRequest{AuthID: fixture.record.ID, RequestID: "transport", Method: "GET", URL: "https://flow.google.com/projects"})
 	if code := exchangeCode(t, err, 502); code != "session_exchange_transport_failed" {
 		t.Fatalf("code = %q", code)
 	}
@@ -406,6 +409,9 @@ func TestSessionExchangeNamesTransportFailureWithoutDetail(t *testing.T) {
 	}
 	if encoded, marshalErr := json.Marshal(err); marshalErr != nil || strings.Contains(string(encoded), "SID") {
 		t.Fatalf("encoded error = %s, %v", encoded, marshalErr)
+	}
+	if requestExchangeCancel(t, fixture.service, sessionExchangeKey{AuthID: fixture.record.ID, RequestID: "transport"}) {
+		t.Fatal("transport failure left an active exchange")
 	}
 }
 

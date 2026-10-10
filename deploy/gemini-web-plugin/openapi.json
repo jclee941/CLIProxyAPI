@@ -3,8 +3,8 @@
   "info": {
     "title": "Gemini and Google Flow Media API",
     "version": "2026-10-10",
-    "summary": "Generate Flow images and videos, extend Gemini videos, and manage files.",
-    "description": "Authenticate with an API key as a Bearer token, in the x-goog-api-key header, or in the key query parameter. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait, where the official default is 16:9. A new video goes to an account below 80% of its five-hour usage and 90% of its weekly usage with enough video allowance left; when none qualifies, creation fails with 409 account_unavailable until usage resets. A continuation runs in its original conversation while that account can serve; otherwise another account continues from the stored video and returns a new id to continue from.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. The other official resolutions (360p, 1080p, 4k), explicit duration controls, and tasks other than extend are rejected. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data. Each serving account keeps its 16 newest stored interactions; an older id can no longer be retrieved or continued.\n\nErrors answer {\"error\": {\"code\", \"message\"}}: code is the identifier, such as account_unavailable, and message repeats it, behind a gemini_web_omni: prefix for a failure raised during a turn, continuing after ': ' with the product's reply when a turn was answered without a video. Failures the gateway raises before a request reaches this service answer the gateway's own object with message and type: a non-boolean stream, or every account held back by the gateway itself. A missing or unknown API key answers 401 with error as a string.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error.",
+    "summary": "Generate Flow images and videos, manage Flow projects and media, extend Gemini videos, and manage files.",
+    "description": "Authenticate with an API key as a Bearer token, in the x-goog-api-key header, or in the key query parameter. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait, where the official default is 16:9. A new video goes to an account below 80% of its five-hour usage and 90% of its weekly usage with enough video allowance left; when none qualifies, creation fails with 409 account_unavailable until usage resets. A continuation runs in its original conversation while that account can serve; otherwise another account continues from the stored video and returns a new id to continue from.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. The other official resolutions (360p, 1080p, 4k), explicit duration controls, and tasks other than extend are rejected. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data. Each serving account keeps its 16 newest stored interactions; an older id can no longer be retrieved or continued.\n\nErrors answer {\"error\": {\"code\", \"message\"}}: code is the identifier, such as account_unavailable, and message repeats it, behind a gemini_web_omni: prefix for a failure raised during a turn, continuing after ': ' with the product's reply when a turn was answered without a video. Failures the gateway raises before a request reaches this service answer the gateway's own object with message and type: a non-boolean stream, or every account held back by the gateway itself. A missing or unknown API key answers 401 with error as a string.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error.\n\nFlow projects and media live under /v1/flow/projects, at the origin root rather than under /v1beta, so those paths override the server. They need the same API key as every other route. All API keys share the one Flow account the operator configured, so every key sees the same projects and media; nothing is split per key. Responses never include cookies or account credentials. A media url is a signed link that fetches the file without credentials: treat it like a secret. DELETE on a media item moves it to the Flow trash (it archives it), and POST :restore brings it back. Errors from these routes answer {\"error\": {\"code\", \"message\"}} with string values.",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
@@ -1251,6 +1251,192 @@
           }
         }
       }
+    },
+    "/v1/flow/projects": {
+      "servers": [{"url": "{origin}", "variables": {"origin": {"default": "https://cliproxy.jclee.me", "description": "Base origin URL for the proxy API. Flow project routes sit at /v1, not under /v1beta."}}}],
+      "get": {
+        "operationId": "listFlowProjects",
+        "summary": "List Flow projects.",
+        "description": "Returns one page of projects from the shared Flow account. Pass nextPageToken back as pageToken to read the next page; the last page has no nextPageToken.",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/FlowPageSize"},
+          {"$ref": "#/components/parameters/FlowPageToken"}
+        ],
+        "responses": {
+          "200": {"description": "Page of projects.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlowProjectList"}}}},
+          "400": {"$ref": "#/components/responses/FlowInvalidRequest"},
+          "401": {"$ref": "#/components/responses/FlowUnauthorized"},
+          "409": {"$ref": "#/components/responses/FlowConflict"},
+          "502": {"$ref": "#/components/responses/FlowUpstreamInvalid"}
+        }
+      },
+      "post": {
+        "operationId": "createFlowProject",
+        "summary": "Create a Flow project.",
+        "description": "Creates a project with the given title in the shared Flow account. The body accepts only title; unknown fields are rejected.",
+        "security": [{"bearerAuth": []}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlowProjectTitle"}}}},
+        "responses": {
+          "201": {"description": "Project created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlowProject"}}}},
+          "400": {"$ref": "#/components/responses/FlowInvalidRequest"},
+          "401": {"$ref": "#/components/responses/FlowUnauthorized"},
+          "409": {"$ref": "#/components/responses/FlowConflict"},
+          "502": {"$ref": "#/components/responses/FlowUpstreamInvalid"}
+        }
+      }
+    },
+    "/v1/flow/projects/{project}": {
+      "servers": [{"url": "{origin}", "variables": {"origin": {"default": "https://cliproxy.jclee.me", "description": "Base origin URL for the proxy API. Flow project routes sit at /v1, not under /v1beta."}}}],
+      "parameters": [{"$ref": "#/components/parameters/FlowProjectId"}],
+      "get": {
+        "operationId": "getFlowProject",
+        "summary": "Retrieve a Flow project.",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {"description": "Project.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlowProject"}}}},
+          "401": {"$ref": "#/components/responses/FlowUnauthorized"},
+          "404": {"$ref": "#/components/responses/FlowRouteNotFound"},
+          "409": {"$ref": "#/components/responses/FlowConflict"},
+          "502": {"$ref": "#/components/responses/FlowUpstreamInvalid"}
+        }
+      },
+      "patch": {
+        "operationId": "renameFlowProject",
+        "summary": "Rename a Flow project.",
+        "description": "Changes the project title. The body accepts only title; unknown fields are rejected.",
+        "security": [{"bearerAuth": []}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlowProjectTitle"}}}},
+        "responses": {
+          "200": {"description": "Project with its new title.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlowProject"}}}},
+          "400": {"$ref": "#/components/responses/FlowInvalidRequest"},
+          "401": {"$ref": "#/components/responses/FlowUnauthorized"},
+          "404": {"$ref": "#/components/responses/FlowRouteNotFound"},
+          "409": {"$ref": "#/components/responses/FlowConflict"},
+          "502": {"$ref": "#/components/responses/FlowUpstreamInvalid"}
+        }
+      },
+      "delete": {
+        "operationId": "deleteFlowProject",
+        "summary": "Delete a Flow project.",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "204": {"description": "Project deleted."},
+          "401": {"$ref": "#/components/responses/FlowUnauthorized"},
+          "404": {"$ref": "#/components/responses/FlowRouteNotFound"},
+          "409": {"$ref": "#/components/responses/FlowConflict"},
+          "502": {"$ref": "#/components/responses/FlowUpstreamInvalid"}
+        }
+      }
+    },
+    "/v1/flow/projects/{project}/media": {
+      "servers": [{"url": "{origin}", "variables": {"origin": {"default": "https://cliproxy.jclee.me", "description": "Base origin URL for the proxy API. Flow project routes sit at /v1, not under /v1beta."}}}],
+      "parameters": [{"$ref": "#/components/parameters/FlowProjectId"}],
+      "get": {
+        "operationId": "listFlowMedia",
+        "summary": "List media in a Flow project.",
+        "description": "Returns every media item of the project that matches the filters, in one response without pagination. By default only items outside the trash are listed; set archived=true to list trashed items instead. Each item carries its title and archived state.",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {"name": "archived", "in": "query", "required": false, "description": "true lists trashed media, false lists the rest.", "schema": {"type": "boolean", "default": false}},
+          {"name": "type", "in": "query", "required": false, "description": "Only media of this type.", "schema": {"type": "string", "enum": ["image", "video", "audio"]}},
+          {"name": "search", "in": "query", "required": false, "description": "Case-insensitive text the media title must contain.", "schema": {"type": "string"}},
+          {"name": "collectionId", "in": "query", "required": false, "description": "Only media that belong to this Flow collection.", "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "Matching media.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlowMediaList"}}}},
+          "400": {"$ref": "#/components/responses/FlowInvalidRequest"},
+          "401": {"$ref": "#/components/responses/FlowUnauthorized"},
+          "404": {"$ref": "#/components/responses/FlowRouteNotFound"},
+          "409": {"$ref": "#/components/responses/FlowConflict"},
+          "502": {"$ref": "#/components/responses/FlowUpstreamInvalid"}
+        }
+      }
+    },
+    "/v1/flow/projects/{project}/media/{media}": {
+      "servers": [{"url": "{origin}", "variables": {"origin": {"default": "https://cliproxy.jclee.me", "description": "Base origin URL for the proxy API. Flow project routes sit at /v1, not under /v1beta."}}}],
+      "parameters": [
+        {"$ref": "#/components/parameters/FlowProjectId"},
+        {"$ref": "#/components/parameters/FlowMediaId"}
+      ],
+      "get": {
+        "operationId": "getFlowMedia",
+        "summary": "Retrieve a Flow media item.",
+        "description": "Returns the media item with a signed url for fetching it directly. This route does not read the workflow title or trash state, so title and archived are omitted. Use the list route with archived=true to find trashed items.",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {"description": "Media item.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlowMedia"}}}},
+          "401": {"$ref": "#/components/responses/FlowUnauthorized"},
+          "404": {"$ref": "#/components/responses/FlowRouteNotFound"},
+          "409": {"$ref": "#/components/responses/FlowConflict"},
+          "502": {"$ref": "#/components/responses/FlowUpstreamInvalid"}
+        }
+      },
+      "delete": {
+        "operationId": "trashFlowMedia",
+        "summary": "Move a Flow media item to the trash.",
+        "description": "Archives the item's workflow in Flow, which moves it to the trash. It does not erase the media. Undo it with :restore. Answers 409 flow_media_workflow_unavailable when the item has no workflow to archive.",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "204": {"description": "Media item moved to the trash."},
+          "401": {"$ref": "#/components/responses/FlowUnauthorized"},
+          "404": {"$ref": "#/components/responses/FlowRouteNotFound"},
+          "409": {"$ref": "#/components/responses/FlowConflict"},
+          "502": {"$ref": "#/components/responses/FlowUpstreamInvalid"}
+        }
+      }
+    },
+    "/v1/flow/projects/{project}/media/{media}:download": {
+      "servers": [{"url": "{origin}", "variables": {"origin": {"default": "https://cliproxy.jclee.me", "description": "Base origin URL for the proxy API. Flow project routes sit at /v1, not under /v1beta."}}}],
+      "parameters": [
+        {"$ref": "#/components/parameters/FlowProjectId"},
+        {"$ref": "#/components/parameters/FlowMediaId"}
+      ],
+      "get": {
+        "operationId": "downloadFlowMedia",
+        "summary": "Download a Flow media item.",
+        "description": "Streams the media bytes, up to 128 MiB. Content-Type is the item's mimeType, or application/octet-stream when none is known. Answers 409 flow_media_not_ready while the item has no url yet.",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "Binary media bytes.",
+            "headers": {
+              "Content-Type": {"schema": {"type": "string", "example": "video/mp4"}, "description": "MIME type of the media."},
+              "Cache-Control": {"schema": {"type": "string", "example": "private, no-store"}},
+              "X-Content-Type-Options": {"schema": {"type": "string", "example": "nosniff"}}
+            },
+            "content": {
+              "video/mp4": {"schema": {"type": "string", "format": "binary"}},
+              "image/*": {"schema": {"type": "string", "format": "binary"}},
+              "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+            }
+          },
+          "401": {"$ref": "#/components/responses/FlowUnauthorized"},
+          "404": {"$ref": "#/components/responses/FlowRouteNotFound"},
+          "409": {"$ref": "#/components/responses/FlowConflict"},
+          "502": {"$ref": "#/components/responses/FlowUpstreamInvalid"}
+        }
+      }
+    },
+    "/v1/flow/projects/{project}/media/{media}:restore": {
+      "servers": [{"url": "{origin}", "variables": {"origin": {"default": "https://cliproxy.jclee.me", "description": "Base origin URL for the proxy API. Flow project routes sit at /v1, not under /v1beta."}}}],
+      "parameters": [
+        {"$ref": "#/components/parameters/FlowProjectId"},
+        {"$ref": "#/components/parameters/FlowMediaId"}
+      ],
+      "post": {
+        "operationId": "restoreFlowMedia",
+        "summary": "Restore a trashed Flow media item.",
+        "description": "Reverses DELETE on the media item by unarchiving its workflow. Takes no request body.",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "204": {"description": "Media item restored."},
+          "401": {"$ref": "#/components/responses/FlowUnauthorized"},
+          "404": {"$ref": "#/components/responses/FlowRouteNotFound"},
+          "409": {"$ref": "#/components/responses/FlowConflict"},
+          "502": {"$ref": "#/components/responses/FlowUpstreamInvalid"}
+        }
+      }
     }
   },
   "components": {
@@ -1278,6 +1464,19 @@
         "name": "upload_id",
         "description": "Private 24-hour upload-session capability returned in X-Goog-Upload-URL. No API-key header is required on this session route; an API key does not replace the capability."
       }
+    },
+    "parameters": {
+      "FlowProjectId": {"name": "project", "in": "path", "required": true, "description": "Flow project ID.", "schema": {"type": "string", "format": "uuid"}},
+      "FlowMediaId": {"name": "media", "in": "path", "required": true, "description": "Flow media ID, the mediaId returned with generated output.", "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\s/:]+$"}},
+      "FlowPageSize": {"name": "pageSize", "in": "query", "required": false, "description": "Maximum number of projects to return.", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}},
+      "FlowPageToken": {"name": "pageToken", "in": "query", "required": false, "description": "Opaque token from a previous nextPageToken.", "schema": {"type": "string", "maxLength": 8192}}
+    },
+    "responses": {
+      "FlowInvalidRequest": {"description": "Invalid request. Codes: flow_project_request_invalid, flow_project_title_invalid, flow_page_size_invalid, flow_page_token_invalid, flow_archived_filter_invalid, flow_media_type_invalid.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlowError"}}}},
+      "FlowUnauthorized": {"description": "Missing or invalid API key.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GeneralError"}}}},
+      "FlowRouteNotFound": {"description": "flow_route_not_found: the project or media ID is malformed.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlowError"}}}},
+      "FlowConflict": {"description": "The request can't run right now. Codes: flow_single_account_required (the service doesn't have exactly one Flow account configured), flow_media_not_ready (no url yet), flow_media_workflow_unavailable (nothing to archive or restore).", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlowError"}}}},
+      "FlowUpstreamInvalid": {"description": "Flow answered with something unexpected, such as flow_project_response_invalid, flow_project_list_invalid, flow_project_identity_mismatch, or flow_media_identity_mismatch.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlowError"}}}}
     },
     "schemas": {
       "FlowCropCoordinates": {
@@ -1463,6 +1662,65 @@
                 }
               },
               "flow": {"$ref": "#/components/schemas/FlowOptions"}
+            }
+          }
+        }
+      },
+      "FlowProject": {
+        "type": "object",
+        "required": ["id", "title"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid", "description": "Flow project ID. Pass it as flow.projectId when generating."},
+          "title": {"type": "string"}
+        }
+      },
+      "FlowProjectList": {
+        "type": "object",
+        "required": ["projects"],
+        "properties": {
+          "projects": {"type": "array", "items": {"$ref": "#/components/schemas/FlowProject"}},
+          "nextPageToken": {"type": "string", "description": "Present when more projects follow. Send it as pageToken."}
+        }
+      },
+      "FlowProjectTitle": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title"],
+        "properties": {
+          "title": {"type": "string", "minLength": 1, "maxLength": 256, "description": "Project title. Surrounding whitespace is trimmed; control characters are rejected."}
+        }
+      },
+      "FlowMedia": {
+        "type": "object",
+        "required": ["id", "projectId", "type"],
+        "properties": {
+          "id": {"type": "string", "description": "Flow media ID, the same value as mediaId on generated output."},
+          "projectId": {"type": "string", "format": "uuid"},
+          "workflowId": {"type": "string", "description": "Flow workflow that holds the item. Trash and restore act on it."},
+          "title": {"type": "string", "description": "Present in the list response only."},
+          "type": {"type": "string", "enum": ["image", "video", "audio", "unknown"]},
+          "mimeType": {"type": "string", "description": "Omitted when unknown, as for audio."},
+          "url": {"type": "string", "description": "Signed link that fetches the media without credentials. Omitted until the media is ready. Don't log or share it."},
+          "archived": {"type": "boolean", "description": "True for trashed media. Present in list responses; omitted when workflow state has not been read."}
+        }
+      },
+      "FlowMediaList": {
+        "type": "object",
+        "required": ["media"],
+        "properties": {
+          "media": {"type": "array", "items": {"$ref": "#/components/schemas/FlowMedia"}}
+        }
+      },
+      "FlowError": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {"type": "string", "description": "Machine identifier, such as flow_project_title_invalid."},
+              "message": {"type": "string"}
             }
           }
         }

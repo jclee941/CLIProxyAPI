@@ -40,26 +40,28 @@ type pluginConfig struct {
 }
 type hostCall func(string, []byte) ([]byte, error)
 type service struct {
-	mu               sync.RWMutex
-	config           pluginConfig
-	host             hostCall
-	client           *http.Client
-	now              func() time.Time
-	continuationWait func(context.Context) error
-	interactionsMu   sync.Mutex
-	interactions     map[string]*interactionOperation
-	fileLeases       fileLeases
-	leases           credentialLeases
-	sessions         *sessionStore
-	sessionKeyHash   [32]byte
-	loginMu          sync.Mutex
-	logins           map[string]loginFlow
-	modelPending     map[string]uint64
-	lifecycle        sessionLifecycle
-	accountsMu       sync.Mutex
-	accountsCache    map[string]cachedAccountList
-	accountNamesMu   sync.RWMutex
-	accountNames     map[string]string
+	mu                 sync.RWMutex
+	config             pluginConfig
+	host               hostCall
+	client             *http.Client
+	now                func() time.Time
+	continuationWait   func(context.Context) error
+	interactionsMu     sync.Mutex
+	interactions       map[string]*interactionOperation
+	sessionExchangesMu sync.Mutex
+	sessionExchanges   map[sessionExchangeKey]context.CancelFunc
+	fileLeases         fileLeases
+	leases             credentialLeases
+	sessions           *sessionStore
+	sessionKeyHash     [32]byte
+	loginMu            sync.Mutex
+	logins             map[string]loginFlow
+	modelPending       map[string]uint64
+	lifecycle          sessionLifecycle
+	accountsMu         sync.Mutex
+	accountsCache      map[string]cachedAccountList
+	accountNamesMu     sync.RWMutex
+	accountNames       map[string]string
 	// webOriginOverride redirects the native web calls; it is set only by tests,
 	// which cannot reach the real product.
 	webOriginOverride string
@@ -247,7 +249,7 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 			Models   []modelInfo
 		}{provider, []modelInfo{}}, nil
 	case "management.register":
-		return json.RawMessage(`{"routes":[{"Method":"POST","Path":"/plugins/gemini-web/session/exchange"},{"Method":"GET","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/refresh"},{"Method":"POST","Path":"/plugins/gemini-web/maintain"},{"Method":"POST","Path":"/plugins/gemini-web/resolve"},{"Method":"POST","Path":"/plugins/gemini-web/recover"},{"Method":"POST","Path":"/plugins/gemini-web/label"},{"Method":"POST","Path":"/plugins/gemini-web/detach"},{"Method":"POST","Path":"/plugins/gemini-web/login/start"},{"Method":"POST","Path":"/plugins/gemini-web/login/complete"},{"Method":"POST","Path":"/plugins/gemini-web/login/status"},{"Method":"POST","Path":"/plugins/gemini-web/login/cancel"},{"Method":"POST","Path":"/plugins/gemini-web/login/reconcile"}],"resources":[{"Path":"/extension"},{"Path":"/openapi.json"},{"Path":"/index","Menu":"Gemini Web","Description":"Account models and measured usage dashboard"}]}`), nil
+		return json.RawMessage(`{"routes":[{"Method":"POST","Path":"/plugins/gemini-web/session/exchange"},{"Method":"POST","Path":"/plugins/gemini-web/session/exchange/cancel"},{"Method":"GET","Path":"/plugins/gemini-web/accounts"},{"Method":"POST","Path":"/plugins/gemini-web/refresh"},{"Method":"POST","Path":"/plugins/gemini-web/maintain"},{"Method":"POST","Path":"/plugins/gemini-web/resolve"},{"Method":"POST","Path":"/plugins/gemini-web/recover"},{"Method":"POST","Path":"/plugins/gemini-web/label"},{"Method":"POST","Path":"/plugins/gemini-web/detach"},{"Method":"POST","Path":"/plugins/gemini-web/login/start"},{"Method":"POST","Path":"/plugins/gemini-web/login/complete"},{"Method":"POST","Path":"/plugins/gemini-web/login/status"},{"Method":"POST","Path":"/plugins/gemini-web/login/cancel"},{"Method":"POST","Path":"/plugins/gemini-web/login/reconcile"}],"resources":[{"Path":"/extension"},{"Path":"/openapi.json"},{"Path":"/index","Menu":"Gemini Web","Description":"Account models and measured usage dashboard"}]}`), nil
 	case "management.handle":
 		return service.management(ctx, raw)
 	case "frontend_http.register":
