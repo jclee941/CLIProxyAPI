@@ -41,6 +41,7 @@ type service struct {
 	flowMu                  sync.Mutex
 	flowPages               map[string]flowPage
 	flowProjects            map[string]string
+	lowPriorityPausedUntil  map[string]time.Time
 	flowOriginOverride      string
 	recaptchaOriginOverride string
 	flowWait                func(context.Context, time.Duration) error

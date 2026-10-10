@@ -482,6 +482,7 @@ func TestDecodeFlowRPCNamesTheRefusal(t *testing.T) {
 		status     int
 	}{
 		"unusual activity": {refused([]any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY"}}}}), "flow_captcha_rejected", 503},
+		"too much traffic": {refused([]any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC"}}}}), "flow_rate_limited", 429},
 		"plan":             {refused([]any{7, nil, []any{"MODEL_ACCESS_DENIED"}}), "flow_model_access_denied", 403},
 		"unsafe prompt":    {refused([]any{3, nil, []any{"PUBLIC_ERROR_UNSAFE_GENERATION"}}), "flow_request_rejected", 400},
 		"exhausted":        {refused([]any{8}), "flow_quota_exhausted", 429},
@@ -604,21 +605,50 @@ func TestFlowLowPriorityRefusalFallsBackToNormalPriority(t *testing.T) {
 	fixture.reply("YhhmEf", refused, refused, refused, rpcEnvelope(t, "YhhmEf", []any{[]any{media}}))
 	fixture.reply("jwpduf", rpcEnvelope(t, "jwpduf", []any{[]any{append(slices.Clone(media), fixture.link("video"))}}))
 	service, record := flowService(t, fixture)
+	clock := time.Unix(1700000000, 0)
+	service.now = func() time.Time { return clock }
+	lowVideo := `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8,"flow":{"priority":"low"}}}`
+
+	// When: a low-priority video is requested, again while the refusal is
+	// fresh, and once more after the pause.
+	first := flowExecute(t, service, record, "flow-veo-3.1-lite", lowVideo)
+	second := flowExecute(t, service, record, "flow-veo-3.1-lite", lowVideo)
+	clock = clock.Add(flowLowPriorityPause + time.Second)
+	third := flowExecute(t, service, record, "flow-veo-3.1-lite", lowVideo)
+
+	// Then: the refused tokens are followed by one normal-priority submission,
+	// the next request skips the refused queue, and the queue is tried again
+	// once the pause has passed.
+	for _, result := range []envelope{first, second, third} {
+		if mime, data := flowInlineMedia(t, result); mime != "video/mp4" || !slices.Equal(data, flowTestMP4) {
+			t.Fatalf("video %s %d bytes", mime, len(data))
+		}
+	}
+	want := []bool{true, true, true, false, false, true}
+	if fixture.count("YhhmEf") != len(want) {
+		t.Fatalf("%d submissions, want %d", fixture.count("YhhmEf"), len(want))
+	}
+	for attempt, low := range want {
+		key, _ := jsonField(fixture.args("YhhmEf", attempt), 0, 0, 1).(string)
+		if strings.HasSuffix(key, "_low_priority") != low {
+			t.Fatalf("submission %d used model %q", attempt, key)
+		}
+	}
+}
+
+func TestFlowTooMuchTrafficIsARateLimitWithoutRetries(t *testing.T) {
+	// Given: Flow throttling the account for too much traffic.
+	fixture := newFlowFixture(t)
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", flowErrorEnvelope(t, []any{"wrb.fr", "YhhmEf", nil, nil, nil, []any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC"}}}}, "generic"}))
+	service, record := flowService(t, fixture)
 
 	// When: a low-priority video is requested.
 	result := flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8,"flow":{"priority":"low"}}}`)
 
-	// Then: the video comes from one normal-priority submission after the
-	// low-priority tokens were refused.
-	mime, data := flowInlineMedia(t, result)
-	if mime != "video/mp4" || !slices.Equal(data, flowTestMP4) || fixture.count("YhhmEf") != flowTokenAttempts+1 {
-		t.Fatalf("video %s %d bytes after %d submissions", mime, len(data), fixture.count("YhhmEf"))
-	}
-	for attempt := 0; attempt <= flowTokenAttempts; attempt++ {
-		key, _ := jsonField(fixture.args("YhhmEf", attempt), 0, 0, 1).(string)
-		if low := strings.HasSuffix(key, "_low_priority"); low != (attempt < flowTokenAttempts) {
-			t.Fatalf("submission %d used model %q", attempt, key)
-		}
+	// Then: the caller is told to back off after one submission.
+	if result.OK || result.Error.Code != "flow_rate_limited" || result.Error.HTTPStatus != 429 || fixture.count("YhhmEf") != 1 {
+		t.Fatalf("throttled request = %+v after %d submissions", result.Error, fixture.count("YhhmEf"))
 	}
 }
 

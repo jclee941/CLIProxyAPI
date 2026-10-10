@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type flowGeneratedMedia struct {
@@ -13,7 +14,32 @@ type flowGeneratedMedia struct {
 	data     []byte
 }
 
+// A refused low-priority queue stays refused for hours (130 of 143 videos fell
+// back on the night of 2026-10-10), and every refused try is three more
+// submissions Flow counts against the account. After a refusal, low-priority
+// requests on that account go straight to normal priority for this long.
+const flowLowPriorityPause = 30 * time.Minute
+
+func (service *service) lowPriorityPaused(account string) bool {
+	service.flowMu.Lock()
+	defer service.flowMu.Unlock()
+	return service.now().Before(service.lowPriorityPausedUntil[account])
+}
+
+func (service *service) pauseLowPriority(account string) {
+	service.flowMu.Lock()
+	defer service.flowMu.Unlock()
+	if service.lowPriorityPausedUntil == nil {
+		service.lowPriorityPausedUntil = map[string]time.Time{}
+	}
+	service.lowPriorityPausedUntil[account] = service.now().Add(flowLowPriorityPause)
+}
+
 func (service *service) flowGenerate(ctx context.Context, record storageRecord, model flowModel, input flowInput) ([]byte, error) {
+	if input.options.Priority == "low" && service.lowPriorityPaused(record.SourceAuthID) {
+		service.report(map[string]any{"provider": provider, "state": "flow_low_priority_paused", "reason": model.id}, "flow2api: generation")
+		input.options.Priority = "normal"
+	}
 	selected, err := service.selectFlowOptions(ctx, record, model, input)
 	if err != nil {
 		return nil, err
@@ -91,6 +117,7 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 		// priority is accepted. A refusal means nothing started, so the request
 		// goes once more at normal priority, which spends credits.
 		service.report(map[string]any{"provider": provider, "state": "flow_low_priority_refused", "reason": model.id}, "flow2api: generation")
+		service.pauseLowPriority(record.SourceAuthID)
 		input.options.Priority = "normal"
 		if selected, err = service.selectFlowOptions(ctx, record, model, input); err == nil {
 			err = service.flowSubmit(ctx, record, project, action, build, accept)

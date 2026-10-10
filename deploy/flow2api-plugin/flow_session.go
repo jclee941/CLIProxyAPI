@@ -252,14 +252,18 @@ func flowErrorCode(value any) string {
 }
 
 // flowRejection maps Flow's refusal onto the status the host acts on. A token
-// Flow judged unusual is retried with a fresh one; a refused prompt is the
-// caller's to change; a model the plan does not include stays refused.
+// Flow judged unusual is retried with a fresh one; too much traffic is a rate
+// limit the caller must back off from, so it is neither retried nor sent at
+// another priority; a refused prompt is the caller's to change; a model the
+// plan does not include stays refused.
 func flowRejection(code string) error {
 	upper := strings.ToUpper(code)
 	rejection := func(status int, name string) error {
 		return &publicError{Code: name, Message: name + ": " + code, HTTPStatus: status}
 	}
 	switch {
+	case strings.Contains(upper, "TOO_MUCH_TRAFFIC"):
+		return rejection(429, "flow_rate_limited")
 	case strings.Contains(upper, "UNUSUAL_ACTIVITY") || strings.Contains(upper, "RECAPTCHA"):
 		return rejection(503, "flow_captcha_rejected")
 	case strings.Contains(upper, "MODEL_ACCESS_DENIED"):
