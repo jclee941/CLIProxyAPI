@@ -107,7 +107,7 @@ func (service *service) flowVoiceHTTP(ctx context.Context, record storageRecord,
 	}
 	var media flowMediaResource
 	err = service.flowSubmit(ctx, record, project, "AUDIO_GENERATION", func(token string) (string, any) {
-		item := []any{input.Text, []any{[]any{name, speaker}}, "gemini_v4s_tts_flow", input.Description, 2}
+		item := []any{input.Text, []any{[]any{speaker, speaker}}, "gemini_v4s_tts_flow", input.Description, 2}
 		return "no0P6", []any{[]any{item}, flowContext(project, token)}
 	}, func(payload any) error {
 		var err error

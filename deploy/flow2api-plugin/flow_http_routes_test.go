@@ -56,3 +56,18 @@ func TestFlowResourceListsDoNotTreatMalformedRepliesAsEmpty(t *testing.T) {
 		})
 	}
 }
+
+func TestFlowMissingProviderResourceIsHTTPNotFound(t *testing.T) {
+	// Given Google's NOT_FOUND response for a deleted project.
+	fixture := newFlowFixture(t)
+	service, _ := flowService(t, fixture)
+	fixture.reply("ngNC2", flowErrorEnvelope(t, []any{"wrb.fr", "ngNC2", nil, nil, nil, []any{5}, "generic"}))
+	// When a consumer retrieves it.
+	response := flowHTTPTest(t, service, flowHTTPRequest{
+		Method: "GET", Path: "/v1/flow/projects/" + flowTestProject, CallerScope: strings.Repeat("a", 64),
+	})
+	// Then it is a missing resource, not an apparent gateway outage.
+	if response.StatusCode != 404 {
+		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
+	}
+}

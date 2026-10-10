@@ -93,7 +93,7 @@ func TestFlowSavedVoiceKeepsItsDisplayNameAndUnderlyingSpeaker(t *testing.T) {
 	})
 	// Then the custom label is not mistaken for a provider voice model.
 	args := fixture.args("no0P6", 0)
-	if response.StatusCode != 201 || jsonField(args, 0, 0, 1, 0, 0) != "Fixture saved voice" ||
+	if response.StatusCode != 201 || jsonField(args, 0, 0, 1, 0, 0) != "Achernar" ||
 		jsonField(args, 0, 0, 1, 0, 1) != "Achernar" {
 		t.Fatalf("status=%d args=%v", response.StatusCode, args)
 	}

@@ -149,7 +149,11 @@ func (service *service) flowHTTP(ctx context.Context, raw []byte) (httpResponse,
 	if errors.As(err, &known) {
 		public = known
 	}
-	return flowJSON(public.HTTPStatus, map[string]any{"error": map[string]any{
+	status := public.HTTPStatus
+	if public.Code == "flow_rpc_rejected" && strings.HasSuffix(public.Message, ": RPC_CODE_5") {
+		status = http.StatusNotFound
+	}
+	return flowJSON(status, map[string]any{"error": map[string]any{
 		"code": public.Code, "message": public.Message,
 	}})
 }
