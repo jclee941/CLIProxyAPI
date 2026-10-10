@@ -516,9 +516,18 @@ func TestFlowVideoGenerationPollsUntilTheVideoExists(t *testing.T) {
 	fixture.reply("as29s", rpcEnvelope(t, "as29s", []any{nil}))
 	service, account := flowService(t, fixture)
 
-	mimeType, data := flowInlineMedia(t, flowExecute(t, service, account, "flow-veo-3.1-fast", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"aspectRatio":"16:9","durationSeconds":4}}`))
+	result := flowExecute(t, service, account, "flow-veo-3.1-fast", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"aspectRatio":"16:9","durationSeconds":4}}`)
+	mimeType, data := flowInlineMedia(t, result)
 	if mimeType != "video/mp4" || string(data) != string(flowTestMP4) {
 		t.Fatalf("video = %s %d bytes", mimeType, len(data))
+	}
+	var response struct{ Payload []byte }
+	if err := json.Unmarshal(result.Result, &response); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := flowOutParse(response.Payload)
+	if err != nil || len(parsed.media) != 1 || parsed.media[0].MediaID != flowTestOp {
+		t.Fatalf("video media reference must use the polled asset ID, not its workflow ID: %+v, %v", parsed.media, err)
 	}
 	args := fixture.args("YhhmEf", 0)
 	if key, orientation := jsonField(args, 0, 0, 1), jsonField(args, 0, 0, 2); key != "veo_3_1_t2v_fast_4s" || orientation != float64(2) {

@@ -97,6 +97,7 @@ func TestFlowUpscaleAdmitsAccountBeforeGenerating(t *testing.T) {
 func TestFlowExplicitVideoUpscaleUsesSourceAndSeed(t *testing.T) {
 	// Given: an existing video can be upscaled without a new text generation.
 	fixture := newFlowFixture(t)
+	fixture.reply("as29s", rpcEnvelope(t, "as29s", []any{"source-video", fixture.link("video")}))
 	operation := []any{flowTestOp, flowTestProject, flowTestMedia}
 	fixture.reply("p0UkFb", rpcEnvelope(t, "p0UkFb", []any{[]any{operation}}))
 	fixture.reply("jwpduf", rpcEnvelope(t, "jwpduf", []any{[]any{append(slices.Clone(operation), fixture.link("video"))}}))
@@ -124,6 +125,7 @@ func TestFlowVideoEditAndExtendPreserveTheSourceClip(t *testing.T) {
 		t.Run(scenario.mode, func(t *testing.T) {
 			// Given: an existing video with explicit frame boundaries.
 			fixture := newFlowFixture(t)
+			fixture.reply("as29s", rpcEnvelope(t, "as29s", []any{"source-video", fixture.link("video")}))
 			operation := []any{flowTestOp, flowTestProject, flowTestMedia}
 			fixture.reply(scenario.rpc, rpcEnvelope(t, scenario.rpc, []any{[]any{operation}}))
 			fixture.reply("jwpduf", rpcEnvelope(t, "jwpduf", []any{[]any{append(slices.Clone(operation), fixture.link("video"))}}))
@@ -143,6 +145,23 @@ func TestFlowVideoEditAndExtendPreserveTheSourceClip(t *testing.T) {
 				t.Fatalf("clip request = %+v", args)
 			}
 		})
+	}
+}
+
+func TestFlowRejectsUnavailableSourceBeforeVideoSubmission(t *testing.T) {
+	// Given: a source lookup has no usable video, as with a workflow ID.
+	fixture := newFlowFixture(t)
+	fixture.reply("as29s", rpcEnvelope(t, "as29s", []any{nil}))
+	service, record := flowService(t, fixture)
+
+	// When: the caller requests video editing with that identifier.
+	result := flowExecute(t, service, record, "flow-omni-1.1-flash",
+		`{"contents":[{"parts":[{"text":"fixture"}]}],"generationConfig":{"flow":{"mode":"edit","sourceVideo":{"mediaId":"not-a-video"}}}}`)
+
+	// Then: no project or generation is started for the invalid source.
+	if result.OK || result.Error.Code != "flow_source_video_unavailable" ||
+		fixture.count("jIps6") != 0 || fixture.count("jHPbke") != 0 {
+		t.Fatalf("invalid source was submitted: %+v", result)
 	}
 }
 

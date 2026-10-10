@@ -18,6 +18,21 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 	if err != nil {
 		return nil, err
 	}
+	if source := input.options.SourceVideo; source != nil {
+		err := service.withFlowSession(ctx, record, func(session *flowSession) error {
+			media, err := session.rpc(ctx, "as29s", []any{source.MediaID}, flowProjectsPath, "")
+			if err != nil {
+				return err
+			}
+			if flowFindURL(media, "video") == "" {
+				return failure(400, "flow_source_video_unavailable")
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
 	project := input.options.ProjectID
 	if project == "" {
 		if project, err = service.flowProject(ctx, record); err != nil {
@@ -48,7 +63,7 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 		if model.video {
 			flowVideoRecords(payload, func(value []any) {
 				if value[1] == project {
-					operations = append(operations, flowOperation{id: value[0].(string), media: value[2].(string)})
+					operations = append(operations, flowOperation{mediaID: value[0].(string), workflowID: value[2].(string)})
 				}
 			})
 			if len(operations) == 0 {
@@ -82,7 +97,7 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 			}
 			continue
 		}
-		media = append(media, flowGeneratedMedia{id: operation.media, link: link})
+		media = append(media, flowGeneratedMedia{id: operation.mediaID, link: link})
 	}
 	if firstError != nil {
 		return nil, firstError

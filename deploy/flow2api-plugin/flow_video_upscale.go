@@ -12,7 +12,7 @@ func (service *service) upscaleFlowVideo(ctx context.Context, record storageReco
 		return flowBatchArgs(project, token, input, selected)
 	}, func(payload any) error {
 		operation = flowVideoOperation(payload, project)
-		if operation.id == "" {
+		if operation.mediaID == "" {
 			return failure(502, "flow_operation_missing")
 		}
 		return nil
@@ -24,6 +24,6 @@ func (service *service) upscaleFlowVideo(ctx context.Context, record storageReco
 	if err != nil {
 		return err
 	}
-	media.id, media.link = operation.media, link
+	media.id, media.link = operation.mediaID, link
 	return nil
 }

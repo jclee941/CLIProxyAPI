@@ -250,7 +250,7 @@ func (service *service) withFlowSession(ctx context.Context, record storageRecor
 }
 
 type flowOperation struct {
-	id, media string
+	mediaID, workflowID string
 }
 
 func flowUploadedMedia(payload any, project string) string {
@@ -264,8 +264,8 @@ func flowUploadedMedia(payload any, project string) string {
 	return flowFindUUID(payload, project)
 }
 
-// flowVideoRecords finds the operation records in a reply: lists that open with
-// the operation id, the project and the media id.
+// flowVideoRecords finds media records in a reply: lists that open with
+// the media ID, project ID and workflow ID. Status polling uses the media ID.
 func flowVideoRecords(value any, visit func([]any)) {
 	list, ok := value.([]any)
 	if !ok {
@@ -287,8 +287,8 @@ func flowVideoRecords(value any, visit func([]any)) {
 func flowVideoOperation(payload any, project string) flowOperation {
 	var found flowOperation
 	flowVideoRecords(payload, func(record []any) {
-		if found.id == "" && (project == "" || jsonField(record, 1) == project) {
-			found = flowOperation{id: record[0].(string), media: record[2].(string)}
+		if found.mediaID == "" && (project == "" || jsonField(record, 1) == project) {
+			found = flowOperation{mediaID: record[0].(string), workflowID: record[2].(string)}
 		}
 	})
 	return found
@@ -324,16 +324,16 @@ func (service *service) flowAwaitVideo(ctx context.Context, record storageRecord
 		}
 		var link, code string
 		err := service.withFlowSession(ctx, record, func(session *flowSession) error {
-			payload, err := session.rpc(ctx, "jwpduf", []any{nil, nil, []any{[]any{operation.id}}}, sourcePath, "")
+			payload, err := session.rpc(ctx, "jwpduf", []any{nil, nil, []any{[]any{operation.mediaID}}}, sourcePath, "")
 			if err != nil {
 				return err
 			}
-			if link, code = flowVideoState(payload, operation.id); link != "" || code != "" {
+			if link, code = flowVideoState(payload, operation.mediaID); link != "" || code != "" {
 				return nil
 			}
 			// The status reply does not always carry the finished link; the
 			// media lookup does once the video exists.
-			if media, mediaErr := session.rpc(ctx, "as29s", []any{operation.id}, sourcePath+"/edit/"+operation.media, ""); mediaErr == nil {
+			if media, mediaErr := session.rpc(ctx, "as29s", []any{operation.mediaID}, sourcePath+"/edit/"+operation.workflowID, ""); mediaErr == nil {
 				link = flowFindURL(media, "video")
 			}
 			return nil
