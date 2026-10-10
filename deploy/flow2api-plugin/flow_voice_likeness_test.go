@@ -11,7 +11,9 @@ func TestFlowVoicePreviewPreservesVoiceAndGeneratedMediaIdentifiers(t *testing.T
 	// Given a preset voice and the native audio-generation response.
 	fixture := newFlowFixture(t)
 	service, _ := flowService(t, fixture)
-	voice := []any{"achernar", 3, "Achernar", []any{}}
+	voiceMedia := make([]any, 11)
+	voiceMedia[10] = []any{[]any{"Achernar", "fixture", true}}
+	voice := []any{"achernar", 3, "Achernar", voiceMedia}
 	fixture.reply("Zzl0ze", rpcEnvelope(t, "Zzl0ze", []any{nil, nil, nil, []any{voice}}))
 	audio := make([]any, 11)
 	audio[0], audio[1], audio[2], audio[10] = flowTestMedia, flowTestProject, flowTestOp, []any{}
@@ -19,7 +21,7 @@ func TestFlowVoicePreviewPreservesVoiceAndGeneratedMediaIdentifiers(t *testing.T
 	// When the consumer asks for a voice preview.
 	response := flowHTTPTest(t, service, flowHTTPRequest{
 		Method: "POST", Path: "/v1/flow/projects/" + flowTestProject + "/voices:preview",
-		CallerScope: strings.Repeat("a", 64), Body: []byte(`{"text":"fixture","voiceId":"achernar"}`),
+		CallerScope: strings.Repeat("a", 64), Body: []byte(`{"text":"fixture","voiceId":"voices/achernar"}`),
 	})
 	// Then it uses the preset's native voice name and returns reusable media ids.
 	var media flowMediaResource

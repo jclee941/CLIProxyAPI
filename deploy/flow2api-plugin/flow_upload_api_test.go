@@ -97,7 +97,7 @@ func (fixture *flowFixture) serveUpload(writer http.ResponseWriter, request *htt
 		writeFixture(fixture.t, writer, string(jsonFixture(fixture.t, map[string]any{
 			"mediaId":  flowTestMedia,
 			"media":    map[string]any{"name": flowTestMedia, "projectId": flowTestProject, "workflowId": flowTestOp},
-			"workflow": map[string]any{"name": flowTestOp},
+			"workflow": map[string]any{"name": flowTestOp, "metadata": map[string]any{"displayName": "Fixture%20clip"}},
 		})))
 	}
 }
@@ -158,7 +158,7 @@ func TestFlowVideoUploadResumesAfterLostAcknowledgementAndRestart(t *testing.T) 
 
 	// Then the result is recoverable with no replay of the accepted bytes.
 	if final.StatusCode != 200 || complete.Status != "complete" || complete.Offset != 8 ||
-		complete.Media == nil || complete.Media.ID != flowTestMedia || complete.Media.WorkflowID != flowTestOp ||
+		complete.Media == nil || complete.Media.ID != flowTestMedia || complete.Media.WorkflowID != flowTestOp || complete.Media.Title != "Fixture clip" ||
 		recovered.StatusCode != 200 || fixture.count("upload:upload") != 1 || fixture.count("upload:upload, finalize") != 1 {
 		t.Fatalf("final=%s recovered=%s", final.Body, recovered.Body)
 	}

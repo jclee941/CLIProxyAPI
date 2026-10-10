@@ -93,7 +93,7 @@ func (service *service) startFlowVideoUpload(ctx context.Context, record storage
 			}
 			granularity = value
 		}
-		claims = flowUploadClaims{AccountID: record.SourceAuthID, ProjectID: project, URL: target, Name: input.Name, Size: input.Size, Granularity: granularity}
+		claims = flowUploadClaims{AccountID: record.SourceAuthID, ProjectID: project, URL: target, Size: input.Size, Granularity: granularity}
 		return nil
 	})
 	if err != nil {
@@ -183,17 +183,23 @@ func (service *service) flowVideoUploadHTTP(ctx context.Context, record storageR
 		}
 	case "final":
 		var uploaded struct {
-			MediaID string `json:"mediaId"`
-			Media   struct {
-				Name, ProjectID, WorkflowID string
+			Media struct {
+				Name, ProjectID string
 			}
-			Workflow struct{ Name string }
+			Workflow struct {
+				Name     string
+				Metadata struct{ DisplayName string }
+			}
 		}
 		if json.Unmarshal(reply.Body, &uploaded) != nil || !flowIdentifier(uploaded.Media.Name) || uploaded.Media.ProjectID != claims.ProjectID {
 			return httpResponse{}, failure(502, "flow_upload_media_invalid")
 		}
 		view.Status, view.Offset = "complete", claims.Size
-		view.Media = &flowMediaResource{ID: uploaded.Media.Name, ProjectID: claims.ProjectID, WorkflowID: uploaded.Workflow.Name, Title: claims.Name, Type: "video", MIMEType: "video/mp4"}
+		title, err := url.PathUnescape(uploaded.Workflow.Metadata.DisplayName)
+		if err != nil {
+			return httpResponse{}, failure(502, "flow_upload_metadata_invalid")
+		}
+		view.Media = &flowMediaResource{ID: uploaded.Media.Name, ProjectID: claims.ProjectID, WorkflowID: uploaded.Workflow.Name, Title: title, Type: "video", MIMEType: "video/mp4"}
 	default:
 		return httpResponse{}, failure(502, "flow_upload_status_invalid")
 	}

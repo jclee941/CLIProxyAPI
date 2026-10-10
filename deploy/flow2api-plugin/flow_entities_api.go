@@ -292,11 +292,17 @@ func (service *service) updateFlowEntity(ctx context.Context, record storageReco
 		paths = append(paths, "entity_info.character_info.personality_notes")
 	}
 	if input.VoiceIDs != nil {
-		if err := flowUniqueIdentifiers(*input.VoiceIDs, flowResourceBatchLimit); err != nil {
-			return current, err
+		if len(*input.VoiceIDs) > flowResourceBatchLimit {
+			return current, failure(400, "flow_resource_ids_invalid")
 		}
 		references := make([]any, len(*input.VoiceIDs))
+		seen := map[string]bool{}
 		for index, id := range *input.VoiceIDs {
+			plain := strings.TrimPrefix(id, "voices/")
+			if !flowIdentifier(id) || plain == "" || strings.ContainsAny(plain, "/:") || seen[id] {
+				return current, failure(400, "flow_resource_ids_invalid")
+			}
+			seen[id] = true
 			references[index] = []any{id}
 		}
 		character[1] = references

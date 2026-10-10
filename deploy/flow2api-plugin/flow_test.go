@@ -47,6 +47,8 @@ type flowFixture struct {
 	busyRPC       string
 	busyRemaining int
 	upload        *flowUploadFixtureState
+	streams       map[string]string
+	dropStream    bool
 }
 
 func newFlowFixture(t *testing.T) *flowFixture {
@@ -78,11 +80,12 @@ func (fixture *flowFixture) serve(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		var exchange struct {
-			AuthID  string      `json:"auth_id"`
-			Method  string      `json:"method"`
-			URL     string      `json:"url"`
-			Headers http.Header `json:"headers"`
-			Body    []byte      `json:"body"`
+			AuthID    string      `json:"auth_id"`
+			Method    string      `json:"method"`
+			URL       string      `json:"url"`
+			Headers   http.Header `json:"headers"`
+			Body      []byte      `json:"body"`
+			RequestID string      `json:"request_id"`
 		}
 		if err := json.NewDecoder(request.Body).Decode(&exchange); err != nil {
 			fixture.t.Error(err)
@@ -94,6 +97,9 @@ func (fixture *flowFixture) serve(writer http.ResponseWriter, request *http.Requ
 		}
 		upstream := httptest.NewRequest(exchange.Method, exchange.URL, strings.NewReader(string(exchange.Body)))
 		fixture.mu.Lock()
+		if exchange.RequestID != "" {
+			fixture.calls["request:"+exchange.RequestID] = append(fixture.calls["request:"+exchange.RequestID], url.Values{})
+		}
 		if fixture.busyRPC == upstream.URL.Query().Get("rpcids") && fixture.busyRemaining > 0 {
 			fixture.busyRemaining--
 			fixture.mu.Unlock()
@@ -102,6 +108,10 @@ func (fixture *flowFixture) serve(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		drop := fixture.dropRPC != "" && upstream.URL.Query().Get("rpcids") == fixture.dropRPC
+		if fixture.dropStream && (upstream.URL.Path == flowCreationStreamPath || upstream.URL.Path == flowAppletStreamPath) {
+			drop = true
+			fixture.calls[upstream.URL.Path] = append(fixture.calls[upstream.URL.Path], url.Values{})
+		}
 		if drop {
 			fixture.calls[fixture.dropRPC] = append(fixture.calls[fixture.dropRPC], url.Values{})
 		}
@@ -135,6 +145,20 @@ func (fixture *flowFixture) serve(writer http.ResponseWriter, request *http.Requ
 	}
 	path := strings.TrimPrefix(request.URL.Path, "/u/2")
 	switch {
+	case path == flowCreationStreamPath || path == flowAppletStreamPath:
+		form, err := url.ParseQuery(string(body))
+		if err != nil {
+			t.Error(err)
+		}
+		form.Set("deadline", request.Header.Get("X-Client-Deadline-Ms"))
+		fixture.calls[path] = append(fixture.calls[path], form)
+		reply, found := fixture.streams[path]
+		if !found {
+			t.Errorf("unexpected stream %s", path)
+			writer.WriteHeader(500)
+			return
+		}
+		writeFixture(t, writer, reply)
 	case strings.HasPrefix(path, "/upload/v1/flow/upload/video/"):
 		fixture.serveUpload(writer, request, body)
 	case path == "/createTask":

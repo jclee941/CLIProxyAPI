@@ -30,6 +30,9 @@ func (service *service) flowVoices(ctx context.Context, record storageRecord, pr
 		if !flowIdentifier(id) || name == "" {
 			return nil, failure(502, "flow_voice_response_invalid")
 		}
+		if flowFlag(jsonField(row, 3, 10, 0, 2)) && !strings.HasPrefix(id, "voices/") {
+			id = "voices/" + id
+		}
 		voices = append(voices, flowVoiceResource{ID: id, Name: name, Description: description, PreviewURL: link})
 	}
 	return voices, nil
@@ -90,19 +93,18 @@ func (service *service) flowVoiceHTTP(ctx context.Context, record storageRecord,
 // The web wraps the same bytes in a WAV header before playback.
 func flowVoiceWAV(pcm []byte) []byte {
 	pcm = pcm[:len(pcm)/2*2]
-	wav := make([]byte, 44+len(pcm))
-	copy(wav, "RIFF")
-	binary.LittleEndian.PutUint32(wav[4:8], uint32(len(wav)-8))
-	copy(wav[8:], "WAVEfmt ")
-	binary.LittleEndian.PutUint32(wav[16:20], 16)
-	binary.LittleEndian.PutUint16(wav[20:22], 1)
-	binary.LittleEndian.PutUint16(wav[22:24], 1)
-	binary.LittleEndian.PutUint32(wav[24:28], 24000)
-	binary.LittleEndian.PutUint32(wav[28:32], 48000)
-	binary.LittleEndian.PutUint16(wav[32:34], 2)
-	binary.LittleEndian.PutUint16(wav[34:36], 16)
-	copy(wav[36:], "data")
-	binary.LittleEndian.PutUint32(wav[40:44], uint32(len(pcm)))
-	copy(wav[44:], pcm)
-	return wav
+	wav := make([]byte, 0, 44+len(pcm))
+	wav = append(wav, "RIFF"...)
+	wav = binary.LittleEndian.AppendUint32(wav, uint32(36+len(pcm)))
+	wav = append(wav, "WAVEfmt "...)
+	wav = binary.LittleEndian.AppendUint32(wav, 16)
+	wav = binary.LittleEndian.AppendUint16(wav, 1)
+	wav = binary.LittleEndian.AppendUint16(wav, 1)
+	wav = binary.LittleEndian.AppendUint32(wav, 24000)
+	wav = binary.LittleEndian.AppendUint32(wav, 48000)
+	wav = binary.LittleEndian.AppendUint16(wav, 2)
+	wav = binary.LittleEndian.AppendUint16(wav, 16)
+	wav = append(wav, "data"...)
+	wav = binary.LittleEndian.AppendUint32(wav, uint32(len(pcm)))
+	return append(wav, pcm...)
 }

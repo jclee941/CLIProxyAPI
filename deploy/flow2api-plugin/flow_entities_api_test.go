@@ -186,6 +186,11 @@ func TestFlowEntityUpdateSendsOnlyMaskedFields(t *testing.T) {
 			[]any{"entity_info.character_info.audio_references"},
 		},
 		{
+			"preset voice reference", `{"voiceIds":["voices/achernar"]}`,
+			[]any{flowResProject, flowEntHero, nil, []any{1, nil, []any{nil, []any{[]any{"voices/achernar"}}}}},
+			[]any{"entity_info.character_info.audio_references"},
+		},
+		{
 			"everything", `{"name":"Heroine","personalityNotes":"Calm\nsteady","voiceIds":["puck","achernar"],"favorited":false,"archived":false,"collectionId":"` + flowResFolder + `"}`,
 			[]any{flowResProject, flowEntHero, flowResFolder, []any{1, "Heroine", []any{nil, []any{[]any{"puck"}, []any{"achernar"}}, "Calm\nsteady"}, false, false}},
 			[]any{

@@ -91,7 +91,36 @@ func flowHTTPRegistration() json.RawMessage {
 {"Method":"POST","Path":"/v1/flow/likenesses/registrations"},
 {"Method":"GET","Path":"/v1/flow/likenesses/registrations/{token}"},
 {"Method":"GET","Path":"/v1/flow/likenesses/{likeness}"},
-{"Method":"DELETE","Path":"/v1/flow/likenesses/{likeness}"}
+{"Method":"DELETE","Path":"/v1/flow/likenesses/{likeness}"},
+{"Method":"POST","Path":"/v1/flow/requests/{request}:cancel"},
+{"Method":"GET","Path":"/v1/flow/projects/{project}/sessions"},
+{"Method":"POST","Path":"/v1/flow/projects/{project}/sessions"},
+{"Method":"GET","Path":"/v1/flow/projects/{project}/sessions/{session}"},
+{"Method":"PATCH","Path":"/v1/flow/projects/{project}/sessions/{session}"},
+{"Method":"DELETE","Path":"/v1/flow/projects/{project}/sessions/{session}"},
+{"Method":"POST","Path":"/v1/flow/projects/{project}/sessions/{session}:chat"},
+{"Method":"POST","Path":"/v1/flow/projects/{project}/sessions/{session}:cancel"},
+{"Method":"POST","Path":"/v1/flow/projects/{project}/text:generate"},
+{"Method":"GET","Path":"/v1/flow/tools"},
+{"Method":"POST","Path":"/v1/flow/tools"},
+{"Method":"GET","Path":"/v1/flow/tools/{tool}"},
+{"Method":"PATCH","Path":"/v1/flow/tools/{tool}"},
+{"Method":"DELETE","Path":"/v1/flow/tools/{tool}"},
+{"Method":"POST","Path":"/v1/flow/tools/{tool}:edit"},
+{"Method":"POST","Path":"/v1/flow/tools/{tool}:copy"},
+{"Method":"POST","Path":"/v1/flow/tools/{tool}:favorite"},
+{"Method":"POST","Path":"/v1/flow/tools/{tool}:unfavorite"},
+{"Method":"POST","Path":"/v1/flow/tools/{tool}:share"},
+{"Method":"GET","Path":"/v1/flow/tools/{tool}/versions"},
+{"Method":"GET","Path":"/v1/flow/tools/{tool}/versions/{version}"},
+{"Method":"POST","Path":"/v1/flow/tools/{tool}/versions/{version}:restore"},
+{"Method":"GET","Path":"/v1/flow/shared-tools"},
+{"Method":"GET","Path":"/v1/flow/shared-tools/{shared}"},
+{"Method":"DELETE","Path":"/v1/flow/shared-tools/{shared}"},
+{"Method":"POST","Path":"/v1/flow/shared-tools/{shared}:fork"},
+{"Method":"POST","Path":"/v1/flow/shared-tools/{shared}:favorite"},
+{"Method":"POST","Path":"/v1/flow/shared-tools/{shared}:unfavorite"},
+{"Method":"POST","Path":"/v1/flow/shared-tools/{shared}:unshare"}
 ]}`)
 }
 
@@ -149,6 +178,27 @@ func (service *service) flowHTTPRoute(ctx context.Context, request flowHTTPReque
 		return httpResponse{}, failure(409, "flow_single_account_required")
 	}
 	record := storageRecord{SourceAuthID: accounts[0]}
+	if tail, matched := strings.CutPrefix(request.Path, "/v1/flow/requests/"); matched {
+		return service.cancelFlowRequest(ctx, record, tail, request)
+	}
+	if request.Path == "/v1/flow/tools" {
+		if request.Method == http.MethodPost {
+			return service.buildFlowTool(ctx, record, "", request)
+		}
+		return service.flowToolHTTP(ctx, record, "", request)
+	}
+	if tail, matched := strings.CutPrefix(request.Path, "/v1/flow/tools/"); matched {
+		if id, edit := strings.CutSuffix(tail, ":edit"); edit && request.Method == http.MethodPost && flowToolIDPattern.MatchString(id) {
+			return service.buildFlowTool(ctx, record, id, request)
+		}
+		return service.flowToolHTTP(ctx, record, tail, request)
+	}
+	if request.Path == "/v1/flow/shared-tools" {
+		return service.flowSharedToolHTTP(ctx, record, "", request)
+	}
+	if tail, matched := strings.CutPrefix(request.Path, "/v1/flow/shared-tools/"); matched {
+		return service.flowSharedToolHTTP(ctx, record, tail, request)
+	}
 	if request.Path == "/v1/flow/likenesses:eligibility" {
 		return service.flowLikenessHTTP(ctx, record, "eligibility", request)
 	}
@@ -204,6 +254,10 @@ func (service *service) flowHTTPRoute(ctx context.Context, request flowHTTPReque
 		}
 		resource, tail, _ := strings.Cut(subpath, "/")
 		switch resource {
+		case "sessions":
+			return service.flowAgentHTTP(ctx, record, id, tail, request)
+		case "text:generate":
+			return service.flowTextHTTP(ctx, record, id, request)
 		case "collections":
 			return service.flowCollectionHTTP(ctx, record, id, tail, request)
 		case "scenes":

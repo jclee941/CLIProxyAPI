@@ -76,6 +76,6 @@ func (service *service) flowUploadImageHTTP(ctx context.Context, record storageR
 	if err != nil {
 		return httpResponse{}, err
 	}
-	media.Title = input.Name
+	media.Title, _ = jsonField(payload, 1, 3, 0).(string)
 	return flowJSON(http.StatusCreated, media)
 }

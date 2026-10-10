@@ -16,7 +16,6 @@ type flowUploadClaims struct {
 	AccountID   string `json:"account"`
 	ProjectID   string `json:"project"`
 	URL         string `json:"url"`
-	Name        string `json:"name"`
 	Size        int64  `json:"size"`
 	Granularity int64  `json:"granularity"`
 }

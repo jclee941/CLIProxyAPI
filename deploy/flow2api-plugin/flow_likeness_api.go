@@ -12,7 +12,7 @@ type flowLikenessResource struct {
 	Thumbnail string `json:"thumbnailBase64,omitempty"`
 }
 
-func (service *service) flowLikenessRPC(ctx context.Context, record storageRecord, rpc string, args []any) (any, error) {
+func (service *service) flowAccountRPC(ctx context.Context, record storageRecord, rpc string, args []any) (any, error) {
 	var payload any
 	err := service.withFlowSession(ctx, record, func(session *flowSession) error {
 		var err error
@@ -25,7 +25,7 @@ func (service *service) flowLikenessRPC(ctx context.Context, record storageRecor
 func (service *service) flowLikenessHTTP(ctx context.Context, record storageRecord, tail string, request flowHTTPRequest) (httpResponse, error) {
 	switch {
 	case tail == "eligibility" && request.Method == http.MethodGet:
-		payload, err := service.flowLikenessRPC(ctx, record, "ve2Lsc", []any{})
+		payload, err := service.flowAccountRPC(ctx, record, "ve2Lsc", []any{})
 		if err != nil {
 			return httpResponse{}, err
 		}
@@ -35,7 +35,7 @@ func (service *service) flowLikenessHTTP(ctx context.Context, record storageReco
 		}
 		return flowJSON(200, map[string]bool{"eligible": flag == true || flag == float64(1)})
 	case tail == "registrations" && request.Method == http.MethodPost:
-		payload, err := service.flowLikenessRPC(ctx, record, "T3Zezf", []any{})
+		payload, err := service.flowAccountRPC(ctx, record, "T3Zezf", []any{})
 		if err != nil {
 			return httpResponse{}, err
 		}
@@ -51,7 +51,7 @@ func (service *service) flowLikenessHTTP(ctx context.Context, record storageReco
 		if !flowUUIDPattern.MatchString(token) {
 			return httpResponse{}, failure(400, "flow_likeness_registration_token_invalid")
 		}
-		payload, err := service.flowLikenessRPC(ctx, record, "lv2lXd", []any{token})
+		payload, err := service.flowAccountRPC(ctx, record, "lv2lXd", []any{token})
 		if err != nil {
 			return httpResponse{}, err
 		}
@@ -76,7 +76,7 @@ func (service *service) flowLikenessHTTP(ctx context.Context, record storageReco
 	if request.Method != http.MethodGet && request.Method != http.MethodDelete || tail == "" && request.Method != http.MethodGet {
 		return httpResponse{}, failure(404, "flow_route_not_found")
 	}
-	payload, err := service.flowLikenessRPC(ctx, record, "DTaVef", []any{1})
+	payload, err := service.flowAccountRPC(ctx, record, "DTaVef", []any{1})
 	if err != nil {
 		return httpResponse{}, err
 	}
@@ -100,7 +100,7 @@ func (service *service) flowLikenessHTTP(ctx context.Context, record storageReco
 		if request.Method == http.MethodGet {
 			return flowJSON(200, resource)
 		}
-		if _, err := service.flowLikenessRPC(ctx, record, "KaLHHf", []any{resource.ID}); err != nil {
+		if _, err := service.flowAccountRPC(ctx, record, "KaLHHf", []any{resource.ID}); err != nil {
 			return httpResponse{}, err
 		}
 		return httpResponse{StatusCode: 204, Headers: http.Header{"Cache-Control": {"private, no-store"}}}, nil
