@@ -11,14 +11,16 @@ import type { LoginAction, LoginComplete, LoginInput, LoginState } from './login
 export class PluginApiError extends Error {
   readonly requiresHostLogin: boolean;
 
-  constructor(readonly status: number, readonly code?: ErrorCode) {
+  constructor(readonly status: number, readonly code?: ErrorCode, readonly pluginID: 'gemini-web' | 'flow2api' = 'gemini-web') {
     const authenticationFailure = status === 401 || status === 403;
     const expiredToken = authenticationFailure && (code === 'account_unavailable' || code === 'sidecar_request_failed');
+    const apiName = pluginID === 'flow2api' ? 'Google Flow' : 'Gemini Web';
+    const authName = 'Google';
     super(code === 'secret_store_unavailable'
       ? '서버의 세션 저장소를 사용할 수 없습니다. 관리자에게 저장소 키와 서버 저장소 설정을 확인해 달라고 요청하세요.'
       : status === 200
-        ? code === 'account_unavailable' ? 'Google 세션이 만료되었거나 사용할 수 없습니다. Google 로그인을 다시 연결하세요.'
-          : '계정의 사용 가능 상태를 확인하지 못했습니다. Google 세션과 서버 설정을 확인하세요.'
+        ? code === 'account_unavailable' ? `${authName} 세션이 만료되었거나 사용할 수 없습니다. ${authName} 로그인을 다시 연결하세요.`
+          : `계정의 사용 가능 상태를 확인하지 못했습니다. ${authName} 세션과 서버 설정을 확인하세요.`
       : expiredToken
       ? '웹 토큰이 만료되었거나 사용할 수 없습니다. 새 웹 토큰을 등록해 주세요.'
       : code === 'disabled_account_update_requires_host_enable'
@@ -30,7 +32,7 @@ export class PluginApiError extends Error {
         : status === 429
           ? '조회 요청이 많습니다. 잠시 후 직접 다시 확인해 주세요.'
           : status === 404
-            ? 'Gemini Web 관리 API를 찾을 수 없습니다. Manager의 플러그인 연결 설정을 확인하세요.'
+            ? `${apiName} 관리 API를 찾을 수 없습니다. Manager의 플러그인 연결 설정을 확인하세요.`
             : status === 0
               ? '응답 형식이나 네트워크 연결을 확인할 수 없습니다. 연결을 확인한 뒤 다시 시도하세요.'
               : `요청을 완료하지 못했습니다 (HTTP ${status}). 잠시 후 다시 시도하세요.`);
@@ -57,9 +59,10 @@ const http = ky.create({
 
 export async function request(path: 'accounts' | 'refresh' | 'recover' | `login/${'start' | 'complete' | LoginAction}` | { readonly modelsFor: AccountId },
   body?: SaveAccount | { readonly id: AccountId } | { readonly id: AccountId; readonly consent: true } | LoginInput | LoginComplete | { readonly state: LoginState },
-  transport: ReturnType<typeof readHostRequest> | null = readHostRequest() ?? null): Promise<Response> {
+  transport: ReturnType<typeof readHostRequest> | null = readHostRequest() ?? null,
+  pluginID: 'gemini-web' | 'flow2api' = 'gemini-web'): Promise<Response> {
   try {
-    const url = typeof path === 'string' ? `/v0/management/plugins/gemini-web/${path}`
+    const url = typeof path === 'string' ? `/v0/management/plugins/${pluginID}/${path}`
       : `/v0/management/auth-files/models?name=${encodeURIComponent(path.modelsFor)}`;
     const response = transport ? await hostResponse(transport, { path: url, method: body ? 'POST' : 'GET', ...(body ? { body: JSON.stringify(body) } : {}) }) : await http(url, {
       method: body ? 'POST' : 'GET',
@@ -74,12 +77,12 @@ export async function request(path: 'accounts' | 'refresh' | 'recover' | `login/
       } catch (error) {
         if (!(error instanceof SyntaxError)) throw error;
       }
-      throw new PluginApiError(response.status, code);
+      throw new PluginApiError(response.status, code, pluginID);
     }
     return response;
   } catch (error) {
     if (error instanceof HostAuthError || error instanceof PluginApiError) throw error;
-    if (error instanceof Error) throw new PluginApiError(0);
+    if (error instanceof Error) throw new PluginApiError(0, undefined, pluginID);
     throw error;
   }
 }

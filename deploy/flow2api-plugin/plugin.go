@@ -36,6 +36,8 @@ type service struct {
 	config                  pluginConfig
 	host                    hostCall
 	client                  *http.Client
+	now                     func() time.Time
+	dashboard               string
 	flowMu                  sync.Mutex
 	flowPages               map[string]flowPage
 	flowProjects            map[string]string
@@ -46,9 +48,11 @@ type service struct {
 
 func newService(host hostCall) *service {
 	return &service{
-		host:   host,
-		config: pluginConfig{SessionBrokerURL: "http://127.0.0.1:8317", FlowCaptchaProvider: "native"},
-		client: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		host:      host,
+		now:       time.Now,
+		dashboard: "/CLIProxyAPI/plugins/flow2api/index.html",
+		config:    pluginConfig{SessionBrokerURL: "http://127.0.0.1:8317", FlowCaptchaProvider: "native"},
+		client:    &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}
 }
 
@@ -196,11 +200,14 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 	case "executor.count_tokens", "executor.http_request":
 		return nil, failure(400, "flow_operation_unsupported")
 	case "management.register":
-		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/flow2api/accounts"}]}`), nil
+		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/flow2api/accounts"}],"resources":[{"Path":"/index","Menu":"Google Flow","Description":"Flow credits, account connection status, and supported media models"}]}`), nil
 	case "management.handle":
 		var request managementRequest
 		if json.Unmarshal(raw, &request) != nil {
 			return nil, failure(400, "flow_invalid_request")
+		}
+		if request.Method == http.MethodGet && request.Path == flowResourcePath {
+			return service.flowDashboard()
 		}
 		if request.Method != "GET" || request.Path != flowPath {
 			return nil, failure(404, "flow_route_not_found")

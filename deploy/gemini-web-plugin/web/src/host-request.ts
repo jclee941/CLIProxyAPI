@@ -4,18 +4,20 @@ type HostRequestInput = { readonly path: string; readonly method: 'GET' | 'POST'
 type HostRequest = (input: HostRequestInput) => Promise<unknown>;
 declare global { interface Window { readonly __CPAMP_PLUGIN_HOST__?: unknown } }
 
-const capabilitySchema = z.object({
-  version: z.literal(1), pluginID: z.literal('gemini-web'), resourceURL: z.url(),
+type PluginID = 'gemini-web' | 'flow2api';
+
+const capabilitySchema = (pluginID: PluginID) => z.object({
+  version: z.literal(1), pluginID: z.literal(pluginID), resourceURL: z.url(),
   request: z.custom<HostRequest>((value) => typeof value === 'function'),
 });
 const responseSchema = z.object({ status: z.number().int().min(200).max(599), body: z.string() });
 
-export function readHostRequest(): HostRequest | undefined {
+export function readHostRequest(pluginID: PluginID = 'gemini-web'): HostRequest | undefined {
   try {
     if (window.parent === window || window.parent.location.origin !== window.location.origin) return;
-    const parsed = capabilitySchema.safeParse(window.__CPAMP_PLUGIN_HOST__);
+    const parsed = capabilitySchema(pluginID).safeParse(window.__CPAMP_PLUGIN_HOST__);
     if (!parsed.success || parsed.data.resourceURL !== window.location.href
-      || window.location.pathname !== '/v0/resource/plugins/gemini-web/index' || window.location.search || window.location.hash) return;
+      || window.location.pathname !== `/v0/resource/plugins/${pluginID}/index` || window.location.search || window.location.hash) return;
     return parsed.data.request;
   } catch {
     return;

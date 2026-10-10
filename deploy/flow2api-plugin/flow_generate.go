@@ -342,6 +342,12 @@ func (service *service) flowAwaitVideo(ctx context.Context, record storageRecord
 			return nil
 		})
 		if err != nil {
+			if safeCredentialCode(err) == "flow_session_exchange_busy" {
+				// The generation was already accepted. A local credential
+				// lease refusal must not discard its result or replay it.
+				misses = 0
+				continue
+			}
 			if misses++; misses >= 5 || safeCredentialCode(err) == "flow_unauthenticated" {
 				return "", err
 			}
@@ -419,50 +425,4 @@ func flowEncodedMedia(value any) []byte {
 		}
 	}
 	return nil
-}
-
-func flowCredits(payload any) (int, bool) {
-	values, _ := payload.([]any)
-	for _, value := range values {
-		if credits, ok := jsonInteger(value); ok {
-			return credits, true
-		}
-	}
-	return 0, false
-}
-
-type flowAccountView struct {
-	ID      string `json:"id"`
-	Label   string `json:"label,omitempty"`
-	Credits *int   `json:"credits,omitempty"`
-	Project string `json:"project,omitempty"`
-	Error   string `json:"error,omitempty"`
-}
-
-func (service *service) flowStatus(ctx context.Context, _ managementRequest) (interface{}, error) {
-	accounts := []flowAccountView{}
-	for _, id := range service.settings().FlowAccounts {
-		record := storageRecord{ID: id, SourceAuthID: id}
-		view := flowAccountView{ID: id}
-		err := service.withFlowSession(ctx, record, func(session *flowSession) error {
-			payload, err := session.rpc(ctx, "nzlxg", []any{}, flowProjectsPath, "")
-			if err != nil {
-				return err
-			}
-			credits, ok := flowCredits(payload)
-			if !ok {
-				return failure(502, "flow_credits_missing")
-			}
-			view.Credits = &credits
-			return nil
-		})
-		if err != nil {
-			view.Error = safeCredentialMessage(err)
-		}
-		service.flowMu.Lock()
-		view.Project = service.flowProjects[id]
-		service.flowMu.Unlock()
-		accounts = append(accounts, view)
-	}
-	return map[string]any{"provider": provider, "captcha": service.settings().FlowCaptchaProvider, "models": flowModelInfos(), "accounts": accounts}, nil
 }

@@ -33,17 +33,19 @@ var (
 // endpoints and the signed media host, all on one TLS server so the signed
 // links it hands out are https like the real ones.
 type flowFixture struct {
-	t       *testing.T
-	server  *httptest.Server
-	mu      sync.Mutex
-	calls   map[string][]url.Values
-	agents  map[string][]string
-	replies map[string][]string
-	tasks   []map[string]any
-	polls   map[string]int
-	reload  url.Values
-	cookies []string
-	dropRPC string
+	t             *testing.T
+	server        *httptest.Server
+	mu            sync.Mutex
+	calls         map[string][]url.Values
+	agents        map[string][]string
+	replies       map[string][]string
+	tasks         []map[string]any
+	polls         map[string]int
+	reload        url.Values
+	cookies       []string
+	dropRPC       string
+	busyRPC       string
+	busyRemaining int
 }
 
 func newFlowFixture(t *testing.T) *flowFixture {
@@ -91,6 +93,13 @@ func (fixture *flowFixture) serve(writer http.ResponseWriter, request *http.Requ
 		}
 		upstream := httptest.NewRequest(exchange.Method, exchange.URL, strings.NewReader(string(exchange.Body)))
 		fixture.mu.Lock()
+		if fixture.busyRPC == upstream.URL.Query().Get("rpcids") && fixture.busyRemaining > 0 {
+			fixture.busyRemaining--
+			fixture.mu.Unlock()
+			writer.WriteHeader(http.StatusConflict)
+			writeFixture(fixture.t, writer, `{"error":"session_exchange_busy"}`)
+			return
+		}
 		drop := fixture.dropRPC != "" && upstream.URL.Query().Get("rpcids") == fixture.dropRPC
 		if drop {
 			fixture.calls[fixture.dropRPC] = append(fixture.calls[fixture.dropRPC], url.Values{})
