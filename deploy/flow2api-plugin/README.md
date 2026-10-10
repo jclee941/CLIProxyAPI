@@ -48,7 +48,11 @@ automatically if the first attempt may have been accepted.
 A failed request answers `{"error":{"code":"flow_...","message":"..."}}` on the
 Gemini, Chat and Responses routes; Claude callers get the usual Claude error
 object with the same message. `401 flow_unauthenticated` means the linked Google
-session needs a new login, not that the API key is wrong.
+session needs a new login, not that the API key is wrong. `429 flow_rate_limited`
+means Google is throttling the linked account for too much traffic; retry after a
+few minutes, not at once. `429 flow_credit_floor_reached` means a `low` priority
+request was refused and the account holds fewer than 5,000 credits, so it was not
+run at `normal` priority (see `priority` below).
 
 ## Parameters
 
@@ -78,7 +82,7 @@ Set `aspectRatio` on a video `upscale` to match the source clip. It defaults to
 | Field | Meaning |
 | --- | --- |
 | `mode` | `auto` (default), `text`, `references`, `frames`, `edit`, `extend`, `upscale`. |
-| `priority` | `normal` (default) or `low`. `low` is for `flow-veo-3.1-lite` only (`flow_priority_unsupported` otherwise). Not valid for images or `upscale`. When Flow refuses the low-priority queue as unusual activity, the request runs once more at `normal` priority, which spends credits (5 for 8 seconds at 720p). |
+| `priority` | `normal` (default) or `low`. `low` is for `flow-veo-3.1-lite` only (`flow_priority_unsupported` otherwise). Not valid for images or `upscale`. When Flow refuses the low-priority queue as unusual activity, the request runs once more at `normal` priority, which spends credits (5 for 8 seconds at 720p), and further `low` requests on that account run at `normal` for the next 30 minutes. Below 5,000 credits no credits are spent this way: the refused request, and further `low` requests for those 30 minutes, answer `429 flow_credit_floor_reached`. |
 | `projectId` | Existing Flow project of the linked account. When omitted, the plugin creates and reuses a `CLIProxyAPI` project for its lifetime. Pass an explicit ID to keep using the same project across restarts. |
 | `modelKey` | Exact Flow model usage key from the live catalog. It must stay inside the requested model's family. |
 | `firstFrame`, `lastFrame` | Video only. Media references. |
