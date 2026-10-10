@@ -13,6 +13,7 @@ type flowVoiceResource struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	PreviewURL  string `json:"previewUrl,omitempty"`
+	speaker     string
 }
 
 func (service *service) flowVoices(ctx context.Context, record storageRecord, project string) ([]flowVoiceResource, error) {
@@ -21,6 +22,7 @@ func (service *service) flowVoices(ctx context.Context, record storageRecord, pr
 		return nil, err
 	}
 	voices := []flowVoiceResource{}
+	seen := map[string]bool{}
 	rows, _ := jsonField(contents, 3).([]any)
 	for _, row := range rows {
 		id, _ := jsonField(row, 0).(string)
@@ -33,7 +35,32 @@ func (service *service) flowVoices(ctx context.Context, record storageRecord, pr
 		if flowFlag(jsonField(row, 3, 10, 0, 2)) && !strings.HasPrefix(id, "voices/") {
 			id = "voices/" + id
 		}
-		voices = append(voices, flowVoiceResource{ID: id, Name: name, Description: description, PreviewURL: link})
+		seen[id] = true
+		voices = append(voices, flowVoiceResource{ID: id, Name: name, Description: description, PreviewURL: link, speaker: name})
+	}
+	titles := map[string]string{}
+	for _, row := range flowContentRows(contents, 1) {
+		workflow, _ := jsonField(row, 0).(string)
+		title, _ := jsonField(row, 3, 0).(string)
+		titles[workflow] = title
+	}
+	for _, row := range flowContentRows(contents, 2) {
+		if jsonField(row, 10) == nil || jsonField(row, 5, 9) != float64(1) {
+			continue
+		}
+		media, err := decodeFlowMedia(row, project)
+		if err != nil {
+			return nil, err
+		}
+		if seen[media.ID] {
+			continue
+		}
+		speaker, _ := jsonField(row, 10, 0, 11, 0, 1).(string)
+		name := titles[media.WorkflowID]
+		if name == "" || speaker == "" {
+			return nil, failure(502, "flow_voice_response_invalid")
+		}
+		voices = append(voices, flowVoiceResource{ID: media.ID, Name: name, speaker: speaker})
 	}
 	return voices, nil
 }
@@ -67,10 +94,11 @@ func (service *service) flowVoiceHTTP(ctx context.Context, record storageRecord,
 	if err != nil {
 		return httpResponse{}, err
 	}
-	var name string
+	var name, speaker string
 	for _, voice := range voices {
 		if voice.ID == input.VoiceID {
 			name = voice.Name
+			speaker = voice.speaker
 			break
 		}
 	}
@@ -79,7 +107,7 @@ func (service *service) flowVoiceHTTP(ctx context.Context, record storageRecord,
 	}
 	var media flowMediaResource
 	err = service.flowSubmit(ctx, record, project, "AUDIO_GENERATION", func(token string) (string, any) {
-		item := []any{input.Text, []any{[]any{name, name}}, "gemini_v4s_tts_flow", input.Description, 2}
+		item := []any{input.Text, []any{[]any{name, speaker}}, "gemini_v4s_tts_flow", input.Description, 2}
 		return "no0P6", []any{[]any{item}, flowContext(project, token)}
 	}, func(payload any) error {
 		var err error

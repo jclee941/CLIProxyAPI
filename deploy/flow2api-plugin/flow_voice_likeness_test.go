@@ -72,6 +72,33 @@ func TestFlowGeneratedVoiceCanBeSavedWithoutGeneratingAgain(t *testing.T) {
 	}
 }
 
+func TestFlowSavedVoiceKeepsItsDisplayNameAndUnderlyingSpeaker(t *testing.T) {
+	// Given saved project audio, which is separate from the preset catalogue.
+	fixture := newFlowFixture(t)
+	service, _ := flowService(t, fixture)
+	metadata := make([]any, 10)
+	metadata[9] = 1
+	audioMetadata := make([]any, 12)
+	audioMetadata[11] = []any{[]any{"Achernar", "Achernar"}}
+	audio := make([]any, 11)
+	audio[0], audio[1], audio[2], audio[5], audio[10] = flowTestMedia, flowTestProject, flowTestOp, metadata, []any{audioMetadata}
+	fixture.reply("Zzl0ze", rpcEnvelope(t, "Zzl0ze", []any{
+		nil, []any{[]any{flowTestOp, nil, nil, []any{"Fixture saved voice"}, flowTestProject}}, []any{audio},
+	}))
+	fixture.reply("no0P6", rpcEnvelope(t, "no0P6", []any{[]any{audio}}))
+	// When a consumer reuses the saved voice for a new preview.
+	response := flowHTTPTest(t, service, flowHTTPRequest{
+		Method: "POST", Path: "/v1/flow/projects/" + flowTestProject + "/voices:preview",
+		CallerScope: strings.Repeat("a", 64), Body: jsonFixture(t, map[string]any{"text": "fixture", "voiceId": flowTestMedia}),
+	})
+	// Then the custom label is not mistaken for a provider voice model.
+	args := fixture.args("no0P6", 0)
+	if response.StatusCode != 201 || jsonField(args, 0, 0, 1, 0, 0) != "Fixture saved voice" ||
+		jsonField(args, 0, 0, 1, 0, 1) != "Achernar" {
+		t.Fatalf("status=%d args=%v", response.StatusCode, args)
+	}
+}
+
 func TestFlowLikenessRegistrationPreservesHumanVerificationStep(t *testing.T) {
 	// Given Google's actual registration URL and token response shape.
 	fixture := newFlowFixture(t)
