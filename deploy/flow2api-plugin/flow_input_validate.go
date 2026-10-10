@@ -16,7 +16,7 @@ func flowDefaults(model flowModel, input *flowInput) error {
 	if input.seed != nil && (model.video && !upscale || !model.video && upscale) {
 		return failure(400, "flow_seed_unsupported")
 	}
-	if upscale && input.seconds != 0 {
+	if (upscale || model.video && input.options.Mode == flowModeEdit) && input.seconds != 0 {
 		return flowOptionRejection("durationSeconds")
 	}
 	if model.video {

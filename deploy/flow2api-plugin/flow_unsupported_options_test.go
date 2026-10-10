@@ -6,6 +6,7 @@ func TestFlowRefusesOptionsTheSelectedOperationCannotApply(t *testing.T) {
 	for _, scenario := range []struct{ name, model, config, code string }{
 		{"image upscale seed", "flow-nano-banana-2", `"seed":7,"imageConfig":{"imageSize":"2K"},"flow":{"mode":"upscale","baseImage":{"mediaId":"source"}}`, "flow_seed_unsupported"},
 		{"upscale duration", "flow-veo-3.1-fast", `"durationSeconds":4,"resolution":"1080p","flow":{"mode":"upscale","sourceVideo":{"mediaId":"source"}}`, "flow_unsupported_generation_option"},
+		{"edit duration", "flow-omni-1.1-flash", `"durationSeconds":4,"flow":{"mode":"edit","sourceVideo":{"mediaId":"source"}}`, "flow_unsupported_generation_option"},
 		{"upscale clip", "flow-veo-3.1-fast", `"resolution":"1080p","flow":{"mode":"upscale","sourceVideo":{"mediaId":"source","startFrame":1}}`, "flow_unsupported_generation_option"},
 		{"image priority", "flow-nano-banana-2", `"flow":{"priority":"low"}`, "flow_unsupported_generation_option"},
 		{"upscale priority", "flow-veo-3.1-lite", `"resolution":"1080p","flow":{"mode":"upscale","priority":"low","sourceVideo":{"mediaId":"source"}}`, "flow_unsupported_generation_option"},

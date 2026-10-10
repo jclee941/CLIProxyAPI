@@ -13,7 +13,7 @@ type flowModelUsage struct {
 	variableDuration          bool
 	prices                    map[int]int
 	imageLimit, identityLimit int
-	totalLimit, videoSeconds  int
+	audioLimit, videoSeconds  int
 }
 
 func flowIntegers(value any) []int {
@@ -69,9 +69,9 @@ func decodeFlowModels(payload any) ([]flowModelUsage, error) {
 						usage.prices[tier] = credits
 					}
 				}
-				usage.imageLimit, _ = jsonInteger(jsonField(raw, 21, 0))
+				usage.audioLimit, _ = jsonInteger(jsonField(raw, 21, 0))
 				usage.identityLimit, _ = jsonInteger(jsonField(raw, 21, 1))
-				usage.totalLimit, _ = jsonInteger(jsonField(raw, 21, 2))
+				usage.imageLimit, _ = jsonInteger(jsonField(raw, 21, 2))
 				usage.videoSeconds, _ = jsonInteger(jsonField(raw, 21, 3))
 				if !usage.video {
 					usage.imageLimit, _ = jsonInteger(jsonField(raw, 9))
@@ -137,7 +137,7 @@ func selectFlowModel(usages []flowModelUsage, selection flowModelSelection) (flo
 		}
 		if usage.imageLimit > 0 && selection.images > usage.imageLimit ||
 			usage.identityLimit > 0 && selection.identities > usage.identityLimit ||
-			usage.totalLimit > 0 && selection.images+selection.identities+selection.audio > usage.totalLimit {
+			selection.audio > usage.audioLimit {
 			return flowModelUsage{}, failure(400, "flow_too_many_references")
 		}
 		return usage, nil

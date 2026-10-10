@@ -31,7 +31,7 @@ func TestFlowModelCatalogPreservesCurrentOptions(t *testing.T) {
 	if _, admitted := usages[0].prices[1]; admitted {
 		t.Fatal("unavailable tier was admitted")
 	}
-	if usages[1].resolutions[0] != 4 || usages[1].imageLimit != 5 || usages[1].totalLimit != 7 {
+	if usages[1].resolutions[0] != 4 || usages[1].audioLimit != 5 || usages[1].imageLimit != 7 {
 		t.Fatalf("reference limits = %+v", usages[1])
 	}
 	if credits, admitted := usages[2].prices[3]; !admitted || credits != 0 || usages[2].imageLimit != 10 {
@@ -43,7 +43,7 @@ func TestFlowModelSelectionHonorsEveryRequestedConstraint(t *testing.T) {
 	// Given: the text, reference, frame and low-resolution usages differ.
 	usages := []flowModelUsage{
 		{family: "abra", key: "text", video: true, aspects: []int{1}, resolutions: []int{1}, duration: 4, inputs: [][]int{{1}}, prices: map[int]int{3: 7}},
-		{family: "abra", key: "references", video: true, aspects: []int{1}, resolutions: []int{1}, duration: 4, inputs: [][]int{{1, 6}, {1, 6, 18, 19}}, prices: map[int]int{3: 7}, imageLimit: 5, totalLimit: 7},
+		{family: "abra", key: "references", video: true, aspects: []int{1}, resolutions: []int{1}, duration: 4, inputs: [][]int{{1, 6}, {1, 6, 18, 19}}, prices: map[int]int{3: 7}, imageLimit: 7, audioLimit: 5},
 		{family: "abra", key: "frames", video: true, aspects: []int{1}, resolutions: []int{1}, duration: 4, inputs: [][]int{{1, 5, 7}}, prices: map[int]int{3: 7}},
 		{family: "abra", key: "360p", video: true, aspects: []int{1}, resolutions: []int{4}, duration: 4, inputs: [][]int{{1}}, prices: map[int]int{3: 4}},
 	}
@@ -62,7 +62,9 @@ func TestFlowModelSelectionHonorsEveryRequestedConstraint(t *testing.T) {
 		{name: "wrong duration", change: func(s *flowModelSelection) { s.duration = 10 }, code: "flow_model_options_unsupported"},
 		{name: "wrong aspect", change: func(s *flowModelSelection) { s.aspect = 2 }, code: "flow_model_options_unsupported"},
 		{name: "wrong explicit key", change: func(s *flowModelSelection) { s.key = "frames" }, code: "flow_model_options_unsupported"},
-		{name: "too many images", change: func(s *flowModelSelection) { s.inputs = []int{1, 6}; s.images = 6 }, code: "flow_too_many_references"},
+		{name: "seven images", change: func(s *flowModelSelection) { s.inputs = []int{1, 6}; s.images = 7 }, key: "references"},
+		{name: "too many images", change: func(s *flowModelSelection) { s.inputs = []int{1, 6}; s.images = 8 }, code: "flow_too_many_references"},
+		{name: "too much audio", change: func(s *flowModelSelection) { s.inputs = []int{1, 6, 18}; s.audio = 6 }, code: "flow_too_many_references"},
 		{name: "unsupported edit", change: func(s *flowModelSelection) { s.inputs = []int{1, 6, 20} }, code: "flow_model_options_unsupported"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
