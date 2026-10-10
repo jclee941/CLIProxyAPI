@@ -78,7 +78,7 @@ Set `aspectRatio` on a video `upscale` to match the source clip. It defaults to
 | Field | Meaning |
 | --- | --- |
 | `mode` | `auto` (default), `text`, `references`, `frames`, `edit`, `extend`, `upscale`. |
-| `priority` | `normal` (default) or `low`. `low` is for `flow-veo-3.1-lite` only (`flow_priority_unsupported` otherwise). Not valid for images or `upscale`. |
+| `priority` | `normal` (default) or `low`. `low` is for `flow-veo-3.1-lite` only (`flow_priority_unsupported` otherwise). Not valid for images or `upscale`. When Flow refuses the low-priority queue as unusual activity, the request runs once more at `normal` priority, which spends credits (5 for 8 seconds at 720p). |
 | `projectId` | Existing Flow project of the linked account. When omitted, the plugin creates and reuses a `CLIProxyAPI` project for its lifetime. Pass an explicit ID to keep using the same project across restarts. |
 | `modelKey` | Exact Flow model usage key from the live catalog. It must stay inside the requested model's family. |
 | `firstFrame`, `lastFrame` | Video only. Media references. |
