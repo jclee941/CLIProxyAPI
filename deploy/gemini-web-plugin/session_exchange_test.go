@@ -165,6 +165,60 @@ func TestSessionExchangeBrokersFlowAsTheCredentialAccount(t *testing.T) {
 	}
 }
 
+func TestSessionExchangePreservesScottyHeadersOnlyForFlowUploads(t *testing.T) {
+	scotty := map[string]string{
+		"X-Goog-Upload-URL":               "https://flow.google.com/upload/v1/flow/upload/video/project-id?upload_id=abc",
+		"X-Goog-Upload-Status":            "active",
+		"X-Goog-Upload-Chunk-Granularity": "262144",
+		"X-Goog-Upload-Size-Received":     "524288",
+	}
+	fixture := newExchangeFixture(t, 2, func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		for name, value := range scotty {
+			writer.Header().Set(name, value)
+		}
+		writer.Header().Set("X-Goog-Upload-Control-URL", "https://flow.google.com/upload/control")
+		writer.Header().Set("X-Internal", "hidden")
+		writer.Header().Set("Authorization", "Bearer upstream")
+		writer.Header().Add("Set-Cookie", "elsewhere=1; Domain=example.org; Path=/")
+		if _, err := writer.Write([]byte("ok")); err != nil {
+			return
+		}
+	})
+	for _, target := range []string{
+		"https://flow.google.com/upload/v1/flow/upload/video/project-id",
+		"https://flow.google.com/upload/v1/flow/upload/video/project-id?upload_protocol=resumable&upload_id=abc",
+	} {
+		result, err := fixture.exchange(t, sessionExchangeRequest{AuthID: fixture.record.ID, Method: "POST", URL: target})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Headers) != 1+len(scotty) || result.Headers.Get("Content-Type") != "application/json" {
+			t.Fatalf("%s headers = %v, want Content-Type and the four Scotty headers", target, result.Headers)
+		}
+		for name, want := range scotty {
+			if got := result.Headers.Get(name); got != want {
+				t.Fatalf("%s %s = %q, want %q", target, name, got, want)
+			}
+		}
+	}
+	// The same headers on any other Flow call, or on another host, stay private.
+	result, err := fixture.exchange(t, sessionExchangeRequest{AuthID: fixture.record.ID, Method: "POST", URL: "https://flow.google.com/_/AiSandboxAngularFrontend/data/batchexecute?upload_id=abc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Headers) != 1 || result.Headers.Get("Content-Type") != "application/json" {
+		t.Fatalf("non-upload headers = %v, want only Content-Type", result.Headers)
+	}
+	result, err = fixture.exchange(t, sessionExchangeRequest{AuthID: fixture.record.ID, Method: "POST", URL: "https://www.google.com/recaptcha/upload/x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Headers) != 1 || result.Headers.Get("Content-Type") != "application/json" {
+		t.Fatalf("captcha-host headers = %v, want only Content-Type", result.Headers)
+	}
+}
+
 func TestSessionExchangeLeavesFlowPathUnprefixedForTheDefaultAccount(t *testing.T) {
 	fixture := newExchangeFixture(t, 0, exchangeOK)
 	if _, err := fixture.exchange(t, sessionExchangeRequest{AuthID: fixture.record.ID, Method: "GET", URL: "https://flow.google.com/projects?source-path=%2Fprojects"}); err != nil {

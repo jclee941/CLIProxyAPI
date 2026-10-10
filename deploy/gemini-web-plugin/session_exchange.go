@@ -34,6 +34,11 @@ const (
 // credential, and authorization is never the caller's to supply.
 var sessionExchangeDenied = []string{"Cookie", "Authorization", "Proxy-Authorization", "X-Goog-Authuser", "Host"}
 
+// sessionExchangeUploadHeaders are the Scotty resumable-upload response headers
+// a Flow upload needs to continue: where to send the bytes, the session state,
+// the chunk size and the offset Google has accepted. Nothing else is passed.
+var sessionExchangeUploadHeaders = []string{"X-Goog-Upload-URL", "X-Goog-Upload-Status", "X-Goog-Upload-Chunk-Granularity", "X-Goog-Upload-Size-Received"}
+
 type sessionExchangeRequest struct {
 	AuthID  string      `json:"auth_id"`
 	Method  string      `json:"method"`
@@ -231,6 +236,7 @@ func (service *service) sessionExchange(ctx context.Context, request managementR
 	// Decided before the test origin override rewrites the host, so the Flow
 	// cookies follow the requested origin and never the fixture's.
 	flowTarget := target.Hostname() == sessionExchangeFlowHost
+	flowUpload := flowTarget && strings.HasPrefix(target.Path, "/upload/v1/flow/upload/video/")
 	if flowTarget {
 		target.Path, target.RawPath = session.prefix+target.Path, ""
 		target.RawQuery = sessionExchangeSourcePath(target.RawQuery, session.prefix)
@@ -289,6 +295,13 @@ func (service *service) sessionExchange(ctx context.Context, request managementR
 	for _, name := range []string{"Content-Type", "Location"} {
 		if value := response.Header.Get(name); value != "" {
 			result.Headers.Set(name, value)
+		}
+	}
+	if flowUpload {
+		for _, name := range sessionExchangeUploadHeaders {
+			if value := response.Header.Get(name); value != "" {
+				result.Headers.Set(name, value)
+			}
 		}
 	}
 	return result, nil
