@@ -27,7 +27,7 @@ type flowHTTPRequest struct {
 var flowCallerScopePattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 func flowHTTPRegistration() json.RawMessage {
-	return json.RawMessage(`{"Routes":[{"Method":"GET","Path":"/v1/flow/projects"},{"Method":"POST","Path":"/v1/flow/projects"},{"Method":"GET","Path":"/v1/flow/projects/{project}"},{"Method":"PATCH","Path":"/v1/flow/projects/{project}"},{"Method":"DELETE","Path":"/v1/flow/projects/{project}"}]}`)
+	return json.RawMessage(`{"Routes":[{"Method":"GET","Path":"/v1/flow/projects"},{"Method":"POST","Path":"/v1/flow/projects"},{"Method":"GET","Path":"/v1/flow/projects/{project}"},{"Method":"PATCH","Path":"/v1/flow/projects/{project}"},{"Method":"DELETE","Path":"/v1/flow/projects/{project}"},{"Method":"GET","Path":"/v1/flow/projects/{project}/media"},{"Method":"GET","Path":"/v1/flow/projects/{project}/media/{media}"},{"Method":"GET","Path":"/v1/flow/projects/{project}/media/{media}:download"},{"Method":"DELETE","Path":"/v1/flow/projects/{project}/media/{media}"},{"Method":"POST","Path":"/v1/flow/projects/{project}/media/{media}:restore"}]}`)
 }
 
 func flowJSON(status int, value any) (httpResponse, error) {
@@ -116,8 +116,18 @@ func (service *service) flowHTTPRoute(ctx context.Context, request flowHTTPReque
 			return flowJSON(http.StatusCreated, result)
 		}
 	}
-	id, matched := strings.CutPrefix(request.Path, "/v1/flow/projects/")
+	projectPath, matched := strings.CutPrefix(request.Path, "/v1/flow/projects/")
+	id, subpath, nested := strings.Cut(projectPath, "/")
 	if !matched || !flowUUIDPattern.MatchString(id) {
+		return httpResponse{}, failure(404, "flow_route_not_found")
+	}
+	if nested {
+		if subpath == "media" {
+			return service.flowMediaHTTP(ctx, record, id, "", request)
+		}
+		if tail, ok := strings.CutPrefix(subpath, "media/"); ok {
+			return service.flowMediaHTTP(ctx, record, id, tail, request)
+		}
 		return httpResponse{}, failure(404, "flow_route_not_found")
 	}
 	switch request.Method {

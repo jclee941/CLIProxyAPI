@@ -245,6 +245,15 @@ func (service *service) recaptchaOrigin() string {
 func (service *service) withFlowSession(ctx context.Context, record storageRecord, exchange func(*flowSession) error) error {
 	session := service.newFlowSession(record.SourceAuthID)
 	err := exchange(session)
+	code := safeCredentialCode(err)
+	if code == "flow_unauthenticated" || code == "flow_upstream_status" {
+		// A refreshed credential can invalidate cached page tokens. Forget the
+		// rejected page for the next call, without replaying this operation.
+		service.flowMu.Lock()
+		delete(service.flowPages, record.SourceAuthID)
+		service.flowMu.Unlock()
+		return err
+	}
 	service.rememberFlowPage(record.SourceAuthID, session.page)
 	return err
 }
