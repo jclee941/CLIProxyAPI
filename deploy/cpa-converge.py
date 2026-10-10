@@ -6,7 +6,8 @@ fork's master branch. deploy/cpa-plugins.json names every artifact the host
 serves, and anything whose bytes differ from the live copy is replaced:
 
 - a dashboard file is replaced in place, since the host reads it per request;
-- a "hot" plugin is swapped and re-enabled through the management API;
+- a "hot" plugin is swapped and loaded by having the host re-apply its config
+  through the management API;
 - a "restart" plugin holds the plugin session store, so it is swapped under a
   stopped container, and only while no Omni turn runs and no API request is
   being answered: a restart kills every generation and request in flight;
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import functools
 import hashlib
 import json
 import os
@@ -325,6 +327,33 @@ def loaded(settings: Settings, key: str, expected: dict[str, pathlib.Path]) -> b
     return all(active.get(plugin_id) == (f"{settings.container_plugin_dir}/{path.name}", True) for plugin_id, path in expected.items())
 
 
+def hot_loaded(settings: Settings, plugin_id: str, installed: pathlib.Path) -> bool:
+    """The host logged loading the installed file.
+
+    The plugin listing names the file on disk whether or not the host loaded it,
+    so only the host's own load line tells a running file from a swapped one.
+    """
+    version = installed.name[len(plugin_id) + len("-v") : -len(".so")]
+    tail = run("docker", "exec", settings.container, "sh", "-c", "tail -n 40000 /CLIProxyAPI/logs/main.log")
+    return f"plugin loaded plugin_id={plugin_id} version={version} " in tail
+
+
+def reapply(settings: Settings, key: str, plugin_id: str, check) -> bool:
+    """Has the host re-apply a plugin's config, which is when it loads a swapped file.
+
+    The host reloads plugins only when config.yaml changes, and re-enabling an
+    enabled plugin writes the same bytes, so the plugin's routing priority is
+    raised by one until the swapped file loads and is then put back.
+    """
+    path = f"/v0/management/plugins/{plugin_id}/config"
+    priority = call(settings, key, "GET", path).get("priority")
+    call(settings, key, "PATCH", path, {"priority": int(priority or 0) + 1})
+    try:
+        return wait_until(settings, check)
+    finally:
+        call(settings, key, "PATCH", path, {"priority": priority})
+
+
 def restart_until(settings: Settings, key: str, check, reason: str) -> None:
     """One container restart for a host that did not come back, then give up."""
     if wait_until(settings, check):
@@ -357,8 +386,10 @@ def converge(settings: Settings) -> int:
 
     for change in (change for change in plugins if change.reload == "hot"):
         installed = swap(settings, change, commit)
+        check = functools.partial(hot_loaded, settings, change.id, installed)
         call(settings, key, "PATCH", f"/v0/management/plugins/{change.id}/enabled", {"enabled": True})
-        restart_until(settings, key, lambda: loaded(settings, key, {change.id: installed}), f"{change.id} did not load {installed.name}")
+        if not reapply(settings, key, change.id, check):
+            restart_until(settings, key, check, f"{change.id} did not load {installed.name}")
         log(f"{change.id} loaded {installed.name}")
 
     restarts = [change for change in plugins if change.reload == "restart"]

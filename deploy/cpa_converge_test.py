@@ -35,6 +35,9 @@ elif args[0] in ("start", "restart") and not (state / "broken").exists():
     for plugin_id in json.loads((state / "restart_ids.json").read_text()):
         names = sorted(p.name for p in plugins.iterdir() if p.name.startswith(plugin_id + "-v") and p.name.endswith(".so"))
         loaded[plugin_id] = names[0] if len(names) == 1 else ""
+        if loaded[plugin_id]:
+            with (state / "main.log").open("a") as main_log:
+                main_log.write(f"[2026-09-26 02:00:00] [--------] [info ] [host.go:364] pluginhost: plugin loaded plugin_id={plugin_id} version={loaded[plugin_id][len(plugin_id) + 2:-3]} path=/CLIProxyAPI/plugins/{loaded[plugin_id]}\n")
     (state / "loaded.json").write_text(json.dumps(loaded))
     (state / "core_commit").write_text(pathlib.Path(os.environ["FAKE_CORE"]).read_bytes().split()[1].decode())
 """
@@ -76,6 +79,8 @@ def management_handler(state: pathlib.Path, plugins: pathlib.Path) -> type[http.
                 self.reply({"accounts": json.loads((state / "accounts.json").read_text())})
             elif self.path == "/v0/management/in-flight" and (state / "in_flight").exists():
                 self.reply({"in_flight": int((state / "in_flight").read_text())})
+            elif self.path.startswith("/v0/management/plugins/") and self.path.endswith("/config"):
+                self.reply(json.loads((state / "config.json").read_text()).get(self.path.split("/")[4], {}))
             else:
                 self.send_error(404)
 
@@ -84,9 +89,22 @@ def management_handler(state: pathlib.Path, plugins: pathlib.Path) -> type[http.
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             with (state / "patches.log").open("a") as log:
                 log.write(f"{plugin_id} {body}\n")
+            # Like the host, only a config change re-applies plugins and loads a swapped file.
+            configs = json.loads((state / "config.json").read_text())
+            item = configs.setdefault(plugin_id, {})
+            before = dict(item)
+            for field, value in body.items():
+                if value is None:
+                    item.pop(field, None)
+                else:
+                    item[field] = value
+            (state / "config.json").write_text(json.dumps(configs))
             loaded = json.loads((state / "loaded.json").read_text())
-            loaded[plugin_id] = loadable_name(plugin_id)
-            (state / "loaded.json").write_text(json.dumps(loaded))
+            if item != before and not (state / "stuck").exists() and loaded.get(plugin_id) != loadable_name(plugin_id):
+                loaded[plugin_id] = loadable_name(plugin_id)
+                (state / "loaded.json").write_text(json.dumps(loaded))
+                with (state / "main.log").open("a") as main_log:
+                    main_log.write(f"[2026-09-26 02:00:00] [--------] [info ] [host.go:364] pluginhost: plugin loaded plugin_id={plugin_id} version={loaded[plugin_id][len(plugin_id) + 2:-3]} path=/CLIProxyAPI/plugins/{loaded[plugin_id]}\n")
             self.reply({"status": "ok"})
 
     return Handler
@@ -161,7 +179,8 @@ def host(test: unittest.TestCase) -> Host:
     (plugins / "cw-v0.1.0.1.so").write_bytes(b"cw-new")
     (plugins / "gw/index.html").write_text("dashboard-new")
     (state / "loaded.json").write_text(json.dumps({"gw": "gw-v0.1.0.1.so", "cw": "cw-v0.1.0.1.so"}))
-    (state / "restart_ids.json").write_text(json.dumps(["gw"]))
+    (state / "restart_ids.json").write_text(json.dumps(["gw", "cw"]))
+    (state / "config.json").write_text(json.dumps({"gw": {"enabled": True}, "cw": {"enabled": True}}))
     (state / "main.log").write_text("")
     (state / "in_flight").write_text("0")
     (root / "core.env").write_text("MANAGEMENT_PASSWORD='key'\n")
@@ -219,8 +238,21 @@ class ConvergeTest(unittest.TestCase):
         self.assertEqual([path.read_bytes() for path in installed], [b"cw-new"])
         self.assertTrue(installed[0].name.endswith(f".g{fixture.commit}.so"))
         self.assertEqual((fixture.plugins / f"cw-v0.1.0.1.so.prev-g{fixture.commit}").read_bytes(), b"cw-old")
-        self.assertIn("cw {'enabled': True}", (fixture.state / "patches.log").read_text())
+        self.assertEqual((fixture.state / "patches.log").read_text().splitlines(), ["cw {'enabled': True}", "cw {'priority': 1}", "cw {'priority': None}"])
+        self.assertIn(f"plugin loaded plugin_id=cw version={installed[0].name[len('cw-v'):-len('.so')]} ", (fixture.state / "main.log").read_text())
+        self.assertEqual(json.loads((fixture.state / "config.json").read_text())["cw"], {"enabled": True})
         self.assertEqual(fixture.lifecycle(), [])
+
+    def test_a_hot_plugin_the_host_does_not_load_gets_one_restart(self) -> None:
+        fixture = host(self)
+        fixture.live("cw", b"cw-old")
+        (fixture.state / "stuck").write_text("")
+
+        self.assertEqual(converge_module.converge(fixture.settings), 0)
+
+        self.assertEqual(fixture.lifecycle(), ["restart"])
+        self.assertEqual(json.loads((fixture.state / "loaded.json").read_text())["cw"], converge_module.loadable(fixture.plugins, "cw")[0].name)
+        self.assertEqual(json.loads((fixture.state / "config.json").read_text())["cw"], {"enabled": True})
 
     def test_a_restart_waits_while_an_account_generates(self) -> None:
         fixture = host(self)
