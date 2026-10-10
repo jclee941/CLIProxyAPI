@@ -596,9 +596,10 @@ func TestFlowVideoReportsTheRefusalFlowRecorded(t *testing.T) {
 }
 
 func TestFlowLowPriorityRefusalFallsBackToNormalPriority(t *testing.T) {
-	// Given: Flow refusing every low-priority Veo Lite token and accepting the
-	// same request at normal priority.
+	// Given: an account at the credit floor, Flow refusing every low-priority
+	// Veo Lite token and accepting the same request at normal priority.
 	fixture := newFlowFixture(t)
+	fixture.replies["nzlxg"] = []string{rpcEnvelope(t, "nzlxg", []any{flowFallbackCreditFloor, 2, 3, 3})}
 	media := []any{flowTestOp, flowTestProject, flowTestMedia}
 	refused := flowErrorEnvelope(t, []any{"wrb.fr", "YhhmEf", nil, nil, nil, []any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY"}}}}, "generic"})
 	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
@@ -649,6 +650,32 @@ func TestFlowTooMuchTrafficIsARateLimitWithoutRetries(t *testing.T) {
 	// Then: the caller is told to back off after one submission.
 	if result.OK || result.Error.Code != "flow_rate_limited" || result.Error.HTTPStatus != 429 || fixture.count("YhhmEf") != 1 {
 		t.Fatalf("throttled request = %+v after %d submissions", result.Error, fixture.count("YhhmEf"))
+	}
+}
+
+func TestFlowLowPriorityRefusalBelowTheCreditFloorSpendsNothing(t *testing.T) {
+	// Given: an account one credit below the floor and Flow refusing every
+	// low-priority token.
+	fixture := newFlowFixture(t)
+	fixture.replies["nzlxg"] = []string{rpcEnvelope(t, "nzlxg", []any{flowFallbackCreditFloor - 1, 2, 3, 3})}
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", flowErrorEnvelope(t, []any{"wrb.fr", "YhhmEf", nil, nil, nil, []any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY"}}}}, "generic"}))
+	service, record := flowService(t, fixture)
+	lowVideo := `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8,"flow":{"priority":"low"}}}`
+
+	// When: a low-priority video is requested twice.
+	first := flowExecute(t, service, record, "flow-veo-3.1-lite", lowVideo)
+	second := flowExecute(t, service, record, "flow-veo-3.1-lite", lowVideo)
+
+	// Then: neither request goes out at normal priority, and the second does
+	// not reach Flow while the refused queue is paused.
+	for _, result := range []envelope{first, second} {
+		if result.OK || result.Error.Code != "flow_credit_floor_reached" || result.Error.HTTPStatus != 429 {
+			t.Fatalf("below the floor = %+v", result.Error)
+		}
+	}
+	if fixture.count("YhhmEf") != flowTokenAttempts {
+		t.Fatalf("%d submissions, want only the %d refused low-priority tokens", fixture.count("YhhmEf"), flowTokenAttempts)
 	}
 }
 

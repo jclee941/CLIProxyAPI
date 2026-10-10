@@ -42,6 +42,7 @@ type service struct {
 	flowPages               map[string]flowPage
 	flowProjects            map[string]string
 	lowPriorityPausedUntil  map[string]time.Time
+	flowCreditBalance       map[string]int
 	flowOriginOverride      string
 	recaptchaOriginOverride string
 	flowWait                func(context.Context, time.Duration) error

@@ -128,6 +128,9 @@ func (service *service) selectFlowOptions(ctx context.Context, record storageRec
 		if err != nil {
 			return err
 		}
+		if balance, ok := flowCredits(credits); ok {
+			service.recordFlowBalance(record.SourceAuthID, balance)
+		}
 		var valid bool
 		if selection.tier, valid = jsonInteger(jsonField(credits, 3)); !valid || selection.tier < 1 || selection.tier > 3 {
 			return failure(502, "flow_account_tier_invalid")

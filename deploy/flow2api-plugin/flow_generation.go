@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -35,8 +36,38 @@ func (service *service) pauseLowPriority(account string) {
 	service.lowPriorityPausedUntil[account] = service.now().Add(flowLowPriorityPause)
 }
 
+// Below this balance a refused low-priority request is not sent at normal
+// priority, which spends credits the caller did not ask for (5 for each
+// 8-second 720p clip, about 900 on the night of 2026-10-10). The rest is kept
+// for work the caller asks to run at normal priority.
+const flowFallbackCreditFloor = 5000
+
+func (service *service) recordFlowBalance(account string, credits int) {
+	service.flowMu.Lock()
+	defer service.flowMu.Unlock()
+	if service.flowCreditBalance == nil {
+		service.flowCreditBalance = map[string]int{}
+	}
+	service.flowCreditBalance[account] = credits
+}
+
+// lowPriorityFallback refuses the normal-priority fallback below the credit
+// floor, judged by the balance the latest model selection read.
+func (service *service) lowPriorityFallback(account string) error {
+	service.flowMu.Lock()
+	defer service.flowMu.Unlock()
+	if service.flowCreditBalance[account] >= flowFallbackCreditFloor {
+		return nil
+	}
+	message := fmt.Sprintf("flow_credit_floor_reached: Flow refused low priority, and normal priority is not used below %d credits", flowFallbackCreditFloor)
+	return &publicError{Code: "flow_credit_floor_reached", Message: message, HTTPStatus: 429}
+}
+
 func (service *service) flowGenerate(ctx context.Context, record storageRecord, model flowModel, input flowInput) ([]byte, error) {
 	if input.options.Priority == "low" && service.lowPriorityPaused(record.SourceAuthID) {
+		if err := service.lowPriorityFallback(record.SourceAuthID); err != nil {
+			return nil, err
+		}
 		service.report(map[string]any{"provider": provider, "state": "flow_low_priority_paused", "reason": model.id}, "flow2api: generation")
 		input.options.Priority = "normal"
 	}
@@ -115,12 +146,15 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 		// Flow refuses the free low-priority Veo Lite queue with UNUSUAL_ACTIVITY
 		// once an account has leaned on it, while the same request at normal
 		// priority is accepted. A refusal means nothing started, so the request
-		// goes once more at normal priority, which spends credits.
+		// goes once more at normal priority, which spends credits, unless the
+		// balance is below the credit floor.
 		service.report(map[string]any{"provider": provider, "state": "flow_low_priority_refused", "reason": model.id}, "flow2api: generation")
 		service.pauseLowPriority(record.SourceAuthID)
-		input.options.Priority = "normal"
-		if selected, err = service.selectFlowOptions(ctx, record, model, input); err == nil {
-			err = service.flowSubmit(ctx, record, project, action, build, accept)
+		if err = service.lowPriorityFallback(record.SourceAuthID); err == nil {
+			input.options.Priority = "normal"
+			if selected, err = service.selectFlowOptions(ctx, record, model, input); err == nil {
+				err = service.flowSubmit(ctx, record, project, action, build, accept)
+			}
 		}
 	}
 	if err != nil {
