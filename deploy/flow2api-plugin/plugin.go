@@ -70,6 +70,9 @@ func (service *service) handle(ctx context.Context, method string, raw []byte) [
 		if !errors.As(err, &response.Error) {
 			response.Error = failure(500, "flow_plugin_operation_failed")
 		}
+		if method == "executor.execute" || method == "executor.execute_stream" {
+			response.Error = executionFailure(response.Error)
+		}
 	} else {
 		response.Result, err = json.Marshal(result)
 		if err != nil {
@@ -81,6 +84,18 @@ func (service *service) handle(ctx context.Context, method string, raw []byte) [
 		return []byte(`{"ok":false,"error":{"code":"flow_response_encoding_failed","message":"flow_response_encoding_failed","http_status":500}}`)
 	}
 	return encoded
+}
+
+// executionFailure answers a model request with an error object. The host hands
+// a JSON message to the caller as it stands, while a bare code is filed under a
+// generic one for its status, which showed an expired Flow session (401) as the
+// caller's own API key being invalid. The flow_ stop rules still match inside it.
+func executionFailure(public *publicError) *publicError {
+	body, err := json.Marshal(map[string]map[string]string{"error": {"code": public.Code, "message": public.Message}})
+	if err != nil {
+		return public
+	}
+	return &publicError{Code: public.Code, Message: string(body), HTTPStatus: public.HTTPStatus}
 }
 
 func (service *service) register(raw []byte) (interface{}, error) {

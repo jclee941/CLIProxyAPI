@@ -67,11 +67,12 @@ func (service *service) flowStatus(ctx context.Context, request managementReques
 		}
 	}
 	accounts := []flowAccountView{}
+	reading := withoutLeaseWait(ctx)
 	for _, id := range service.settings().FlowAccounts {
 		record := storageRecord{ID: id, SourceAuthID: id}
 		view := flowAccountView{ID: id, Label: labels[id], Status: "unknown"}
-		err := service.withFlowSession(ctx, record, func(session *flowSession) error {
-			payload, err := session.rpc(ctx, "nzlxg", []any{}, flowProjectsPath, "")
+		err := service.withFlowSession(reading, record, func(session *flowSession) error {
+			payload, err := session.rpc(reading, "nzlxg", []any{}, flowProjectsPath, "")
 			if err != nil {
 				return err
 			}

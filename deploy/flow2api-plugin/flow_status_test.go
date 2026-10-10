@@ -78,6 +78,36 @@ func TestFlowStatusReportsLiveBalanceLabelAndObservation(t *testing.T) {
 	}
 }
 
+func TestFlowStatusReportsBusyLeaseWithoutWaiting(t *testing.T) {
+	// Given: a Gemini generation holding the source account's lease.
+	fixture := newFlowFixture(t)
+	fixture.mu.Lock()
+	fixture.busyRPC, fixture.busyRemaining = "nzlxg", 1
+	fixture.mu.Unlock()
+	service, _ := flowService(t, fixture)
+	service.flowWait = func(context.Context, time.Duration) error {
+		t.Error("the account listing waited for the lease")
+		return nil
+	}
+
+	// When: the accounts are listed.
+	result, err := service.flowStatus(context.Background(), managementRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then: the account shows busy at once, with no balance.
+	var response struct {
+		Accounts []flowAccountView `json:"accounts"`
+	}
+	if err := json.Unmarshal(jsonFixture(t, result), &response); err != nil {
+		t.Fatal(err)
+	}
+	if account := response.Accounts[0]; account.Status != "busy" || account.Credits != nil {
+		t.Fatalf("busy lease listed as %+v", account)
+	}
+}
+
 func TestFlowStatusKeepsFailedCreditLookupUnknown(t *testing.T) {
 	fixture := newFlowFixture(t)
 	fixture.mu.Lock()

@@ -594,6 +594,30 @@ func TestFlowVideoReportsTheRefusalFlowRecorded(t *testing.T) {
 	}
 }
 
+func TestFlowExecutionFailureReachesTheHostAsAnErrorObject(t *testing.T) {
+	// Given: Flow refusing the generation because the session is signed out.
+	fixture := newFlowFixture(t)
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{[]any{flowTestProject}}))
+	fixture.reply("ogiZ0b", flowErrorEnvelope(t, []any{"er", nil, nil, nil, nil, 401, "generic"}))
+	service, record := flowService(t, fixture)
+
+	// When: the image is requested.
+	result := flowExecute(t, service, record, "flow-nano-banana-2", `{"contents":[{"role":"user","parts":[{"text":"a red apple"}]}]}`)
+
+	// Then: the message is the error object the host passes to the caller as it
+	// stands, so the 401 does not read as the caller's API key.
+	var body struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if result.OK || result.Error.Code != "flow_unauthenticated" || result.Error.HTTPStatus != 401 ||
+		json.Unmarshal([]byte(result.Error.Message), &body) != nil || body.Error.Code != "flow_unauthenticated" || body.Error.Message != "flow_unauthenticated" {
+		t.Fatalf("execution failure = %+v", result.Error)
+	}
+}
+
 // A refused token never started a generation, so it is replaced; a lost answer
 // may have, so it is not.
 func TestFlowResendsOnlyARefusedToken(t *testing.T) {

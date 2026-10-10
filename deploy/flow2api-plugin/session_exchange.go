@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type exchangeResult struct {
@@ -15,8 +16,37 @@ type exchangeResult struct {
 	Body       []byte      `json:"body"`
 }
 
+// The Gemini plugin refuses an exchange with session_exchange_busy while one of
+// its generations holds the account's credential lease, and it refuses before
+// sending anything, so asking again cannot repeat a request. An exchange
+// therefore waits for the lease instead of failing its caller. The bound
+// outlasts a typical video turn and leaves the Flow generation that follows
+// room inside a ten minute client timeout.
+const (
+	flowLeasePoll = 2 * time.Second
+	flowLeaseWait = 5 * time.Minute
+)
+
+type flowLeaseWaitOff struct{}
+
+// withoutLeaseWait makes exchanges under ctx report a busy lease at once, so a
+// reading such as the account listing shows the account busy instead of
+// blocking behind a generation.
+func withoutLeaseWait(ctx context.Context) context.Context {
+	return context.WithValue(ctx, flowLeaseWaitOff{}, true)
+}
+
 func (service *service) exchange(ctx context.Context, accountID, method, target string, body []byte, headers http.Header) (exchangeResult, error) {
-	return service.exchangeWithRequestID(ctx, accountID, method, target, body, headers, "")
+	deadline := service.now().Add(flowLeaseWait)
+	for {
+		result, err := service.exchangeWithRequestID(ctx, accountID, method, target, body, headers, "")
+		if safeCredentialCode(err) != "flow_session_exchange_busy" || ctx.Value(flowLeaseWaitOff{}) != nil || !service.now().Before(deadline) {
+			return result, err
+		}
+		if service.waitFlow(ctx, flowLeasePoll) != nil {
+			return result, err
+		}
+	}
 }
 
 func (service *service) exchangeWithRequestID(ctx context.Context, accountID, method, target string, body []byte, headers http.Header, requestID string) (exchangeResult, error) {
