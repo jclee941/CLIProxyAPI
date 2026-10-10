@@ -57,9 +57,10 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 	if model.video {
 		action = "VIDEO_GENERATION"
 	}
-	err = service.flowSubmit(ctx, record, project, action, func(token string) (string, any) {
+	build := func(token string) (string, any) {
 		return flowBatchArgs(project, token, input, selected)
-	}, func(payload any) error {
+	}
+	accept := func(payload any) error {
 		if model.video {
 			flowVideoRecords(payload, func(value []any) {
 				if value[1] == project {
@@ -82,7 +83,19 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 			}
 		}
 		return nil
-	})
+	}
+	err = service.flowSubmit(ctx, record, project, action, build, accept)
+	if safeCredentialCode(err) == "flow_captcha_rejected" && input.options.Priority == "low" {
+		// Flow refuses the free low-priority Veo Lite queue with UNUSUAL_ACTIVITY
+		// once an account has leaned on it, while the same request at normal
+		// priority is accepted. A refusal means nothing started, so the request
+		// goes once more at normal priority, which spends credits.
+		service.report(map[string]any{"provider": provider, "state": "flow_low_priority_refused", "reason": model.id}, "flow2api: generation")
+		input.options.Priority = "normal"
+		if selected, err = service.selectFlowOptions(ctx, record, model, input); err == nil {
+			err = service.flowSubmit(ctx, record, project, action, build, accept)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}

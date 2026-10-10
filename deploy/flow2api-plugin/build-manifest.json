@@ -5,7 +5,7 @@
   "schema_version": 6,
   "format": "c-shared",
   "artifact": "flow2api.so",
-  "artifact_sha256": "6239440b9fe3847a47e71fe8b1092eae0589b8d63621ef2232a92e7a4ad05a06",
+  "artifact_sha256": "3a99e73185860e64b3f975fedd33aaab80673cbac2679093bfbf767b5a5593c1",
   "generated_header": "flow2api.h",
   "header_sha256": "8fa2dec5d2fb3fcb51fed78551bb608eefa9ae5900a2729455963dcb7e547612",
   "platform": "linux/amd64",

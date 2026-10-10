@@ -594,6 +594,34 @@ func TestFlowVideoReportsTheRefusalFlowRecorded(t *testing.T) {
 	}
 }
 
+func TestFlowLowPriorityRefusalFallsBackToNormalPriority(t *testing.T) {
+	// Given: Flow refusing every low-priority Veo Lite token and accepting the
+	// same request at normal priority.
+	fixture := newFlowFixture(t)
+	media := []any{flowTestOp, flowTestProject, flowTestMedia}
+	refused := flowErrorEnvelope(t, []any{"wrb.fr", "YhhmEf", nil, nil, nil, []any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY"}}}}, "generic"})
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", refused, refused, refused, rpcEnvelope(t, "YhhmEf", []any{[]any{media}}))
+	fixture.reply("jwpduf", rpcEnvelope(t, "jwpduf", []any{[]any{append(slices.Clone(media), fixture.link("video"))}}))
+	service, record := flowService(t, fixture)
+
+	// When: a low-priority video is requested.
+	result := flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8,"flow":{"priority":"low"}}}`)
+
+	// Then: the video comes from one normal-priority submission after the
+	// low-priority tokens were refused.
+	mime, data := flowInlineMedia(t, result)
+	if mime != "video/mp4" || !slices.Equal(data, flowTestMP4) || fixture.count("YhhmEf") != flowTokenAttempts+1 {
+		t.Fatalf("video %s %d bytes after %d submissions", mime, len(data), fixture.count("YhhmEf"))
+	}
+	for attempt := 0; attempt <= flowTokenAttempts; attempt++ {
+		key, _ := jsonField(fixture.args("YhhmEf", attempt), 0, 0, 1).(string)
+		if low := strings.HasSuffix(key, "_low_priority"); low != (attempt < flowTokenAttempts) {
+			t.Fatalf("submission %d used model %q", attempt, key)
+		}
+	}
+}
+
 func TestFlowAnswersOptionalHostMethodsAsUnsupported(t *testing.T) {
 	// A hot reload first asks the replaced plugin to quiesce; the host treats
 	// unknown_method as a method the plugin does not offer, not as a failure.
