@@ -51,3 +51,15 @@ deploy/shared-browser/run.sh
 | `SHARED_BROWSER_SCREEN` | `1920x1080x24` | Xvfb geometry |
 
 Containers use `--shm-size 1g`, `--restart unless-stopped`, `--init` and a healthcheck (CDP and noVNC). CDP rejects non-IP `Host` headers, so address it by IP.
+
+## Stopped while CPA holds the account
+
+A login captured from a profile leaves that profile and CPA holding the same Google session. Both rotate its cookies, so a running browser strands CPA on retired ones, and the account fails with `credential_identity_invalid` until it is captured again. Keep the container stopped. Start it only when CPA's credential for that account has already failed, capture the login, and stop it right after `login/complete` succeeds:
+
+```bash
+docker start shared-browser-<account>
+# sign in if needed, capture with the login companion
+docker stop shared-browser-<account>
+```
+
+A manually stopped container stays stopped across Docker and NAS restarts.
