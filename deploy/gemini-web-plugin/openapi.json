@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Gemini and Google Flow Media API",
-    "version": "2026-10-09",
+    "version": "2026-10-10",
     "summary": "Generate Flow images and videos, extend Gemini videos, and manage files.",
     "description": "Authenticate with an API key as a Bearer token, in the x-goog-api-key header, or in the key query parameter. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait, where the official default is 16:9. A new video goes to an account below 80% of its five-hour usage and 90% of its weekly usage with enough video allowance left; when none qualifies, creation fails with 409 account_unavailable until usage resets. A continuation runs in its original conversation while that account can serve; otherwise another account continues from the stored video and returns a new id to continue from.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. The other official resolutions (360p, 1080p, 4k), explicit duration controls, and tasks other than extend are rejected. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data. Each serving account keeps its 16 newest stored interactions; an older id can no longer be retrieved or continued.\n\nErrors answer {\"error\": {\"code\", \"message\"}}: code is the identifier, such as account_unavailable, and message repeats it, behind a gemini_web_omni: prefix for a failure raised during a turn, continuing after ': ' with the product's reply when a turn was answered without a video. Failures the gateway raises before a request reaches this service answer the gateway's own object with message and type: a non-boolean stream, or every account held back by the gateway itself. A missing or unknown API key answers 401 with error as a string.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error.",
     "license": {
@@ -37,7 +37,7 @@
       "post": {
         "operationId": "generateFlowMedia",
         "summary": "Generate an image or video through Google Flow.",
-        "description": "Returns one completed media item as base64 inlineData. The flow-nano-banana-2 alias serves Nano Banana 2.1. Use flow-omni-1.1-flash or flow-veo-3.1-fast for videos. Each Flow request is an independent generation; previous_interaction_id is not supported. Allow the response to finish and never automatically replay an ambiguous submission. A flow_unauthenticated message refers to the linked Google session, not necessarily the caller's API key.",
+        "description": "Returns one to four completed media items (candidateCount) as base64 inlineData. Models: flow-nano-banana-2 (Nano Banana 2.1) and flow-nano-banana-pro for images; flow-veo-3.1-fast, flow-veo-3.1-quality, flow-veo-3.1-lite, and flow-omni-1.1-flash for videos. Options are checked against the live Flow catalog and the account tier before submission; an unavailable combination answers 400 flow_model_options_unsupported. Each Flow request is an independent generation; previous_interaction_id is not supported. Allow the response to finish and never automatically replay an ambiguous submission. A flow_unauthenticated message refers to the linked Google session, not necessarily the caller's API key.\n\nEvery part carries flow.mediaId and flow.projectId. A mediaId is the Flow media UUID of that output, not a workflow, operation, Gemini file, or interaction id. Send it back in flow.baseImage, flow.referenceImages, flow.firstFrame, flow.lastFrame, flow.sourceVideo.mediaId, or a structuredPrompt reference, with flow.projectId, to edit, extend, or upscale a result. Ids only work on the Flow account that owns them. Video and audio bytes cannot be uploaded: use existing Flow media ids. Only images can be sent inline. Extension length is not guaranteed (a live 720p extension returned 7 seconds); a video edit lasts as long as the selected clip.\n\nStreaming: POST /models/{model}:streamGenerateContent?alt=sse sends the finished response as one JSON chunk per data line. The same models also answer OpenAI Chat, OpenAI Responses, and Claude requests, which accept this generationConfig object at the top level (n and seed map to candidateCount and seed). Chat returns images in message.images[].image_url.url as data URLs and videos as a data URL in message.content. Responses returns image_generation_call items (base64 in result) and videos as output_text data URLs. Claude returns text blocks holding data URLs. Each of these three carries a top-level flow array of {mediaId, projectId, candidateIndex, partIndex}. Their streams deliver finished media: Chat sends chunk events, a finish chunk, then [DONE]; Responses sends response.created through response.completed; Claude sends message_start through message_stop.",
         "parameters": [
           {
             "name": "model",
@@ -45,7 +45,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": ["flow-nano-banana-2", "flow-omni-1.1-flash", "flow-veo-3.1-fast"]
+              "enum": ["flow-nano-banana-2", "flow-nano-banana-pro", "flow-veo-3.1-fast", "flow-veo-3.1-quality", "flow-veo-3.1-lite", "flow-omni-1.1-flash"]
             }
           }
         ],
@@ -68,6 +68,24 @@
                     "contents": [{"role": "user", "parts": [{"text": "A yellow paper boat floating on calm blue water, gentle ripples, static camera."}]}],
                     "generationConfig": {"aspectRatio": "9:16", "durationSeconds": 4}
                   }
+                },
+                "imageBatch": {
+                  "summary": "Two 3:4 images with a seed",
+                  "value": {
+                    "contents": [{"role": "user", "parts": [{"text": "An orange paper fox on a white table."}]}],
+                    "generationConfig": {"candidateCount": 2, "seed": 42, "imageConfig": {"aspectRatio": "3:4", "imageSize": "2K"}}
+                  }
+                },
+                "videoUpscale": {
+                  "summary": "Upscale a generated video to 1080p",
+                  "value": {
+                    "contents": [{"role": "user", "parts": [{"text": ""}]}],
+                    "generationConfig": {
+                      "aspectRatio": "9:16",
+                      "resolution": "1080p",
+                      "flow": {"mode": "upscale", "projectId": "PROJECT_ID", "sourceVideo": {"mediaId": "MEDIA_ID"}}
+                    }
+                  }
                 }
               }
             }
@@ -75,16 +93,16 @@
         },
         "responses": {
           "200": {
-            "description": "One generated image or MP4 video.",
+            "description": "One generated image or MP4 video per candidate, each with its Flow media reference.",
             "content": {
               "application/json": {
                 "schema": {"$ref": "#/components/schemas/FlowGenerateResponse"}
               }
             }
           },
-          "400": {"description": "Invalid or unsupported generation options."},
+          "400": {"description": "Invalid or unsupported generation options, such as flow_unsupported_generation_option, flow_model_options_unsupported, flow_conflicting_inputs, flow_mode_required, flow_too_many_references, or flow_source_video_unavailable."},
           "401": {"description": "Caller authentication or the linked Google session was rejected."},
-          "409": {"description": "The account is busy or requires operator reconciliation."},
+          "409": {"description": "The account is busy (flow_session_exchange_busy) or requires operator reconciliation. Do not retry automatically if the first attempt may have been accepted."},
           "429": {"description": "Google Flow credits or quota are exhausted."},
           "502": {"description": "Upstream generation failed. Do not automatically replay flow_submission_outcome_unknown."},
           "503": {"description": "The token provider or shared session service is unavailable."}
@@ -1262,6 +1280,117 @@
       }
     },
     "schemas": {
+      "FlowCropCoordinates": {
+        "type": "object",
+        "required": ["top", "left", "bottom", "right"],
+        "additionalProperties": false,
+        "description": "Normalized crop edges. top must be below bottom and left below right.",
+        "properties": {
+          "top": {"type": "number", "minimum": 0, "maximum": 1},
+          "left": {"type": "number", "minimum": 0, "maximum": 1},
+          "bottom": {"type": "number", "minimum": 0, "maximum": 1},
+          "right": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      },
+      "FlowMediaReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "An existing Flow media id or an inline image, with an optional crop.",
+        "oneOf": [{"required": ["mediaId"]}, {"required": ["inlineData"]}],
+        "properties": {
+          "mediaId": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^\\S+$"},
+          "inlineData": {
+            "type": "object",
+            "required": ["mimeType", "data"],
+            "properties": {
+              "mimeType": {"type": "string", "pattern": "^image/"},
+              "data": {"type": "string", "contentEncoding": "base64"}
+            }
+          },
+          "cropCoordinates": {"$ref": "#/components/schemas/FlowCropCoordinates"}
+        }
+      },
+      "FlowStructuredPromptPart": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Either text, or a reference with exactly one id.",
+        "oneOf": [{"required": ["text"]}, {"required": ["reference"]}],
+        "properties": {
+          "text": {"type": "string", "minLength": 1},
+          "reference": {
+            "type": "object",
+            "additionalProperties": false,
+            "maxProperties": 1,
+            "minProperties": 1,
+            "properties": {
+              "mediaId": {"type": "string"},
+              "likenessId": {"type": "string"},
+              "entityId": {"type": "string"},
+              "audioId": {"type": "string", "description": "Video models only."}
+            }
+          }
+        }
+      },
+      "FlowOptions": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Flow-specific options under generationConfig.flow. Ids are opaque strings of up to 256 characters without whitespace.",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["auto", "text", "references", "frames", "edit", "extend", "upscale"],
+            "default": "auto",
+            "description": "auto picks frames when a frame is set, edit when baseImage is set, references when any other reference is set, and text otherwise. sourceVideo never infers a mode: set edit, extend, or upscale. text takes no references. references needs at least one reference image, audio, likeness, or entity. frames (video) needs firstFrame, lastFrame is optional, and nothing else may be set. edit needs baseImage (image) or sourceVideo (video). extend (video) needs sourceVideo. upscale needs baseImage with a mediaId and no crop (image, imageSize 2K or 4K) or sourceVideo without a frame range (video, resolution 720p, 1080p, or 4K); it takes no prompt text, references, priority, or durationSeconds, and candidateCount must be 1."
+          },
+          "priority": {"type": "string", "enum": ["normal", "low"], "default": "normal", "description": "low is accepted only by flow-veo-3.1-lite. Not valid for images or upscale."},
+          "projectId": {"type": "string", "description": "Existing Flow project of the linked account. Defaults to the account's current project."},
+          "modelKey": {"type": "string", "description": "Exact Flow model usage key from the live catalog. It must stay inside the requested model's family."},
+          "firstFrame": {"$ref": "#/components/schemas/FlowMediaReference", "description": "Video only."},
+          "lastFrame": {"$ref": "#/components/schemas/FlowMediaReference", "description": "Video only. Needs firstFrame."},
+          "baseImage": {"$ref": "#/components/schemas/FlowMediaReference", "description": "Image only."},
+          "referenceImages": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/FlowMediaReference"},
+            "description": "Image models accept at most 10 references in total, counting contents images and baseImage. Video limits come from the live catalog for the model."
+          },
+          "sourceVideo": {
+            "type": "object",
+            "required": ["mediaId"],
+            "additionalProperties": false,
+            "description": "Video only. An existing Flow video media id, optionally limited to a frame range.",
+            "properties": {
+              "mediaId": {"type": "string"},
+              "startFrame": {"type": "integer", "minimum": 0},
+              "endFrame": {"type": "integer", "minimum": 0, "description": "Must be above startFrame."}
+            }
+          },
+          "referenceAudio": {"type": "array", "items": {"type": "string"}, "description": "Video only. Existing Flow audio media ids."},
+          "referenceLikenesses": {"type": "array", "items": {"type": "string"}},
+          "referenceEntities": {"type": "array", "items": {"type": "string"}},
+          "audioFailurePreference": {"type": "string", "enum": ["allow_silent", "require_audio"], "description": "Video only."},
+          "destination": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "description": "Existing Flow output destination. position requires sceneId. Image generation rejects sceneId; image upscale rejects destination. Wire-tested; destination placement has not been verified live.",
+            "properties": {
+              "workflowId": {"type": "string"},
+              "collectionId": {"type": "string"},
+              "sceneId": {"type": "string"},
+              "position": {"type": "integer", "minimum": 0}
+            }
+          },
+          "structuredPrompt": {
+            "type": "object",
+            "required": ["parts"],
+            "additionalProperties": false,
+            "description": "Replaces the text prompt. Sending text in both returns flow_prompt_conflict.",
+            "properties": {
+              "parts": {"type": "array", "minItems": 1, "items": {"$ref": "#/components/schemas/FlowStructuredPromptPart"}}
+            }
+          }
+        }
+      },
       "FlowGenerateRequest": {
         "type": "object",
         "required": ["contents"],
@@ -1269,6 +1398,7 @@
           "contents": {
             "type": "array",
             "minItems": 1,
+            "description": "The last user turn is the prompt. Its text parts are joined, and its inlineData images become references. fileData is rejected. Upscale needs no prompt text: send an empty text part.",
             "items": {
               "type": "object",
               "required": ["parts"],
@@ -1279,8 +1409,17 @@
                   "minItems": 1,
                   "items": {
                     "type": "object",
-                    "required": ["text"],
-                    "properties": {"text": {"type": "string", "minLength": 1}}
+                    "properties": {
+                      "text": {"type": "string"},
+                      "inlineData": {
+                        "type": "object",
+                        "required": ["mimeType", "data"],
+                        "properties": {
+                          "mimeType": {"type": "string", "pattern": "^image/"},
+                          "data": {"type": "string", "contentEncoding": "base64"}
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -1288,32 +1427,52 @@
           },
           "generationConfig": {
             "type": "object",
+            "description": "Unknown keys answer 400 flow_unsupported_generation_option. temperature, topP, topK, maxOutputTokens, responseModalities, thinkingConfig, stopSequences, presencePenalty, frequencyPenalty, and responseMimeType are accepted and ignored.",
             "properties": {
-              "candidateCount": {"type": "integer", "const": 1},
+              "candidateCount": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1, "description": "All outputs come from one Flow batch. Must be 1 for upscale."},
+              "seed": {"type": "integer", "minimum": 0, "maximum": 2147483647, "description": "Images (not image upscale) and video upscale only. Rejected for video generation."},
               "aspectRatio": {
                 "type": "string",
-                "enum": ["9:16", "16:9"],
-                "default": "9:16",
-                "description": "Video orientation."
+                "enum": ["1:1", "9:16", "16:9", "3:4", "4:3"],
+                "description": "Images accept all five and default to 1:1. Video accepts 9:16 (default) or 16:9. Set it to the source ratio for a video upscale."
               },
               "durationSeconds": {
                 "type": "integer",
                 "enum": [4, 6, 8, 10],
                 "default": 8,
-                "description": "Video duration; 10 seconds is available only for Omni."
+                "description": "Video only. 10 seconds is available only for Omni. Rejected for video edit and upscale."
+              },
+              "resolution": {
+                "type": "string",
+                "enum": ["360p", "720p", "1080p", "4K"],
+                "default": "720p",
+                "description": "Video only. 360p is Omni only. 1080p and 4K generate at 720p and then upscale; 4K needs an account tier that allows it. Required for upscale, which accepts 720p, 1080p, and 4K."
               },
               "imageConfig": {
                 "type": "object",
+                "additionalProperties": false,
+                "description": "Images only.",
                 "properties": {
                   "aspectRatio": {
                     "type": "string",
-                    "enum": ["1:1", "9:16", "16:9", "4:3", "3:4"],
-                    "default": "1:1"
-                  }
+                    "enum": ["1:1", "9:16", "16:9", "3:4", "4:3"],
+                    "default": "1:1",
+                    "description": "A value different from generationConfig.aspectRatio answers flow_conflicting_aspect_ratio."
+                  },
+                  "imageSize": {"type": "string", "enum": ["1K", "2K", "4K"], "default": "1K", "description": "2K and 4K generate first and then upscale. Required (2K or 4K) for image upscale."}
                 }
-              }
+              },
+              "flow": {"$ref": "#/components/schemas/FlowOptions"}
             }
           }
+        }
+      },
+      "FlowMediaIdentity": {
+        "type": "object",
+        "required": ["mediaId", "projectId"],
+        "properties": {
+          "mediaId": {"type": "string", "description": "Opaque Flow media identifier, including possible upscale suffixes. Pass it back unchanged to edit, extend, or upscale it."},
+          "projectId": {"type": "string", "description": "Flow project that holds the output. Pass it back as flow.projectId."}
         }
       },
       "FlowGenerateResponse": {
@@ -1324,7 +1483,7 @@
           "candidates": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 1,
+            "maxItems": 4,
             "items": {
               "type": "object",
               "required": ["content", "finishReason"],
@@ -1342,7 +1501,7 @@
                       "maxItems": 1,
                       "items": {
                         "type": "object",
-                        "required": ["inlineData"],
+                        "required": ["inlineData", "flow"],
                         "properties": {
                           "inlineData": {
                             "type": "object",
@@ -1354,7 +1513,8 @@
                               },
                               "data": {"type": "string", "contentEncoding": "base64"}
                             }
-                          }
+                          },
+                          "flow": {"$ref": "#/components/schemas/FlowMediaIdentity"}
                         }
                       }
                     }
