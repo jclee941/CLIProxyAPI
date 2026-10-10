@@ -31,6 +31,9 @@ func (service *service) listFlowProjects(ctx context.Context, record storageReco
 		if err != nil {
 			return err
 		}
+		if _, valid := payload.([]any); !valid {
+			return failure(502, "flow_project_list_invalid")
+		}
 		rows, ok := jsonField(payload, 0).([]any)
 		if !ok && jsonField(payload, 0) != nil {
 			return failure(502, "flow_project_list_invalid")

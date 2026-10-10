@@ -168,18 +168,14 @@ func (service *service) flowProject(ctx context.Context, record storageRecord) (
 func (service *service) flowUploads(ctx context.Context, record storageRecord, project string, references []flowReference) ([]string, error) {
 	ids := make([]string, 0, len(references))
 	for index, reference := range references {
+		// Generation applies its crop in prepareFlowReferences after uploading.
+		reference.CropCoordinates = nil
 		extension := "jpg"
 		if strings.Contains(reference.mimeType, "png") {
 			extension = "png"
 		}
-		var id string
-		err := service.flowSubmit(ctx, record, project, "UPLOAD_IMAGE", func(token string) (string, any) {
-			return "maseQ", []any{flowContext(project, token), base64.StdEncoding.EncodeToString(reference.data), reference.mimeType, 1, nil, nil, nil, nil, fmt.Sprintf("reference-%d.%s", index+1, extension), nil, flowID(), flowID()}
-		}, func(payload any) error {
-			if id = flowUploadedMedia(payload, project); id == "" {
-				return failure(502, "flow_upload_missing")
-			}
-			return nil
+		id, _, err := service.uploadFlowImage(ctx, record, project, reference, flowImageUploadOptions{
+			Name: fmt.Sprintf("reference-%d.%s", index+1, extension),
 		})
 		if err != nil {
 			return nil, err

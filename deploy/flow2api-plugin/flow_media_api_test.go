@@ -89,7 +89,26 @@ func TestFlowMediaListFiltersByWorkflowArchiveAndName(t *testing.T) {
 	if err := json.Unmarshal(response.Body, &result); err != nil {
 		t.Fatal(err)
 	}
-	if response.StatusCode != 200 || len(result.Media) != 1 || result.Media[0].ID != flowTestMedia || !result.Media[0].Archived || result.Media[0].Title != "Orange fox" {
+	if response.StatusCode != 200 || len(result.Media) != 1 || result.Media[0].ID != flowTestMedia || result.Media[0].Archived == nil || !*result.Media[0].Archived || result.Media[0].Title != "Orange fox" {
+		t.Fatalf("response=%s", response.Body)
+	}
+}
+
+func TestFlowMediaGetDoesNotInventArchiveState(t *testing.T) {
+	// Given a media response without its workflow's archive metadata.
+	fixture := newFlowFixture(t)
+	service, _ := flowService(t, fixture)
+	fixture.reply("as29s", rpcEnvelope(t, "as29s", flowMediaAPIFixture(fixture)))
+	// When the caller retrieves only that media record.
+	response := flowHTTPTest(t, service, flowHTTPRequest{
+		Method: "GET", Path: "/v1/flow/projects/" + flowTestProject + "/media/" + flowTestMedia, CallerScope: strings.Repeat("a", 64),
+	})
+	// Then unknown state is absent, rather than reported as not trashed.
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := body["archived"]; present || response.StatusCode != 200 {
 		t.Fatalf("response=%s", response.Body)
 	}
 }

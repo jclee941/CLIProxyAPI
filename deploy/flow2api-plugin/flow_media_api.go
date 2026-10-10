@@ -14,7 +14,7 @@ type flowMediaResource struct {
 	Type       string `json:"type"`
 	MIMEType   string `json:"mimeType,omitempty"`
 	URL        string `json:"url,omitempty"`
-	Archived   bool   `json:"archived"`
+	Archived   *bool  `json:"archived,omitempty"`
 }
 
 func decodeFlowMedia(value any, project string) (flowMediaResource, error) {
@@ -45,6 +45,11 @@ func (service *service) flowProjectContents(ctx context.Context, record storageR
 	err := service.withFlowSession(ctx, record, func(session *flowSession) error {
 		var err error
 		payload, err = session.rpc(ctx, "Zzl0ze", []any{"projects/" + project, nil, nil, nil, []any{1}}, "/project/"+project, "")
+		if err == nil {
+			if _, valid := payload.([]any); !valid {
+				return failure(502, "flow_project_contents_invalid")
+			}
+		}
 		return err
 	})
 	return payload, err
@@ -98,8 +103,9 @@ func (service *service) listFlowMedia(ctx context.Context, record storageRecord,
 		workflow := workflows[media.WorkflowID]
 		media.Title, _ = jsonField(workflow, 3, 0).(string)
 		flag := jsonField(workflow, 3, 2)
-		media.Archived = flag == true || flag == float64(1)
-		if media.Archived != (archived == "true") || kind != "" && media.Type != kind {
+		isArchived := flag == true || flag == float64(1)
+		media.Archived = &isArchived
+		if isArchived != (archived == "true") || kind != "" && media.Type != kind {
 			continue
 		}
 		if search := request.Query.Get("search"); search != "" && !strings.Contains(strings.ToLower(media.Title), strings.ToLower(search)) {
@@ -128,6 +134,9 @@ func (service *service) flowMediaHTTP(ctx context.Context, record storageRecord,
 	if tail == "" && request.Method == http.MethodGet {
 		return service.listFlowMedia(ctx, record, project, request)
 	}
+	if tail == "" && request.Method == http.MethodPost {
+		return service.flowUploadImageHTTP(ctx, record, project, request)
+	}
 	id, action, _ := strings.Cut(tail, ":")
 	if !flowIdentifier(id) || strings.Contains(id, "/") {
 		return httpResponse{}, failure(404, "flow_route_not_found")
@@ -140,6 +149,10 @@ func (service *service) flowMediaHTTP(ctx context.Context, record storageRecord,
 	case request.Method == http.MethodGet && action == "":
 		return flowJSON(http.StatusOK, media)
 	case request.Method == http.MethodGet && action == "download":
+		format := request.Query.Get("format")
+		if format != "" && (format != "wav" || media.Type != "audio") {
+			return httpResponse{}, failure(400, "flow_download_format_invalid")
+		}
 		if media.URL == "" {
 			return httpResponse{}, failure(409, "flow_media_not_ready")
 		}
@@ -148,6 +161,9 @@ func (service *service) flowMediaHTTP(ctx context.Context, record storageRecord,
 			return httpResponse{}, err
 		}
 		mimeType := media.MIMEType
+		if format == "wav" {
+			body, mimeType = flowVoiceWAV(body), "audio/wav"
+		}
 		if mimeType == "" {
 			mimeType = "application/octet-stream"
 		}

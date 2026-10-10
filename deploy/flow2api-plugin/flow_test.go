@@ -46,6 +46,7 @@ type flowFixture struct {
 	dropRPC       string
 	busyRPC       string
 	busyRemaining int
+	upload        *flowUploadFixtureState
 }
 
 func newFlowFixture(t *testing.T) *flowFixture {
@@ -134,6 +135,8 @@ func (fixture *flowFixture) serve(writer http.ResponseWriter, request *http.Requ
 	}
 	path := strings.TrimPrefix(request.URL.Path, "/u/2")
 	switch {
+	case strings.HasPrefix(path, "/upload/v1/flow/upload/video/"):
+		fixture.serveUpload(writer, request, body)
 	case path == "/createTask":
 		var task struct {
 			ClientKey string         `json:"clientKey"`
