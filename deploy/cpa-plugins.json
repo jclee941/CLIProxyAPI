@@ -7,7 +7,7 @@
   "plugins": [
     {"id": "gemini-web", "artifact": "deploy/gemini-web-plugin/gemini-web.so", "reload": "restart"},
     {"id": "chatgpt-web", "artifact": "deploy/chatgpt-web-plugin/chatgpt-web.so", "reload": "hot"},
-    {"id": "flow2api", "artifact": "deploy/flow2api-plugin/flow2api.so", "reload": "restart"}
+    {"id": "flow2api", "artifact": "deploy/flow2api-plugin/flow2api.so", "reload": "hot"}
   ],
   "files": [
     {"artifact": "deploy/gemini-web-plugin/web/index.html", "target": "gemini-web/index.html"},
