@@ -39,6 +39,9 @@ func (service *service) flowVoices(ctx context.Context, record storageRecord, pr
 }
 
 func (service *service) flowVoiceHTTP(ctx context.Context, record storageRecord, project, tail string, request flowHTTPRequest) (httpResponse, error) {
+	if id, save := strings.CutSuffix(tail, ":save"); save && request.Method == http.MethodPost {
+		return service.saveFlowVoice(ctx, record, project, id, request.Body)
+	}
 	if tail == "" && request.Method == http.MethodGet {
 		voices, err := service.flowVoices(ctx, record, project)
 		if err != nil {
@@ -87,6 +90,42 @@ func (service *service) flowVoiceHTTP(ctx context.Context, record storageRecord,
 		return httpResponse{}, err
 	}
 	return flowJSON(201, media)
+}
+
+func (service *service) saveFlowVoice(ctx context.Context, record storageRecord, project, id string, body []byte) (httpResponse, error) {
+	var input struct {
+		Name string `json:"name"`
+	}
+	if err := flowStrict("voice_save", body, &input); err != nil {
+		return httpResponse{}, err
+	}
+	name, err := flowResourceTitle(input.Name)
+	if err != nil {
+		return httpResponse{}, err
+	}
+	if !flowIdentifier(id) || strings.ContainsAny(id, "/:") {
+		return httpResponse{}, failure(400, "flow_voice_id_invalid")
+	}
+	media, err := service.getFlowMedia(ctx, record, project, id)
+	if err != nil {
+		return httpResponse{}, err
+	}
+	if media.Type != "audio" || !flowUUIDPattern.MatchString(media.WorkflowID) {
+		return httpResponse{}, failure(400, "flow_voice_requires_audio")
+	}
+	metadata := make([]any, 10)
+	metadata[9] = 1
+	if _, err := service.flowProjectRPC(ctx, record, project, "lt8g5", []any{
+		[]any{id, nil, nil, nil, nil, metadata}, flowMask("media.media_metadata.visibility"),
+	}); err != nil {
+		return httpResponse{}, err
+	}
+	if _, err := service.flowProjectRPC(ctx, record, project, "mYWVGd", []any{
+		[]any{media.WorkflowID, nil, nil, []any{name}, project}, flowMask("metadata.display_name"),
+	}); err != nil {
+		return httpResponse{}, err
+	}
+	return flowJSON(200, flowVoiceResource{ID: id, Name: name})
 }
 
 // Flow voice previews are signed 24 kHz mono, little-endian 16-bit PCM.

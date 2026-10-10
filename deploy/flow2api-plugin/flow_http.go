@@ -39,6 +39,7 @@ func flowHTTPRegistration() json.RawMessage {
 {"Method":"GET","Path":"/v1/flow/projects/{project}/media/{media}:download"},
 {"Method":"DELETE","Path":"/v1/flow/projects/{project}/media/{media}"},
 {"Method":"POST","Path":"/v1/flow/projects/{project}/media/{media}:restore"},
+{"Method":"POST","Path":"/v1/flow/projects/{project}/media/{media}:purge"},
 {"Method":"POST","Path":"/v1/flow/projects/{project}/uploads"},
 {"Method":"GET","Path":"/v1/flow/uploads/{upload}"},
 {"Method":"POST","Path":"/v1/flow/uploads/{upload}"},
@@ -76,6 +77,7 @@ func flowHTTPRegistration() json.RawMessage {
 {"Method":"POST","Path":"/v1/flow/projects/{project}/workflows:batchArchive"},
 {"Method":"GET","Path":"/v1/flow/projects/{project}/voices"},
 {"Method":"POST","Path":"/v1/flow/projects/{project}/voices:preview"},
+{"Method":"POST","Path":"/v1/flow/projects/{project}/voices/{voice}:save"},
 {"Method":"GET","Path":"/v1/flow/projects/{project}/entities"},
 {"Method":"POST","Path":"/v1/flow/projects/{project}/entities"},
 {"Method":"GET","Path":"/v1/flow/projects/{project}/entities/{entity}"},
@@ -119,8 +121,7 @@ func flowHTTPRegistration() json.RawMessage {
 {"Method":"DELETE","Path":"/v1/flow/shared-tools/{shared}"},
 {"Method":"POST","Path":"/v1/flow/shared-tools/{shared}:fork"},
 {"Method":"POST","Path":"/v1/flow/shared-tools/{shared}:favorite"},
-{"Method":"POST","Path":"/v1/flow/shared-tools/{shared}:unfavorite"},
-{"Method":"POST","Path":"/v1/flow/shared-tools/{shared}:unshare"}
+{"Method":"POST","Path":"/v1/flow/shared-tools/{shared}:unfavorite"}
 ]}`)
 }
 

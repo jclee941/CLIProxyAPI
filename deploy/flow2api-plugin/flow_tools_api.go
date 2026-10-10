@@ -342,6 +342,7 @@ func (service *service) shareFlowTool(ctx context.Context, record storageRecord,
 	}
 	return flowJSON(http.StatusCreated, map[string]any{
 		"sharedId": sharedID, "toolId": id, "versionId": tool.VersionID, "allowRemix": *input.AllowRemix,
+		"url": "https://labs.google/fx/tools/flow/shared/tool/" + url.PathEscape(sharedID),
 	})
 }
 
@@ -422,15 +423,6 @@ func (service *service) flowSharedToolHTTP(ctx context.Context, record storageRe
 	case request.Method != http.MethodPost:
 	case action == "fork":
 		return service.forkFlowSharedTool(ctx, record, id, request.Body)
-	case action == "unshare":
-		if err := flowToolEmptyBody("tool_unshare", request.Body); err != nil {
-			return httpResponse{}, err
-		}
-		// The provider checks that this shared link belongs to the account.
-		if _, err := service.flowAccountRPC(ctx, record, "h4NnAe", []any{id}); err != nil {
-			return httpResponse{}, err
-		}
-		return flowToolNoContent(), nil
 	case action == "favorite" || action == "unfavorite":
 		if err := flowToolEmptyBody("shared_tool_favorite", request.Body); err != nil {
 			return httpResponse{}, err

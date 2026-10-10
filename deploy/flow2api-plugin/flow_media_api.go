@@ -175,6 +175,14 @@ func (service *service) flowMediaHTTP(ctx context.Context, record storageRecord,
 			return httpResponse{}, err
 		}
 		return httpResponse{StatusCode: 204, Headers: http.Header{"Cache-Control": {"private, no-store"}}}, nil
+	case request.Method == http.MethodPost && action == "purge":
+		if err := flowToolEmptyBody("media_purge", request.Body); err != nil {
+			return httpResponse{}, err
+		}
+		if err := service.deleteFlowAssets(ctx, record, project, flowAssetDeletion{MediaIDs: []string{media.ID}}); err != nil {
+			return httpResponse{}, err
+		}
+		return flowNoContent(), nil
 	default:
 		return httpResponse{}, failure(404, "flow_route_not_found")
 	}

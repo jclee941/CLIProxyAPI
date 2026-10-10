@@ -114,8 +114,9 @@ func decodeFlowAgentMessage(raw any) (flowAgentMessage, error) {
 			event.Arguments, err = flowStruct(jsonField(row, 3, 2))
 		case jsonField(row, 4) != nil:
 			event.Type = "tool_result"
-			event.Name, _ = jsonField(row, 4, 0).(string)
-			event.Result, err = flowStruct(jsonField(row, 4, 1))
+			event.CallID, _ = jsonField(row, 4, 0).(string)
+			event.Name, _ = jsonField(row, 4, 1).(string)
+			event.Result, err = flowStruct(jsonField(row, 4, 2))
 		case jsonField(row, 6) != nil:
 			event.Type = "error"
 			event.ErrorCode, _ = jsonInteger(jsonField(row, 6, 0))

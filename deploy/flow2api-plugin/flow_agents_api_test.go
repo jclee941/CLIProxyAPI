@@ -135,3 +135,16 @@ func TestFlowToolBuilderDoesNotRepeatAnUnknownSubmission(t *testing.T) {
 		t.Fatalf("response=%s posts=%d", response.Body, fixture.count(flowAppletStreamPath))
 	}
 }
+
+func TestFlowAgentToolResultUsesItsSeparateNameAndDataFields(t *testing.T) {
+	// Given the captured GetSession tool-result shape.
+	data := []any{[]any{[]any{"count", []any{nil, float64(2)}}}}
+	raw := []any{nil, []any{[]any{"event-id", nil, nil, nil, []any{"call-id", "list_project_artifacts", data}}}, "message-id"}
+	// When stored history is decoded.
+	message, err := decodeFlowAgentMessage(raw)
+	// Then the result object is not confused with the function name.
+	if err != nil || len(message.Events) != 1 || message.Events[0].CallID != "call-id" ||
+		message.Events[0].Name != "list_project_artifacts" || message.Events[0].Result["count"] != float64(2) {
+		t.Fatalf("message=%+v err=%v", message, err)
+	}
+}

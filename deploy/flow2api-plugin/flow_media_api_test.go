@@ -112,3 +112,22 @@ func TestFlowMediaGetDoesNotInventArchiveState(t *testing.T) {
 		t.Fatalf("response=%s", response.Body)
 	}
 }
+
+func TestFlowMediaPurgeDeletesOnlyTheSelectedMedia(t *testing.T) {
+	// Given a media item with other versions in its workflow.
+	fixture := newFlowFixture(t)
+	service, _ := flowService(t, fixture)
+	fixture.reply("as29s", rpcEnvelope(t, "as29s", flowMediaAPIFixture(fixture)))
+	fixture.reply("cz8Z4b", rpcEnvelope(t, "cz8Z4b", []any{}))
+	// When the caller explicitly purges that media.
+	response := flowHTTPTest(t, service, flowHTTPRequest{
+		Method: "POST", Path: "/v1/flow/projects/" + flowTestProject + "/media/" + flowTestMedia + ":purge",
+		CallerScope: strings.Repeat("a", 64),
+	})
+	// Then the workflow and other versions are not included in the deletion.
+	args := fixture.args("cz8Z4b", 0)
+	if response.StatusCode != 204 || jsonField(args, 1) != nil || jsonField(args, 2) != flowTestProject ||
+		jsonField(args, 6, 0) != flowTestMedia || fixture.count("cz8Z4b") != 1 {
+		t.Fatalf("status=%d args=%v", response.StatusCode, args)
+	}
+}

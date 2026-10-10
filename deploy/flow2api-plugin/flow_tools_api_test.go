@@ -438,14 +438,13 @@ func TestFlowSharedToolRejectsUnprovenAndInvalidRoutes(t *testing.T) {
 	}
 }
 
-func TestFlowSharedToolUnshareUsesTheSharedIdentifier(t *testing.T) {
-	// Given a provider that accepts revocation for its authenticated owner.
+func TestFlowSharedToolDoesNotAdvertiseUnsupportedRevocation(t *testing.T) {
+	// Given the current web transport, which rejects the unshare RPC.
 	fixture, service, record := flowSharedFixtureService(t)
-	fixture.reply("h4NnAe", rpcEnvelope(t, "h4NnAe", []any{}))
-	// When the owner revokes the shared link.
+	// When a caller requests that unsupported operation.
 	status, code, _ := flowToolCall(t, service, record, true, http.MethodPost, flowTestSharedTool+":unshare", "")
-	// Then the shared identifier, not a tool resource name, is submitted once.
-	if status != 204 || fixture.count("h4NnAe") != 1 || jsonField(fixture.args("h4NnAe", 0), 0) != flowTestSharedTool {
+	// Then no mutation is forwarded or reported as successful.
+	if status != 404 || code != "flow_route_not_found" || fixture.count("h4NnAe") != 0 {
 		t.Fatalf("status=%d code=%s", status, code)
 	}
 }

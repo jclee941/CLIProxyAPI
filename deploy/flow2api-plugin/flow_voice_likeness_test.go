@@ -48,6 +48,30 @@ func TestFlowVoiceWAVUsesNativePCMFormat(t *testing.T) {
 	}
 }
 
+func TestFlowGeneratedVoiceCanBeSavedWithoutGeneratingAgain(t *testing.T) {
+	// Given an existing audio preview.
+	fixture := newFlowFixture(t)
+	service, _ := flowService(t, fixture)
+	audio := make([]any, 11)
+	audio[0], audio[1], audio[2], audio[10] = flowTestMedia, flowTestProject, flowTestOp, []any{}
+	fixture.reply("as29s", rpcEnvelope(t, "as29s", audio))
+	fixture.reply("lt8g5", rpcEnvelope(t, "lt8g5", []any{}))
+	fixture.reply("mYWVGd", rpcEnvelope(t, "mYWVGd", []any{}))
+	// When the consumer saves it to the voice library.
+	response := flowHTTPTest(t, service, flowHTTPRequest{
+		Method: "POST", Path: "/v1/flow/projects/" + flowTestProject + "/voices/" + flowTestMedia + ":save",
+		CallerScope: strings.Repeat("a", 64), Body: []byte(`{"name":"Fixture voice"}`),
+	})
+	// Then only visibility and the existing workflow name change.
+	mediaArgs, workflowArgs := fixture.args("lt8g5", 0), fixture.args("mYWVGd", 0)
+	if response.StatusCode != 200 || jsonField(mediaArgs, 0, 0) != flowTestMedia ||
+		jsonField(mediaArgs, 0, 5, 9) != float64(1) ||
+		jsonField(mediaArgs, 1, 0, 0) != "media.media_metadata.visibility" ||
+		jsonField(workflowArgs, 0, 0) != flowTestOp || fixture.count("no0P6") != 0 {
+		t.Fatalf("status=%d media=%v workflow=%v", response.StatusCode, mediaArgs, workflowArgs)
+	}
+}
+
 func TestFlowLikenessRegistrationPreservesHumanVerificationStep(t *testing.T) {
 	// Given Google's actual registration URL and token response shape.
 	fixture := newFlowFixture(t)

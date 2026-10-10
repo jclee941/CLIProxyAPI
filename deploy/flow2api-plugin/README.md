@@ -74,7 +74,7 @@ Set `aspectRatio` on a video `upscale` to match the source clip. It defaults to
 | --- | --- |
 | `mode` | `auto` (default), `text`, `references`, `frames`, `edit`, `extend`, `upscale`. |
 | `priority` | `normal` (default) or `low`. `low` is for `flow-veo-3.1-lite` only (`flow_priority_unsupported` otherwise). Not valid for images or `upscale`. |
-| `projectId` | Existing Flow project of the linked account. Defaults to the account's current project. |
+| `projectId` | Existing Flow project of the linked account. When omitted, the plugin creates and reuses a `CLIProxyAPI` project for its lifetime. Pass an explicit ID to keep using the same project across restarts. |
 | `modelKey` | Exact Flow model usage key from the live catalog. It must stay inside the requested model's family. |
 | `firstFrame`, `lastFrame` | Video only. Media references. |
 | `baseImage` | Image only. Media reference. |
@@ -109,7 +109,7 @@ never infers a mode: set `edit`, `extend`, or `upscale` yourself
 | `references` | at least one reference | Images, audio, likenesses, or entities. |
 | `frames` | `firstFrame` | Video only. `lastFrame` optional. No other references. |
 | `edit` | image: `baseImage`; video: `sourceVideo` | Video edit length is the selected clip, not `durationSeconds`. |
-| `extend` | `sourceVideo` | Video only. Extension length is not guaranteed. |
+| `extend` | `sourceVideo` | Veo only in the current Flow catalog. A compatible Omni result can be extended using Veo. Extension length is not guaranteed. |
 | `upscale` | image: `baseImage` with a `mediaId`, no crop; video: `sourceVideo` without frame range | No prompt text (send an empty text part), references, or `priority`. Image upscale needs `imageSize` 2K or 4K. |
 
 ## Media IDs and output references
@@ -124,8 +124,9 @@ or upscale a result. Upscales return a new media ID. Treat IDs as opaque strings
 owns them. A video source that is missing or not ready returns
 `400 flow_source_video_unavailable` before any submission.
 
-Uploading video or audio bytes is not supported. Use existing Flow media IDs for
-video and audio inputs. Only images can be sent inline.
+Only images can be sent inline in generation requests. Upload video bytes through
+the resumable API below, then pass its returned media ID. The web does not expose
+arbitrary audio-file upload; voice previews can be generated through the voice API.
 
 ## Output by protocol
 
@@ -163,6 +164,183 @@ of clip frames 0 to 48, which returned 2 seconds; 720p, 1080p, and 4K video
 upscales, including IDs returned by earlier upscales; Veo Lite with
 `priority: "low"` and references at 8 seconds and 720p; and a 720p extension,
 which returned 7 seconds. All six models have returned media.
+
+The project and media routes below have also run live against the deployed
+plugin. A project was created (201), read (200), renamed (200, confirmed by a
+follow-up read), found in a paginated list (200), and deleted (204). An existing
+web media item was read (200). Its public download answered 200 `video/mp4` with
+1,212,262 bytes that began with an `ftyp` box. Trashing it answered 204, the
+`archived=true` list showed it (200), and restoring it answered 204.
+
+## Projects and media
+
+These routes manage the Flow account's projects and the media inside them. They
+live at the origin root, `/v1/flow/...`, not under `/v1beta`, so their base URL
+differs from the generate route. Authenticate with a consumer API key as a
+Bearer token, like every other route. The combined specification at
+`/openapi.json` carries the same routes with a server override for the root.
+
+One Flow account, the single entry in `accounts`, backs every request. All API
+keys see the same projects and media, and nothing is split per key. If the
+plugin doesn't have exactly one configured account, these routes answer
+`409 flow_single_account_required`. Responses never include cookies or account
+credentials.
+
+| Method and path | Result |
+| --- | --- |
+| `GET /v1/flow/projects` | `200` with `{projects: [{id, title}], nextPageToken?}`. |
+| `POST /v1/flow/projects` | `201` with `{id, title}`. |
+| `GET /v1/flow/projects/{project}` | `200` with `{id, title}`. |
+| `PATCH /v1/flow/projects/{project}` | `200` with `{id, title}`. |
+| `DELETE /v1/flow/projects/{project}` | `204`. |
+| `GET /v1/flow/projects/{project}/media` | `200` with `{media: [...]}`. |
+| `GET /v1/flow/projects/{project}/media/{media}` | `200` with one media item. |
+| `DELETE /v1/flow/projects/{project}/media/{media}` | `204`. Moves the item to the trash. |
+| `GET /v1/flow/projects/{project}/media/{media}:download` | `200` with the media bytes. |
+| `POST /v1/flow/projects/{project}/media/{media}:restore` | `204`. Takes it out of the trash. |
+
+`{project}` is the project UUID, which is the `projectId` that generation
+returns. `{media}` is the `mediaId`. A malformed ID answers
+`404 flow_route_not_found`.
+
+```bash
+curl -sS -X POST https://cliproxy.jclee.me/v1/flow/projects \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Launch clips"}'
+```
+
+### Projects
+
+`POST` and `PATCH` take `{"title": "..."}` and nothing else. The title is
+trimmed, must be 1 to 256 characters, and can't hold control characters. An
+unknown field or a bad title returns `400 flow_project_request_invalid` or
+`400 flow_project_title_invalid`.
+
+The list takes `pageSize` (1 to 100, default 20) and `pageToken`. While more
+projects remain, the response carries `nextPageToken`. Send it back as
+`pageToken` for the next page. A bad `pageSize` returns
+`400 flow_page_size_invalid`, and a `pageToken` over 8192 characters returns
+`400 flow_page_token_invalid`.
+
+### Media
+
+A media item is `{id, projectId, workflowId?, title?, type, mimeType?, url?, archived?}`.
+`type` is `image`, `video`, `audio`, or `unknown`. `url` is a signed link that
+fetches the file without credentials, so treat it as a secret and keep it out of
+logs. It's left out while the media isn't ready.
+
+The media list returns every match in one response, with no pagination. These
+filters combine:
+
+| Query | Meaning |
+| --- | --- |
+| `archived` | `false` (default) lists media outside the trash, `true` lists trashed media. Anything else returns `400 flow_archived_filter_invalid`. |
+| `type` | `image`, `video`, or `audio`. Anything else returns `400 flow_media_type_invalid`. |
+| `search` | Case-insensitive text the title must contain. |
+| `collectionId` | Only media in that Flow collection. |
+
+The list fills in `title` and `archived`. Reading a single item omits both
+because it does not read the workflow metadata. To find a trashed item,
+list with `archived=true`.
+
+`DELETE` is a trash, not an erase. It archives the item's workflow in Flow, and
+`:restore` reverses that. An item with no workflow answers
+`409 flow_media_workflow_unavailable`.
+
+`:download` returns the bytes with the item's `Content-Type`, or
+`application/octet-stream` when none is known, plus `Cache-Control: private,
+no-store` and `X-Content-Type-Options: nosniff`. The body is capped at 128 MiB.
+While the item has no `url`, it answers `409 flow_media_not_ready`. If you only
+need to hand the file to something else, use the signed `url` from a media read
+instead of proxying the bytes.
+
+`POST .../media/{media}:purge` permanently deletes only that media version.
+It does not delete the entire workflow. This is separate from moving a workflow
+to the trash.
+
+### Uploads
+
+- `POST /v1/flow/projects/{project}/media` uploads an image (up to 20 MiB).
+  Send `{name, image: {inlineData: {mimeType, data}, cropCoordinates?},
+  collectionId?, workflowId?, hidden?}`. `data` is base64.
+- `POST /v1/flow/projects/{project}/uploads` starts video upload (up to 1 GiB).
+  Send `{name, mimeType, sizeBytes, trimStartMilliseconds?, trimEndMilliseconds?}`.
+  Both trim bounds must be supplied together.
+- `POST /v1/flow/uploads/{upload}?offset=N&finalize=true` sends raw bytes as
+  `application/octet-stream`. Use the returned `chunkSize` for intermediate
+  chunks and set `finalize=true` on the last chunk.
+- `GET /v1/flow/uploads/{upload}` reads the accepted offset or the final media
+  receipt. Query after a lost response instead of resending a chunk.
+- `DELETE /v1/flow/uploads/{upload}` cancels the upstream upload session.
+
+The upload ID is opaque and requires the same account configuration and a valid
+CPA API key. It survives plugin restarts, but not a broker-credential change.
+Upload completion does not promise that Google's subsequent media processing
+has finished.
+
+### Collections, scenes and characters
+
+All paths in this table start with `/v1/flow/projects/{project}`. The complete
+request and response fields are in `/openapi.json`.
+
+| Resource | Operations |
+| --- | --- |
+| `/collections` | List/create; get/update/trash by ID; `:restore`, `:purge`, `:addItems`, `:removeItems`. |
+| `/workflows` | List/get/update/trash; `:restore`, `:purge`, `:copy`, `:trim`; `workflows:batchArchive`. |
+| `/scenes` | List/create/get/update/trash; `:restore`, `:purge`, `:copy`. |
+| `/scenes/{scene}/clips` | List/add; update/delete by position; `clips:reorder`. |
+| `/entities` | List/create/get/update/trash characters; `:restore`, `:purge`, `:copy`. |
+| `/entities/{entity}/images` | Copy an existing image to a reference slot; delete a slot by index. |
+| `/voices` | List presets and saved voices; `voices:preview` generates audio; `{voice}:save` saves an existing preview. |
+
+Collection and workflow updates expose names, favorite/trash flags, membership
+and primary-media selection where the web supports them. Character updates
+expose personality notes and voice references. Preset voice references use
+`voices/<name>`; generated audio uses its returned media ID.
+
+Voice previews use native 24 kHz mono PCM. Request
+`GET .../media/{media}:download?format=wav` for a WAV playback container.
+
+### Agent sessions and tools
+
+- `/v1/flow/projects/{project}/sessions`: create/list sessions, get history,
+  rename or delete a session.
+- `POST .../sessions/{session}:chat`: send `prompt` or `structuredPrompt`,
+  plus an optional `collectionId`. Provider tool calls are already executed
+  at Google; returned events must not be executed again by the consumer.
+- `POST .../sessions/{session}:cancel` requests cancellation of the current
+  session turn.
+- `/v1/flow/tools`: list account tools or run the builder with
+  `{projectId, prompt|structuredPrompt, requestId?}`.
+- `/v1/flow/tools/{tool}`: get/update/delete, `:edit`, `:copy`, favorites,
+  sharing, version history, source files and version restoration.
+- `/v1/flow/shared-tools`: saved shared links, source retrieval, forking and
+  favorites. Deleting an owned tool invalidates its sharing links. The current
+  web transport rejects standalone link revocation, so it is not advertised.
+- `POST /v1/flow/requests/{request}:cancel`: best-effort cancellation of an
+  active broker-owned request. Supply a unique `requestId` when starting a
+  tool build if you need to cancel before it returns.
+- `POST /v1/flow/projects/{project}/text:generate`: Flow SDK text generation,
+  with system instruction, thinking level and inline image/video/audio parts.
+
+Agent and builder HTTP responses are buffered until the upstream turn ends.
+History and version reads provide recovery after an uncertain response; do not
+repeat the mutation to retrieve its result. Cancellation stops the active
+upstream connection when found, not an already committed resource change.
+
+The tool builder returns the real source files. The generated React UI runs in
+a browser; the API does not claim to execute arbitrary UI interactions on the
+server.
+
+### Personal likeness
+
+`/v1/flow/likenesses` lists the account's registered likenesses and supports
+retrieval/deletion by ID. `likenesses:eligibility` checks eligibility.
+`POST /v1/flow/likenesses/registrations` returns Google's verification URL and
+token; `GET .../registrations/{token}` reads its state. Registration still
+requires the account holder to complete Google's verification. An API response
+that issues the link does not mean registration is complete.
 
 ## Account configuration
 
