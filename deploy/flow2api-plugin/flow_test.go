@@ -844,6 +844,9 @@ func TestFlowSettingsApplyWithoutReconfiguringSessions(t *testing.T) {
 			t.Fatalf("%q accepted: %v", config, err)
 		}
 	}
+	if err := register("captcha_provider: browser\ncaptcha_base_url: http://shared-browser-flowcaptcha:9223\n"); err != nil {
+		t.Fatalf("browser provider refused: %v", err)
+	}
 }
 
 func invoke(t *testing.T, service *service, method string, value any) envelope {

@@ -209,6 +209,8 @@ func (service *service) flowSubmit(ctx context.Context, record storageRecord, pr
 		switch safeCredentialCode(err) {
 		case "flow_captcha_rejected":
 			if attempt < flowTokenAttempts {
+				// A browser token Flow refused is replaced from a fresh page.
+				service.captchaBrowser.close(service.client)
 				continue
 			}
 		case "flow_transport_failed", "flow_response_failed", "flow_session_exchange_transport_failed", "flow_session_exchange_response_failed", "flow_session_exchange_response_too_large":
@@ -219,7 +221,18 @@ func (service *service) flowSubmit(ctx context.Context, record storageRecord, pr
 }
 
 func (service *service) flowToken(ctx context.Context, record storageRecord, action, pageURL string) (flowCaptchaToken, error) {
-	if service.settings().FlowCaptchaProvider != "native" {
+	settings := service.settings()
+	switch settings.FlowCaptchaProvider {
+	case "native":
+	case "browser":
+		token, err := service.captchaBrowser.token(ctx, service.client, settings.FlowCaptchaBaseURL, action)
+		if err == nil {
+			return token, nil
+		}
+		// Without the browser the account still mints native tokens, which
+		// normal priority accepts.
+		service.report(map[string]any{"provider": provider, "state": safeCredentialCode(err), "reason": action}, "flow2api: captcha browser unavailable")
+	default:
 		return service.flowCaptcha(ctx, action, pageURL)
 	}
 	var token flowCaptchaToken
