@@ -410,9 +410,17 @@ dashboard page that shows the same data. On the current Manager, enable
 "Remember credential" when logging in, or use the page's masked Manager Admin Key
 field. The Manager Admin Key is different from the core management key.
 
+`captcha_provider: browser` takes Flow's reCAPTCHA tokens from a signed-out
+Chrome whose DevTools address is `captcha_base_url`, for example
+`http://shared-browser-flowcaptcha:9223` on the core's Docker network (see
+`deploy/shared-browser/README.md`). Flow's free `low` priority queue refuses the
+`native` tokens, which are minted without a browser, and accepts the browser's;
+normal priority accepts both. A request falls back to a native token when the
+browser cannot be reached.
+
 External captcha services can be selected with `captcha_provider: yescaptcha` or
-`capsolver` and a protected `captcha_key`; neither is required by the native
-provider.
+`capsolver` and a protected `captcha_key`; neither is required by the native or
+browser providers.
 
 ## Build
 

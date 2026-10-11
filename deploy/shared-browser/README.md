@@ -63,3 +63,28 @@ docker stop shared-browser-<account>
 ```
 
 A manually stopped container stays stopped across Docker and NAS restarts.
+
+## Flow captcha browser
+
+`shared-browser-flowcaptcha` is the one container that keeps running. It never
+signs in to Google, so it holds no session that CPA could lose. flow2api's
+`captcha_provider: browser` mints Flow's reCAPTCHA tokens in it over DevTools at
+`captcha_base_url: http://shared-browser-flowcaptcha:9223`, on the core's Docker
+network. Its data directory holds an empty `Default` profile:
+
+```bash
+DIR=/volume1/docker/shared-browser/flowcaptcha
+mkdir -p "$DIR/chrome/Default" && chmod 700 "$DIR" "$DIR/chrome" "$DIR/chrome/Default"
+docker run --rm --entrypoint x11vnc --user "$(id -u):$(id -g)" -v "$DIR:/config" <image> \
+    -storepasswd <password> /config/vnc.passwd && chmod 600 "$DIR/vnc.passwd"
+SHARED_BROWSER_CONTAINER_NAME=shared-browser-flowcaptcha \
+SHARED_BROWSER_PROFILE_DIRECTORY=Default \
+SHARED_BROWSER_DATA_DIR="$DIR" \
+SHARED_BROWSER_NOVNC_PORT=6082 \
+SHARED_BROWSER_CDP_PORT=9232 \
+SHARED_BROWSER_IMAGE=<image> \
+deploy/shared-browser/run.sh
+docker network connect cliproxyapi_backend shared-browser-flowcaptcha
+```
+
+Do not sign in to it.
