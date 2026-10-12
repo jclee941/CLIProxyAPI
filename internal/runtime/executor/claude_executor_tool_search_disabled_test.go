@@ -38,6 +38,10 @@ const toolSearchExecutorGoldenPayload = `{"model":"claude-sonnet-4-5","input":[`
 
 var toolSearchExecutorGoldenCCH = regexp.MustCompile(`cch=[0-9a-f]+;`)
 
+// toolSearchExecutorGoldenDate matches the cloaked currentDate reminder, which
+// carries the local date of the run rather than the date the golden was made.
+var toolSearchExecutorGoldenDate = regexp.MustCompile(`Today's date is [0-9]{4}-[0-9]{2}-[0-9]{2}\.`)
+
 // renderToolSearchExecutorGolden captures the upstream bodies the Claude
 // executor sends for toolSearchExecutorGoldenPayload on every request path.
 func renderToolSearchExecutorGolden(t *testing.T) map[string]string {
@@ -108,7 +112,9 @@ func TestClaudeExecutor_ToolSearchDisabledMatchesDevGolden(t *testing.T) {
 		t.Fatalf("rendered %d bodies, golden has %d", len(got), len(want))
 	}
 	for name, body := range got {
-		if body != want[name] {
+		gotBody := toolSearchExecutorGoldenDate.ReplaceAllString(body, "Today's date is <date>.")
+		wantBody := toolSearchExecutorGoldenDate.ReplaceAllString(want[name], "Today's date is <date>.")
+		if gotBody != wantBody {
 			t.Errorf("%s differs from dev\n got: %s\nwant: %s", name, body, want[name])
 		}
 	}
