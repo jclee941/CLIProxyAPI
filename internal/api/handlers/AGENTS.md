@@ -1,7 +1,7 @@
 # MANAGEMENT HANDLER KNOWLEDGE BASE
 
 ## OVERVIEW
-Management control surface under `management/`; score 12, distinct persistence/OAuth domain covered here at depth three.
+Management control surface under `management/`; retained as a distinct persistence/OAuth domain at depth three.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -14,6 +14,7 @@ Management control surface under `management/`; score 12, distinct persistence/O
 | Auth listing and cooldowns | `management/auth_files.go` | Runtime state reconciliation and pagination |
 | Auth mutation and persistence | `management/auth_files_crud.go`, `management/auth_files_fields.go` | Batch operations and post-persist hooks |
 | OAuth state machine | `management/oauth_sessions.go`, `management/oauth_callback.go` | Pending guards and atomic callback handoff |
+| OAuth forwarding/plugin login URLs | `management/auth_files_oauth_callback.go` | Callback forwarder and plugin URL serving |
 | Provider login flows | `management/auth_files_provider_oauth.go`, `management/auth_files_devin_oauth.go` | Asynchronous exchanges |
 | Generic upstream call | `management/api_tools.go` | Token substitution and explicit proxy precedence |
 | Plugin config/catalog | `management/plugins.go`, `management/plugin_store.go` | YAML nodes, source provenance, runtime locks |
@@ -23,13 +24,14 @@ Management control surface under `management/`; score 12, distinct persistence/O
 | Queue consumption | `management/usage.go` | GET destructively pops pending records |
 
 ## CONVENTIONS
-- Handler receiver methods are grouped by operation; shared state stays in `handler.go`.
+- Handler receiver methods are grouped by operation; shared state stays in `management/handler.go`.
 - Config saves preserve YAML comments; plugin raw config is edited as YAML nodes.
 - Save and clone under `h.mu`; invoke reload callbacks after releasing it.
 - Reload snapshots carry generations so older asynchronous work cannot replace newer state.
 - Credential identity includes API key, base URL, and prefix; ambiguous matches require disambiguation.
 - APICall proxy order: request, credential, global, then direct; environment proxies are bypassed.
-- OAuth callback files use temporary siblings plus rename; token saves require a still-pending session.
+- `management/oauth_sessions.go` publishes callback JSON through temporary siblings plus rename.
+- Token saves require a still-pending session; cancellation invalidates background waiters.
 - Run `go test ./internal/api/handlers/management` for package checks.
 
 ## ANTI-PATTERNS

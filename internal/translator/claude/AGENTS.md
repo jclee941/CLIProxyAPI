@@ -1,7 +1,9 @@
 # CLAUDE DESTINATION TRANSLATORS
 
 ## OVERVIEW
-Claude Messages requests and reverse protocol responses; score 14, a distinct 30-file domain with extensive Responses state machines.
+Claude Messages requests and reverse protocol responses; score 9, a distinct domain with 30 Go files and Responses state machines.
+
+Registration and shared wire contracts: [parent guide](../AGENTS.md).
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -14,7 +16,7 @@ Claude Messages requests and reverse protocol responses; score 14, a distinct 30
 | Responses input | `openai/responses/claude_openai-responses_request.go` | Tool pairing repair and model-specific prefill stripping |
 | Responses output | `openai/responses/claude_openai-responses_response.go` | Output indices, reasoning and terminal status |
 | Server search | `openai/responses/claude_openai-responses_web_search.go` | Search IDs and encrypted replay |
-| Ordering regressions | `openai/responses/*reasoning_order*`, `*interleaved_search*` | Interleaved reasoning, tools and search |
+| Ordering regressions | `openai/responses/claude_openai-responses_reasoning_order_test.go`, `openai/responses/claude_openai-responses_interleaved_search_test.go` | Interleaved reasoning, tools and search |
 | Domain tests | `go test ./internal/translator/claude/...` | Repository-root command |
 
 ## CONVENTIONS

@@ -1,7 +1,7 @@
 # DEVIN AUTHENTICATION
 
 ## OVERVIEW
-Devin session acquisition, profile discovery, and runtime-auth construction; score 8, a distinct provider domain.
+Devin session acquisition, profile discovery, and runtime-auth construction; score 6, retained provider domain guide.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -16,7 +16,7 @@ Devin session acquisition, profile discovery, and runtime-auth construction; sco
 | Upstream status variants | `user_status_test.go` |
 
 ## CONVENTIONS
-- `FormatSessionToken` supplies the `cog_` prefix when absent.
+- `FormatSessionToken` trims whitespace and prepends `devin-session-token$` only to raw tokens starting with `eyJ`.
 - `CreateAuthRecord` produces shared SDK auth records, not just a provider token DTO.
 - Profile and status information populate identity, plan, and quota signals.
 - Attribute and metadata views both carry provider-specific runtime information.

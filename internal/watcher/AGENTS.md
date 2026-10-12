@@ -1,7 +1,7 @@
 # CONFIG AND AUTH WATCHER
 
 ## OVERVIEW
-Filesystem/config reload and ordered runtime credential updates; score 14, a distinct concurrent reconciliation domain.
+Filesystem/config reload and ordered runtime credential updates; score 9, a distinct concurrent reconciliation domain.
 
 ## WHERE TO LOOK
 | Task | Location |
@@ -11,8 +11,8 @@ Filesystem/config reload and ordered runtime credential updates; score 14, a dis
 | Debounced configuration reload | `config_reload.go` |
 | Auth directory reload/persistence callbacks | `clients.go` |
 | Snapshot reconciliation and dispatch | `dispatcher.go` |
-| Human-readable change reporting | `diff/` |
-| Config/file-to-auth conversion | `synthesizer/` |
+| Human-readable change reporting | `diff/AGENTS.md` |
+| Config/file-to-auth conversion | `synthesizer/AGENTS.md` |
 | Scan/event interleaving regressions | `dispatcher_snapshot_test.go` |
 
 ## CONVENTIONS

@@ -1,7 +1,7 @@
 # IN-MEMORY USAGE QUEUES
 
 ## OVERVIEW
-Usage/error publication and usage-plugin serialization; score 8, a distinct event-delivery domain.
+Usage/error publication and usage-plugin serialization; retained as a distinct event-delivery domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -16,12 +16,13 @@ Usage/error publication and usage-plugin serialization; score 8, a distinct even
 - The implementation is in-memory; the Redis-compatible wire endpoint lives in `../api/`.
 - Usage plugin registration happens in `init()` through the SDK usage manager.
 - Queue enablement and usage-statistics enablement are separate switches.
-- `Enqueue` publishes directly when subscribers accept the payload; otherwise it retains usage backlog.
+- `Enqueue` uses live publication when subscribers exist; backlog is used only without subscribers.
+- A saturated subscriber is removed without falling back to backlog for that publication.
 - `PopOldest` consumes retained usage entries in order.
 - `EnqueueError` broadcasts only; error events have no retained backlog.
 - Subscriber delivery clones byte payloads.
 - Slow subscribers are removed and their channels closed on saturation.
-- Usage subscriptions receive the support/refresh protocol payload.
+- Usage subscriptions begin with `{"support_refresh":true}`; refresh notices use `{"refresh":true}`.
 - Session hierarchy serialization clears self-referential parent IDs.
 
 ## ANTI-PATTERNS
@@ -32,5 +33,5 @@ Usage/error publication and usage-plugin serialization; score 8, a distinct even
 - Do not conflate statistics collection with protocol queue availability.
 
 Run `go test ./internal/redisqueue` for queue and serialization tests.
-Wire behavior is additionally covered by `internal/api/redis_queue_protocol_integration_test.go`.
+Wire behavior is additionally covered by `../api/redis_queue_protocol_integration_test.go`.
 Home and management usage consumers depend on the same queue semantics.

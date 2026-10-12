@@ -16,6 +16,7 @@ Codex-specific catalogs, realtime sessions, and collaboration adaptation; score 
 | Unsupported capabilities and hangup | `live/capabilities.go` |
 | Tool/namespace preparation and restoration | `optimize-multi-agent-v2/optimize_multi_agent_v2.go` |
 | Orphan delegation output repair | `optimize-multi-agent-v2/orphan_delegation.go` |
+| Catalog validation and revision ownership | `../../registry/AGENTS.md` |
 
 ## CONVENTIONS
 - Model templates come from revisioned registry snapshots; `gpt-5.5` supplies the fallback template.
@@ -29,6 +30,7 @@ Codex-specific catalogs, realtime sessions, and collaboration adaptation; score 
 - WebRTC calls pin the selected credential for later sideband and hangup operations.
 - Collaboration namespace optimization is reversible on responses.
 - Boundary tool preparation is recorded in the Gin context to avoid preparing tools twice.
+- The hyphenated optimization directory is imported with package alias `multiagentv2`.
 
 ## ANTI-PATTERNS
 - Do not remove required null catalog fields or either supported instruction field representation.

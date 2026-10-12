@@ -1,7 +1,7 @@
 # HOME PLUGIN SYNC KNOWLEDGE BASE
 
 ## OVERVIEW
-Home-directed plugin artifact reconciliation and install/load reporting; score 11, a distinct synchronization domain.
+Home-directed plugin artifact reconciliation and install/load reporting; retained as a distinct synchronization domain.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -20,7 +20,8 @@ Home-directed plugin artifact reconciliation and install/load reporting; score 1
 - All implementation currently lives in `sync.go`; exported entry points share its report machinery.
 - Separate artifact installation results from runtime load results.
 - Aggregate individual install failures while retaining per-plugin status records.
-- Clear resolved auth after each item and on every function exit, including early returns.
+- `SyncResolvedWithReport` clears each item's auth immediately and defers clearing the whole batch.
+- Resolved install clients defer `ClearAuth`; early returns must retain both cleanup boundaries.
 - Validate resolved response expiry before consuming each item.
 - Prefer `<root>/<goos>/<goarch>/` artifacts over root-level fallback files.
 - Use the normalized platform for extensions, inventory, install, and deletion.

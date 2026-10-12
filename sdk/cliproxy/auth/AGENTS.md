@@ -3,6 +3,8 @@
 ## OVERVIEW
 Credential execution, scheduling, cooldown, refresh, and Home selection; score 12, a distinct runtime domain spanning 148 Go files.
 
+Parent lifecycle: [service guide](../AGENTS.md); distributed credential ownership follows the [repository policy](../../../AGENTS.md).
+
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
@@ -38,7 +40,7 @@ Credential execution, scheduling, cooldown, refresh, and Home selection; score 1
 ## ANTI-PATTERNS
 - Do not change `Error`'s public four-field layout; causal errors use wrappers for unkeyed-literal compatibility.
 - Do not treat runtime `Remove` as deletion from backing stores; callers own storage deletion.
-- Do not refresh or schedule cooldowns for Home-owned credentials locally.
+- `RefreshHomeSelectionAfterUnauthorized` reacquires Home selection; it is not a local token-refresh path.
 - Do not persist alias route-model states or recursively resolve secondary OAuth aliases.
 - Do not reclassify credential/auth/quota HTTP statuses from response text.
 - Do not punish the credential pool for request-scoped or pre-HTTP transport failures.

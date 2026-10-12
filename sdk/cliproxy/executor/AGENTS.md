@@ -3,6 +3,8 @@
 ## OVERVIEW
 Shared request/response types, transport context, and lifecycle contracts; score 9, a distinct SDK boundary rather than provider implementation code.
 
+Parent lifecycle: [service guide](../AGENTS.md).
+
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
@@ -25,6 +27,7 @@ Shared request/response types, transport context, and lifecycle contracts; score
 - `RequestTerminatedError` carries a downstream response without an upstream execution; its accessors return header/body copies.
 - `BindExecutionResource(opts, closer)` closes once, including immediate cleanup if lifecycle binding fails.
 - Generation is enabled when its metadata flag is absent or true; only explicit false disables generation.
+- UpstreamWebsocketReplayRequiredError is request-scoped and reports HTTP 426; callers must distinguish replay from credential failure.
 
 ## ANTI-PATTERNS
 - Do not put `Options.ExecutionLifecycle` into request metadata.

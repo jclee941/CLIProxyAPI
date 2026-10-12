@@ -1,7 +1,7 @@
 # HTTP-OVER-WEBSOCKET RELAY
 
 ## OVERVIEW
-Provider session routing and correlated HTTP/stream transport; score 8, a distinct concurrent wire-protocol domain.
+Provider session routing and correlated HTTP/stream transport; retained as a distinct concurrent wire-protocol domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -16,11 +16,13 @@ Provider session routing and correlated HTTP/stream transport; score 8, a distin
 - `Manager.Send` routes a typed message to a connected provider session.
 - Correlation IDs connect HTTP requests with response or streaming envelopes.
 - `NonStream` and `Stream` expose distinct higher-level response contracts.
-- Pending requests use bounded delivery channels.
+- Pending requests use 64-frame delivery channels; inbound messages are limited to 64 MiB.
+- Provider names are lowercased; a new connection replaces the provider's previous session.
 - Context cancellation installs request cleanup through `context.AfterFunc`.
 - Sending the wire request marks the upstream attempt for SDK accounting.
 - Slow consumers must not stop the session from processing other pending requests.
 - Session liveness follows the root timeout-policy exception for this package.
+- Existing deadlines are 60s read and 10s write, with a 30s ping heartbeat.
 - The AIStudio executor is the main HTTP adaptation consumer.
 
 ## ANTI-PATTERNS

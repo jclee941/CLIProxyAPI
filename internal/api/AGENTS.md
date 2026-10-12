@@ -1,7 +1,7 @@
 # API SERVER KNOWLEDGE BASE
 
 ## OVERVIEW
-Gin server assembly, protocol multiplexing, and route lifecycle; score 14, a distinct transport domain.
+Gin server assembly, protocol multiplexing, and route lifecycle; retained as a distinct transport domain.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -19,6 +19,7 @@ Gin server assembly, protocol multiplexing, and route lifecycle; score 14, a dis
 | Heartbeat endpoint | `server_keepalive.go` | Optional embedding watchdog |
 | In-flight API request count | `server_in_flight.go` | `GET /v0/management/in-flight`; the deploy idle gate reads it |
 | Management implementation | `handlers/AGENTS.md` | Handler state and persistence rules |
+| Management HTML refresh | `../managementasset/updater.go` | Download/cache lifecycle, not config snapshots |
 | Request-log capture | `middleware/AGENTS.md` | Streaming and deferred-body rules |
 | Native integration fixture | `testdata/frontend_http.c` | Used by frontend HTTP native tests |
 
@@ -29,6 +30,7 @@ Gin server assembly, protocol multiplexing, and route lifecycle; score 14, a dis
 - Keep `/backend-api/codex` aliases aligned with the corresponding response endpoints.
 - Config reload compares against a serialized prior snapshot, not a shared mutable pointer.
 - HTTP and RESP share the listening socket; protocol inspection belongs to each accepted connection.
+- Home mode disables the local RESP queue interface and management availability.
 - `Stop` immediately closes listeners and HTTP connections; it deliberately does not drain streams.
 - NoRoute dispatch checks plugin resources, then management paths, then frontend fallback; registered routes retain precedence.
 - Control-panel asset bootstrap uses a detached context so client disconnects do not cancel installation.

@@ -1,7 +1,9 @@
 # GEMINI TRANSLATORS
 
 ## OVERVIEW
-Gemini content conversion, Interactions bridges and Responses grounding/replay; score 14, a distinct 36-file provider domain.
+Gemini content conversion, Interactions bridges and Responses grounding/replay; score 9, a distinct domain with 36 Go files.
+
+Registration and shared wire contracts: [parent guide](../AGENTS.md).
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -27,7 +29,8 @@ Gemini content conversion, Interactions bridges and Responses grounding/replay; 
 - Responses carriers use `cpa-gemini-responses-carrier-v1:` with direction and semantic target.
 - Text-signature replay cache keys use `gemini-responses-text:<messageID>`.
 - `_cpa_reasoning_*` fields are transient pipeline metadata, never trusted client annotations.
-- Canonical Gemini safety defaults cover five harm categories with BLOCK_NONE unless already configured.
+- Missing safety settings receive OFF for harassment, hate speech, sexual content and dangerous content; civic integrity uses BLOCK_NONE.
+- Existing safety settings are preserved, including explicitly configured empty arrays.
 
 ## ANTI-PATTERNS
 - Do not enable search when static native_capabilities.web_search is explicitly false.

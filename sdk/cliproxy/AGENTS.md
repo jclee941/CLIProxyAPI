@@ -3,6 +3,8 @@
 ## OVERVIEW
 Embeddable service orchestration, reloads, and model registration; score 14, a distinct lifecycle domain above six runtime packages.
 
+Parent map: [SDK guide](../AGENTS.md).
+
 ## STRUCTURE
 ```text
 cliproxy/
@@ -28,7 +30,8 @@ cliproxy/
 | Manage Home connection lifetimes | `service_home.go`, `home_plugins.go` | Supervisor, overlays, plugin staging/finalization |
 | Adapt watcher hooks | `watcher.go`, `types.go` | Closure-based wrapper; `SnapshotAuths` |
 | Manage auxiliary listeners | `pprof_server.go`, `discovery_advertiser.go` | Server ownership and bound endpoint identity |
-| Extend execution hooks | `pipeline/context.go` | `HookFunc` adapts before/after/chunk callbacks |
+| Inspect standalone hook contracts | `pipeline/context.go` | `HookFunc` adapters; no in-repository importers, not an installed service middleware chain |
+| Expose model registry contracts | `model_registry.go` | Public aliases and ModelRegistry interface track internal registry methods |
 | Check lifecycle regressions | `service_executionregistry_test.go`, `service_auth_sync_test.go` | Home ownership, reload ordering, registration races |
 
 ## CONVENTIONS
@@ -38,7 +41,7 @@ cliproxy/
 - Config API-key records retain their configuration index; duplicate key strings are not sufficient identifiers.
 - Model aliases and prefixes preserve the upstream `MetadataModelID`; fork aliases retain the original catalog entry.
 - An existing `excluded_models` attribute is the complete synthesized exclusion set, not an addition to global exclusions.
-- `PluginMultiAuthParser` returning handled with no records intentionally suppresses built-in parsing.
+- File parser ownership and handled-empty semantics are documented in [login/storage guidance](../auth/AGENTS.md).
 - Home startup replaces local watching with subscriber-driven state; local Redis usage output is disabled in that mode.
 
 ## ANTI-PATTERNS

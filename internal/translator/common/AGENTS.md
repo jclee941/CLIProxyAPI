@@ -1,7 +1,9 @@
 # SHARED TRANSLATOR HELPERS
 
 ## OVERVIEW
-Protocol-specific primitives shared by converter pairs; score 12, with 25 files and a high-reference JSON/SSE helper surface.
+Protocol-specific primitives shared by converter pairs; score 14, with 25 Go files and a high-reference JSON/SSE helper surface.
+
+Converter architecture and registry contracts: [parent guide](../AGENTS.md).
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -28,6 +30,7 @@ Protocol-specific primitives shared by converter pairs; score 12, with 25 files 
 - SetStringWithoutHTMLEscape preserves literal `<`, `>` and `&` in JSON strings.
 - Responses output reconciliation tries exact identity, function name, then FIFO matching.
 - Gemini user-part ordering places text before functionResponse for Vertex compatibility.
+- `MergeAdjacentGeminiContents` may combine user tool-result turns; `MergeAdjacentGeminiUserContents` preserves those boundaries.
 - DeriveClaudeUserID prefers session identity before stable conversation-derived fallback.
 
 ## ANTI-PATTERNS

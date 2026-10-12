@@ -1,7 +1,9 @@
 # PLUGIN CAPABILITY CONTRACTS
 
 ## OVERVIEW
-Plugin metadata, capability interfaces, and host/plugin payload schemas; score 11, distinct public extension contract.
+Plugin metadata, capability interfaces, and host/plugin payload schemas; score 9, distinct public extension contract.
+
+Parent map: [SDK guide](../AGENTS.md); wire version gates live in [pluginabi](../pluginabi/AGENTS.md).
 
 ## WHERE TO LOOK
 | Task | Location | Detail |

@@ -1,12 +1,13 @@
 # LOGGING AND REQUEST TRANSCRIPTS
 
 ## OVERVIEW
-Application output, request/body capture, and Home forwarding; score 11, a distinct observability lifecycle domain.
+Application output, request/body capture, and Home forwarding; retained as a distinct observability lifecycle domain.
 
 ## WHERE TO LOOK
 | Concern | File |
 |---------|------|
 | Base logger and output destinations | `global_logger.go` |
+| ELK JSON output format | `elk_formatter.go` |
 | Gin request/recovery middleware | `gin_logger.go` |
 | Request logger interfaces/context keys | `request_logger.go` |
 | Capture files and collisions | `request_logger_writer.go` |

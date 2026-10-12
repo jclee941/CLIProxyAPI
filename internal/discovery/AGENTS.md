@@ -1,7 +1,7 @@
 # LAN GATEWAY DISCOVERY
 
 ## OVERVIEW
-DNS-SD service construction, mDNS advertisement, and browsing; score 8, a distinct network discovery domain.
+DNS-SD service construction, mDNS advertisement, and browsing; retained as a distinct network discovery domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -21,7 +21,7 @@ DNS-SD service construction, mDNS advertisement, and browsing; score 8, a distin
 - Instance names retain the generated identifier when the human-readable prefix is shortened.
 - Interface filtering excludes loopback, point-to-point, and known virtual-interface prefixes.
 - Multi-homed results may contain multiple addresses for one gateway.
-- TXT encoding enforces both per-record and total payload bounds.
+- TXT encoding caps each record at 255 bytes and total payload at 400 bytes.
 - The CLI's presentation/filter precedence is implemented separately in `../cmd/discover.go`.
 
 ## ANTI-PATTERNS

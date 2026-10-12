@@ -1,7 +1,7 @@
 # PLUGIN STORE KNOWLEDGE BASE
 
 ## OVERVIEW
-Registry validation, authenticated artifact retrieval, and safe binary installation; score 11, a distinct distribution boundary.
+Registry validation, authenticated artifact retrieval, and safe binary installation; retained as a distinct distribution boundary.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -26,6 +26,7 @@ Registry validation, authenticated artifact retrieval, and safe binary installat
 - Temporary resolved credentials use byte-backed `Secret` values with explicit clearing.
 - Archive installation accepts one correctly named dynamic library at the archive root.
 - Preserve the difference between release tags and normalized plugin versions.
+- Public consumers use `../../sdk/pluginstore/pluginstore.go`; Home reconciliation lives in `../homeplugins/`.
 - Run `go test ./internal/pluginstore` for catalog, auth, throttle, and archive checks.
 
 ## ANTI-PATTERNS

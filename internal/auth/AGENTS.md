@@ -1,7 +1,7 @@
 # PROVIDER AUTHENTICATION
 
 ## OVERVIEW
-Provider login/refresh clients and persisted token formats; score 16, a distinct multi-provider authentication boundary.
+Provider login/refresh clients and persisted token formats; score 11, a distinct multi-provider authentication boundary.
 
 ## STRUCTURE
 | Path | Provider-specific responsibility |
@@ -26,10 +26,13 @@ Provider login/refresh clients and persisted token formats; score 16, a distinct
 | Antigravity project onboarding | `antigravity/auth.go` |
 | Service-account PEM repair | `vertex/keyutil.go` |
 | Discovery URL validation | `xai/xai.go` |
+| Provider concurrency and wire profiles | `claude/AGENTS.md`, `codex/AGENTS.md`, `kimi/AGENTS.md` |
+| Session-token adaptation | `devin/AGENTS.md` |
 
 ## CONVENTIONS
 - Provider storage encodes provider-specific fields alongside supported custom metadata.
 - Credential filename builders encode account identity rather than assuming email uniquely identifies every account.
+- Callback ports belong to SDK orchestration; provider callback servers accept the selected port.
 - Test provider primitives with `go test ./internal/auth/...` from the repository root.
 
 ## ANTI-PATTERNS

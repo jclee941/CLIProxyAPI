@@ -1,7 +1,7 @@
 # PLUGIN HOST KNOWLEDGE BASE
 
 ## OVERVIEW
-Native plugin lifecycle, capability adapters, and scoped RPC bridges; score 14, a distinct ABI/concurrency domain.
+Native plugin lifecycle, capability adapters, and scoped RPC bridges; retained as a distinct ABI/concurrency domain.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -9,7 +9,7 @@ Native plugin lifecycle, capability adapters, and scoped RPC bridges; score 14, 
 | Load/reload/unload orchestration | `host.go` | `Host.ApplyConfig`, quiesce, rollback, load tokens |
 | Immutable capability view | `snapshot.go` | Published plugin/capability records |
 | Platform discovery | `platform.go` | Versioned files and platform-tier preference |
-| Native loading | `loader_unix.go`, `loader_windows.go` | C ABI, not Go's standard plugin package |
+| Native loading | `loader_unix.go`, `loader_windows.go` | Platform-specific library lifetime |
 | Unsupported builds | `loader_unsupported.go`, `support*.go` | Build tags and support header |
 | JSON-RPC contract | `rpc_client.go`, `rpc_schema.go` | Native calls and wire payloads |
 | Executor integration | `adapters_executors.go`, `executor_route.go` | Translation and direct routing |
@@ -29,6 +29,7 @@ Native plugin lifecycle, capability adapters, and scoped RPC bridges; score 14, 
 - Guarded clients stop admitting calls before draining in-flight work.
 - Callback operations are scoped by plugin ID and instance key, not operation ID alone.
 - Interceptor inputs are cloned, including nested metadata with cycle handling.
+- `*Except` interceptor/router variants skip the plugin initiating nested host execution.
 - A plugin panic permanently fuses that plugin for the process lifetime.
 - Frontend route authentication pins owner/generation before bounded body consumption.
 - Windows loaders use shadow copies and keep Go DLL modules mapped after shutdown.

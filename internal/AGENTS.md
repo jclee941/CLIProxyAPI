@@ -9,42 +9,42 @@ One row per immediate package area; specialized guidance lives below these paths
 | Package | Responsibility |
 |---------|----------------|
 | `access/` | Reconcile inbound access providers; `config_access/` supplies static API-key authentication |
-| `api/` | HTTP server boundary; see its own guidance |
+| `api/` | HTTP server boundary; `api/AGENTS.md` |
 | `auth/` | Provider login, refresh, and token-file formats |
 | `browser/` | Cross-platform OAuth browser launching |
 | `buildinfo/` | Version, commit, and build date supplied by server startup |
-| `cache/` | Signature and provider-specific reasoning replay state |
+| `cache/` | Signature and reasoning replay; `cache/AGENTS.md` |
 | `client/` | Client dialect adapters; Claude model cloaking, Codex integration, Grok keepalives |
 | `clienterror/` | HTTP error classification and credential-rotation eligibility |
-| `cmd/` | CLI command orchestration behind the executable |
+| `cmd/` | CLI orchestration; `cmd/AGENTS.md` |
 | `config/` | Configuration schema, loading, normalization, and preserving YAML writes |
 | `constant/` | Shared provider and protocol identifiers |
 | `credentialweight/` | Numeric credential-weight parsing and bounds |
-| `discovery/` | LAN gateway DNS-SD advertisement and discovery |
-| `home/` | Control-plane integration; see its own guidance |
-| `homeplugins/` | Home plugin integration; see its own guidance |
+| `discovery/` | LAN DNS-SD; `discovery/AGENTS.md` |
+| `home/` | Control-plane integration; `home/AGENTS.md` |
+| `homeplugins/` | Home plugin integration; `homeplugins/AGENTS.md` |
 | `htmlsanitize/` | Browser-facing string and JSON sanitization |
 | `httpfetch/` | Size-bounded HTTP downloads |
 | `httpwire/` | Ordered HTTP/1.1 request headers at the connection layer |
 | `interfaces/` | Shared handler, message, error, and translation contracts |
-| `logging/` | Application diagnostics, request transcripts, and forwarding |
+| `logging/` | Diagnostics and request capture; `logging/AGENTS.md` |
 | `managementasset/` | Management HTML download and cache updater |
-| `misc/` | OAuth callbacks, metadata merge, MIME table, and client-version helpers |
+| `misc/` | OAuth, metadata, MIME, and client-version helpers; `misc/AGENTS.md` |
 | `modelconfig/` | Shared model metadata normalization and model-list hashes |
-| `pluginhost/` | Plugin runtime; see its own guidance |
-| `pluginstore/` | Plugin storage; see its own guidance |
-| `redisqueue/` | In-memory usage/error event queues, despite the name |
+| `pluginhost/` | Plugin runtime; `pluginhost/AGENTS.md` |
+| `pluginstore/` | Plugin storage; `pluginstore/AGENTS.md` |
+| `redisqueue/` | In-memory event queues; `redisqueue/AGENTS.md` |
 | `registry/` | Dynamic model availability and embedded catalog snapshots |
-| `runtime/` | Upstream execution; follow executor guidance below this path |
+| `runtime/` | Upstream execution; `runtime/executor/AGENTS.md` |
 | `safemode/` | Block active proxy use of shipped example API keys |
-| `signature/` | Reasoning signature inspection, compatibility, and sanitization |
+| `signature/` | Reasoning signature handling; `signature/AGENTS.md` |
 | `store/` | Git, object-store, and PostgreSQL credential mirrors |
-| `thinking/` | Reasoning effort, budgets, summary intent, and provider appliers |
-| `translator/` | Protocol conversion; see its own guidance |
-| `tui/` | Terminal management client |
+| `thinking/` | Reasoning configuration/appliers; `thinking/AGENTS.md` |
+| `translator/` | Protocol conversion; `translator/AGENTS.md` |
+| `tui/` | Terminal management client; `tui/AGENTS.md` |
 | `util/` | Shared schema, tool identity, header, and JSON utilities |
 | `watcher/` | Config/auth reload, credential synthesis, and update revisions |
-| `wsrelay/` | HTTP-over-WebSocket provider sessions |
+| `wsrelay/` | HTTP-over-WebSocket sessions; `wsrelay/AGENTS.md` |
 
 ## WHERE TO LOOK
 | Change | Starting point |
@@ -54,6 +54,10 @@ One row per immediate package area; specialized guidance lives below these paths
 | Model listing disagrees with execution | `registry/`, `modelconfig/`, then relevant client adapter |
 | Signature replay rejection | `signature/` and `cache/`; these are separate concerns |
 | Small shared wire contract | `interfaces/`, `httpwire/`, or `clienterror/`, not a new provider implementation |
+
+## CONVENTIONS
+- Scores use source-tree size and LSP declarations; tiny packages stay in this map.
+- `buildinfo/` receives executable metadata from `../cmd/server/main.go`, not direct package ldflags.
 
 ## ANTI-PATTERNS
 - Do not treat `clienterror.IsRequestFault` as a generic 4xx check: 402/429 and model-capability failures can require credential rotation.

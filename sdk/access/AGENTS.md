@@ -1,7 +1,9 @@
 # REQUEST ACCESS AUTHENTICATION
 
 ## OVERVIEW
-Ordered frontend credential-provider registry and authentication coordinator; score 8, distinct inbound-access domain.
+Ordered frontend credential-provider registry and authentication coordinator; retained distinct inbound-access domain, conservative score 6.
+
+Parent map: [SDK guide](../AGENTS.md).
 
 ## WHERE TO LOOK
 | Task | Location | Detail |
@@ -16,6 +18,7 @@ Ordered frontend credential-provider registry and authentication coordinator; sc
 
 ## CONVENTIONS
 - Provider.Authenticate returns Result plus *AuthError, not an unclassified error.
+- Keep nil checks on the concrete *AuthError; converting a typed nil to error changes its nil comparison.
 - Registration order determines RegisteredProviders order; replacing a key preserves its position.
 - Exclusivity applies only while the selected key has a registered, non-nil provider.
 - A stale exclusive key falls back to the ordinary registered list.

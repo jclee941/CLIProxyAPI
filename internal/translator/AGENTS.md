@@ -3,6 +3,8 @@
 ## OVERVIEW
 Protocol conversion and registration hub; score 16, with eight immediate domains and 206 Go files below this directory.
 
+Parent package map: [internal/AGENTS.md](../AGENTS.md).
+
 ## STRUCTURE
 ```text
 translator/
@@ -21,7 +23,7 @@ translator/
 | Task | Location | Notes |
 |------|----------|-------|
 | Activate a converter | `init.go` | Blank imports trigger pair registration |
-| Registry facade | `translator/translator.go` | Register, Request, Response, ResponseNonStream |
+| Registry facade | `translator/translator.go` | Register, Request, NeedConvert, Response, ResponseNonStream |
 | Identify direction | Pair package `init.go` | Registration arguments are authoritative |
 | Shared transformations | `common/` | Separate guidance for helper contracts |
 | Claude to Interactions | `interactions/claude/` | Request, response and compat conversion |
@@ -34,6 +36,7 @@ translator/
 - Most paths mean destination/source, not request direction read left-to-right.
 - Exceptions include bidirectional Interactions packages; inspect registration rather than guessing.
 - Each registration pairs a forward request converter with reverse response hooks.
+- The facade shares `sdk/translator.Default()`; runtime dispatch need not call this wrapper.
 - Streaming hooks retain per-stream state through `param *any`; non-stream hooks are separate.
 - Converters predominantly query raw JSON with gjson and build payloads with sjson.
 - `originalRequestRawJSON` and translated `requestRawJSON` serve different identity-recovery roles.
@@ -41,7 +44,7 @@ translator/
 - `interactions/claude` uses `function_call.id` but `function_result.call_id` on the Interactions wire.
 
 ## ANTI-PATTERNS
-- Apply the root translator change policy before modifying this subtree.
+- Apply [the root translator change policy](../../AGENTS.md) before modifying this subtree.
 - Do not route non-Gemini Interactions conversions through Gemini translators: the import-boundary test forbids that dependency.
 - Do not assume equal source/destination formats mean no work; self-format converters normalize requests and terminal events.
 - Do not treat registration reference counts as the full runtime call graph; dispatch is indirect.

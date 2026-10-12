@@ -1,7 +1,9 @@
 # TRANSLATION DISPATCH
 
 ## OVERVIEW
-Format registry, plugin translation hooks, and envelope middleware; score 11, distinct protocol-dispatch domain.
+Format registry, plugin translation hooks, and envelope middleware; score 9, distinct protocol-dispatch domain.
+
+Parent map: [SDK guide](../AGENTS.md); implementation change restrictions remain in the [repository policy](../../AGENTS.md).
 
 ## WHERE TO LOOK
 | Task | Location | Detail |
@@ -39,4 +41,3 @@ Format registry, plugin translation hooks, and envelope middleware; score 11, di
 - Do not reverse request lookup to match response lookup; the asymmetry is intentional.
 - Do not overwrite a plugin normalizer's removal of summary fields after native request translation.
 - Do not mutate Default in tests without restoring registrations/hooks.
-- Implementation changes under internal/translator remain governed by the root translator change policy.

@@ -1,7 +1,9 @@
 # SDK PACKAGE MAP
 
 ## OVERVIEW
-Public embedding and extension surfaces; score 14 across the owned subtree, with 12 immediate package directories.
+Public v7 embedding and extension surfaces; score 14 across the subtree, with 12 immediate package directories.
+
+Parent policy: [repository guide](../AGENTS.md).
 
 ## STRUCTURE
 | Package | Role |
@@ -31,6 +33,7 @@ Public embedding and extension surfaces; score 14 across the owned subtree, with
 
 ## CONVENTIONS
 - Thin public facades use aliases and forwarding calls; implementation lives in the corresponding internal package.
+- Current imports use `github.com/router-for-me/CLIProxyAPI/v7`; `docs/sdk-usage.md`, `docs/sdk-access.md`, and `docs/sdk-advanced.md` still show older v6 examples.
 - Package-local checks: `go test ./sdk/<package>`; handler descendants require `go test ./sdk/api/handlers/...`.
 - `proxyutil.BuildHTTPTransport` may return nil transport with ModeInherit and no error; callers retain inherited behavior.
 

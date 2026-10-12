@@ -27,9 +27,12 @@ Capability-focused C ABI examples across Go, C, and Rust; score 8 from directory
 
 ## CONVENTIONS
 - Standard examples have `go/`, `c/`, and `rust/` peers; specialized examples may be Go-only.
-- Each Go implementation has its own module; run its tests from that implementation directory.
+- Most Go implementations have their own module; run their tests from that implementation directory.
+- `structured-output/go/` has no `go.mod`: root tests cover it; targeted check is `go test ./examples/plugin/structured-output/go`.
 - Use `make -C examples/plugin list` to inspect configured targets before choosing a build.
-- The Makefile emits libraries into `bin/`; some newer specialized examples require direct module builds.
+- The Makefile emits libraries into `bin/`; specialized examples outside `EXAMPLES` need their documented direct build.
+- Build structured output from the root with `go build -buildmode=c-shared -o structured-output.so ./examples/plugin/structured-output/go`.
+- Shared ABI architecture and repository policies live in `../../AGENTS.md`.
 - Go builds use `-buildmode=c-shared`, C uses CMake, Rust uses locked `cdylib` builds.
 - ABI buffers carry JSON envelopes; lifecycle `config_yaml` is encoded bytes containing raw YAML.
 - Library basename determines plugin ID and the corresponding `plugins.configs` key.

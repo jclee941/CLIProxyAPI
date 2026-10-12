@@ -15,11 +15,13 @@ ChatGPT web chat/image execution and Codex/Web quota reporting; score 10 for a d
 | Proof of work | `pow.go` | SHA3-512 target search and token formatting |
 | Incremental replies | `webreply.go`, `webstream.go` | Patch folding and host stream bridge |
 | Quota projections | `quota.go`, `usage.go` | Separate Codex and ChatGPT Web windows |
-| Dashboard | `management.go`, `web/index.html` | Static resource plus protected accounts API |
+| Dashboard | `management.go`, `web/index.html` | Hand-written HTML source plus protected accounts API |
 | Native loader check | `smoke/load.c` | Actual `dlopen`/ABI exercise |
 
 ## CONVENTIONS
 - This directory owns `go.mod`; repository-root `go test ./...` does not cover it.
+- Deployment authority and reload policy live in `../AGENTS.md`.
+- Unlike Gemini's portal, `web/index.html` is authored directly; there is no frontend bundling step here.
 - `make check` runs race/shuffle tests, vet, and the C loader smoke check.
 - `make build` emits `chatgpt-web.so` with `CGO_ENABLED=1` and `-buildmode=c-shared`.
 - Go response bytes cross the ABI as C-owned allocations; release plugin and host buffers through their corresponding callbacks.

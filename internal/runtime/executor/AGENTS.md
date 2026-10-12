@@ -1,7 +1,7 @@
 # EXECUTOR KNOWLEDGE BASE
 
 ## OVERVIEW
-Provider execution, native wire fidelity, replay, and stream lifecycle; score 12, distinct domain with 166 direct Go files. Covers `helps/` at the depth limit.
+Provider execution, native wire fidelity, replay, and stream lifecycle; score 12, distinct domain with 166 direct Go files. Covers the 109-Go-file `helps/` package at the default depth-3 limit.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -13,19 +13,22 @@ Provider execution, native wire fidelity, replay, and stream lifecycle; score 12
 | Antigravity replay | `antigravity_reasoning_replay.go`, `antigravity_reasoning_replay_index_test.go` | Indexed history matching and independent differential oracle |
 | Codex HTTP and terminals | `codex_executor_{execute,stream,terminal}.go` | Bootstrap failover, output reconstruction, terminal errors |
 | Codex WebSocket lifecycle | `codex_websockets_{executor,session,duplex,stream}.go` | Auto transport selection, connection ownership, queued creates |
+| Codex WebSocket liveness | `codex_websockets_connection.go`, `codex_websockets_session.go` | Idle deadline constant and both read paths; not the facade file |
 | xAI protocol adaptation | `xai_executor_{request,response,media}.go`, `xai_reasoning_replay.go` | Tool folding, search filtering, media, isolated replay |
 | xAI WebSocket IDs | `xai_websockets_executor.go` | Separate session store, downstream/upstream ID map, compacted transcript |
 | Gemini / Vertex / AI Studio | `gemini_executor.go`, `gemini_vertex_executor.go`, `aistudio_executor.go` | Interactions, service-account/API-key paths, relay |
 | Devin / Kimi / Meta | `devin_executor.go`, `kimi_executor.go`, `meta_executor*.go` | Connect-RPC, Claude delegation, temporary DCA credentials |
 | OpenAI-compatible providers | `openai_compat_executor.go`, `openai_responses_signature.go`, `codex_openai_images.go` | Compatibility knobs, reasoning sanitization, Images adaptation |
 | Usage and token timing | `helps/usage_helpers.go`, `helps/*ttft_helpers.go`, `helps/stream_response_model_observer.go` | Protocol-aware usage and chunk-safe model observation |
+| Served-model accounting | `helps/response_model.go`, `helps/usage_helpers.go` | Upstream model extraction, terminal observation, side-model records |
+| Home refresh and identity caches | `helps/home_refresh.go`, `helps/{session_id_cache,user_id_cache}.go` | Refresh result contract and Home-aware required cache operations |
 | Payload / transport utilities | `helps/payload_helpers.go`, `helps/codex_multi_agent_v2.go`, `helps/{proxy_helpers,transport_cache,utls_client}.go` | Payload rules, translation baselines, connection caches |
 | Package tests | `go test ./internal/runtime/executor/...` | Includes `helps`; run from repository root |
-| Targeted race checks | `go test -race ./internal/runtime/executor -run 'TestClaudeExecutorSharedCredential|TestWebsocket'` | Shared auth and session lifecycle |
+| Targeted race checks | `go test -race ./internal/runtime/executor -run 'TestClaudeExecutorSharedCredential|TestWebsocket|TestCodex.*Duplex'` | Shared auth, session lifecycle, duplex ordering |
 
 ## CONVENTIONS
 - Provider receiver methods are split by capability, not separate Go packages.
-- Follow the root executor/helps placement rule when adding files; existing colocated support files are not a precedent.
+- Follow [root placement guidance](../../../AGENTS.md) when adding files; existing colocated support files are not a precedent.
 - Wire transformations favor `gjson`/`sjson` or indexed byte edits: preserve unknown fields, key order, and opaque signatures.
 - Translation pairs retain an untouched baseline and an independent working buffer; plugin hooks prevent the identical-input shortcut.
 - Claude sends converge on `doClaudeUpstreamRequest`; wire header casing is applied immediately before dispatch because canonical header lookup no longer finds those keys.
@@ -40,6 +43,8 @@ Provider execution, native wire fidelity, replay, and stream lifecycle; score 12
 - xAI aliases repeated upstream response IDs with `-xai-N`; preserve the reverse mapping for `previous_response_id`.
 - xAI WebSocket compaction bridges to HTTP using recorded context, validates compacted state, replaces the transcript, and emits synthetic SSE chunks.
 - Devin consumes Connect-RPC frames, not SSE; clean completion requires its EOS trailer.
+- `RefreshAuthViaHome` returns `handled=true` for Home failures as well as success; callers must not fall through to local refresh on that result.
+- Usage records distinguish requested, upstream, and served models; additional image-tool model records leave the served-model field empty.
 
 ## ANTI-PATTERNS
 ### Wire and payload
@@ -47,6 +52,7 @@ Provider execution, native wire fidelity, replay, and stream lifecycle; score 12
 - Do not run full Claude Messages cloaking over `count_tokens`; its measured native body has a different shape.
 - Do not sanitize schema keywords across Antigravity conversation history; restrict cleaning to schema-bearing paths.
 - Do not mutate opaque thinking signatures during text obfuscation or JSON rewriting.
+- Do not supplement Devin tool-result images by position; associate them with the matching tool call ID.
 - Do not mix xAI internal search traces with restored client tools; filtering must not remove namespaced client calls.
 - Do not route xAI compact or WebSocket requests through `xaiChatBaseURL`.
 
@@ -56,7 +62,7 @@ Provider execution, native wire fidelity, replay, and stream lifecycle; score 12
 - Do not fall back to HTTP when the execution context requires upstream WebSocket replay.
 - Do not notify downstream disconnect on a retryable Codex bootstrap overload teardown.
 - Do not consume duplex follow-ups until the initial bootstrap succeeds.
-- Do not enable Codex or xAI outbound WebSocket compression; negotiated compression and write compression are separate.
+- Do not enable Codex or xAI outbound WebSocket write compression; negotiating `permessage-deflate` is permitted.
 - Do not acquire the xAI session write mutex for ping-handler pongs; concurrent `WriteControl` avoids starvation during uploads.
 - Do not inject xAI reasoning cache items into incremental WebSocket turns already using `previous_response_id`.
 - Do not share an Antigravity replay index across goroutines or retain it after its payload changes.

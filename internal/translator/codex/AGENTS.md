@@ -1,7 +1,9 @@
 # CODEX DESTINATION TRANSLATORS
 
 ## OVERVIEW
-Codex Responses payload conversion and reverse stream adaptation; score 14, a distinct 32-file provider domain.
+Codex Responses payload conversion and reverse stream adaptation; score 9, a distinct domain with 32 Go files.
+
+Registration and shared wire contracts: [parent guide](../AGENTS.md).
 
 ## WHERE TO LOOK
 | Task | Location | Notes |

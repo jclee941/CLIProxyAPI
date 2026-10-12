@@ -1,7 +1,9 @@
 # REASONING SIGNATURE COMPATIBILITY
 
 ## OVERVIEW
-Signature shape inspection, provider compatibility, and history sanitization; score 11, a distinct protocol-integrity domain.
+Signature shape inspection, provider compatibility, and history sanitization; score 8, a distinct protocol-integrity domain.
+
+Parent package map: [internal/AGENTS.md](../AGENTS.md).
 
 ## WHERE TO LOOK
 | Concern | File |
@@ -32,6 +34,6 @@ Signature shape inspection, provider compatibility, and history sanitization; sc
 - Do not replay bare Gemini ASCII UUID envelopes as proven conversation state.
 - Do not pin rotating Gemini Tink key IDs in envelope validation.
 - Do not interleave parallel calls and responses inside the same content turn.
-- Apply the root secret-logging rule to signature diagnostics using paths and lengths.
+- Signature diagnostics report paths and lengths; secret-logging policy is in [the root guide](../../AGENTS.md).
 
 Run `go test ./internal/signature`; caller regressions span cache, executors, and translators.

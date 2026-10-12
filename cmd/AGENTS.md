@@ -22,7 +22,7 @@ Standalone executables and startup orchestration; score 9 from file count, direc
 | Startup regression cases | `server/main_test.go` | Flags, safe mode, Home port, updater plan |
 | Devin wire decoding | `fetch_devin_models/main.go` | `protowire` parsing and model aggregation |
 | Error grouping | `telegram-log-forwarder/state.go` | Bounded groups and persisted delivery state |
-| Usage schedules and offsets | `telegram-usage-bot/bot.go`, `state.go` | Report dispatch and restart progress |
+| Usage schedules and offsets | `telegram-usage-bot/bot.go`, `telegram-usage-bot/state.go` | Report dispatch and restart progress |
 
 ## CONVENTIONS
 - Every directory is `package main`; these are executable boundaries, not importable SDK packages.
@@ -32,10 +32,11 @@ Standalone executables and startup orchestration; score 9 from file count, direc
 - Fetchers write catalogs; `validate_codex_models` validates the resulting file rather than contacting a provider.
 - Run command tests from the repository root with `go test ./cmd/...`.
 - Inspect `../deploy/AGENTS.md` before treating retained Telegram commands as deployed services.
+- Shared coding rules live in `../AGENTS.md`; startup implementation helpers live under `../internal/cmd/`.
 
 ## ANTI-PATTERNS
 - Do not move discovery interception after the normal startup banner.
 - Do not bypass example-key safe mode to start a live proxy with sample credentials.
 - Do not require a local config file in startup paths that intentionally load optional Home configuration.
-- Do not retain the startup Redis probe connection after its verification step.
+- Do not confuse the in-memory Redis-compatible usage queue with an external Redis startup dependency.
 - Do not replace Devin's wire parser with assumptions about JSON responses.

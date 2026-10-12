@@ -1,7 +1,7 @@
 # GEMINI MANAGEMENT RESOURCE
 
 ## OVERVIEW
-Self-contained iframe account/login portal; score 10 for its independent frontend build, symbol density, and exported contracts.
+Self-contained Gemini and Flow iframe portals; score 12 for the independent frontend build, size, symbol density, and exported contracts.
 
 ## WHERE TO LOOK
 | Task | Location | Detail |
@@ -14,12 +14,15 @@ Self-contained iframe account/login portal; score 10 for its independent fronten
 | Companion channel | `src/companion.ts` | Port identity and one-session handshake |
 | Login UI and schemas | `src/login-panel.ts`, `src/login-contract.ts` | Consent and backend state rendering |
 | Quota cards | `src/account-card.ts` | Measured account state and usage |
+| Flow accounts and credits | `src/flow/main.ts`, `src/flow/contract.ts`, `src/flow/state.ts` | Separate DTOs and account reconciliation |
 | Host-compatible styling | `src/tokens.css`, `src/styles.css` | Shared design tokens |
-| Deployment artifact | `build.ts`, `src/index.html` | Generate root `index.html` |
-| Browser fixtures | `tests/browser.ts`, `tests/login-browser.ts` | Mock host and login flows |
+| Deployment artifacts | `build.ts`, `src/index.html`, `src/flow/index.html` | Generate local and Flow sibling HTML bundles |
+| Browser fixtures | `tests/browser.ts`, `tests/login-browser.ts`, `tests/flow-browser.ts` | Mock Gemini login and Flow accounts |
 
 ## CONVENTIONS
 - Source lives under `src/`; root `index.html` is the bundled deployment artifact.
+- The same build writes `../../flow2api-plugin/web/index.html`; Flow source changes belong in `src/flow/`.
+- Shared login/session ownership follows `../AGENTS.md`; Flow's native backend has its own sibling guide.
 - Bun inlines the IIFE, styles, and assets into one HTML file; no external runtime resource loading.
 - Prefer the parent's `__CPAMP_PLUGIN_HOST__` transport when available.
 - Transport rejects redirects and off-origin requests; mutations have no automatic retries.
@@ -30,7 +33,7 @@ Self-contained iframe account/login portal; score 10 for its independent fronten
 - `bun --no-env-file run qa` exercises the browser suite against synthetic management fixtures.
 
 ## ANTI-PATTERNS
-- Do not hand-edit generated `index.html` instead of rebuilding its sources.
+- Do not hand-edit either generated HTML bundle instead of rebuilding its sources.
 - Do not override host theme properties when the host bridge provides them.
 - Do not turn a login request deadline into a displayed credential expiry.
 - Do not resend a token after uncertain completion; expose status/reconcile instead.

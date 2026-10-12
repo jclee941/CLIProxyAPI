@@ -3,6 +3,8 @@
 ## OVERVIEW
 Provider-specific replay state with local and Home KV backends; score 11, a distinct state-consistency domain.
 
+Parent package map: [internal/AGENTS.md](../AGENTS.md).
+
 ## WHERE TO LOOK
 | Concern | File |
 |---------|------|
@@ -21,6 +23,7 @@ Provider-specific replay state with local and Home KV backends; score 11, a dist
 - Antigravity tracks branch lineage and absent-key reservations in addition to revisions.
 - Codex buffers include an internal turn-boundary marker for cumulative trimming.
 - Claude and Kimi share snapshot machinery but retain separate cache namespaces.
+- Replay reads refresh Home TTL; conditional writes compare opaque serialized snapshots.
 - `signature_cache.go` owns one cleanup loop for the replay caches.
 - Fake KV client hooks exercise distributed behavior without an external service.
 

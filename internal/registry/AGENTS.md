@@ -1,7 +1,7 @@
 # MODEL REGISTRY
 
 ## OVERVIEW
-Live model availability, capability projections, and embedded/remote catalogs; score 14, a central routing metadata domain.
+Live model availability, capability projections, and embedded/remote catalogs; score 12, a central routing metadata domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -31,8 +31,8 @@ Live model availability, capability projections, and embedded/remote catalogs; s
 - Do not hand callers internal maps/slices or retain stale capability snapshots after re-registration.
 - Do not confuse a client registration epoch with the global availability generation.
 - Do not replace a valid catalog with a malformed download.
-- Do not remove the required Codex fallback template from catalog validation.
+- Do not remove the required `gpt-5.5` fallback template from Codex catalog validation.
 - Hook implementations must remain non-blocking despite asynchronous dispatch.
 
 Run `go test ./internal/registry` for clone, projection, quota, and catalog regressions.
-Catalog automation is `.github/scripts/refresh-model-catalogs.sh`; validators live under `cmd/`.
+Catalog automation is `../../.github/scripts/refresh-model-catalogs.sh`; validators live under `../../cmd/`.

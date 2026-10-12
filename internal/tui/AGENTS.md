@@ -1,7 +1,7 @@
 # TERMINAL MANAGEMENT CLIENT
 
 ## OVERVIEW
-Bubbletea management UI over the local REST API; score 8, a distinct interactive state-machine domain.
+Bubbletea management UI over the local REST API; retained as a distinct interactive state-machine domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -18,7 +18,7 @@ Bubbletea management UI over the local REST API; score 8, a distinct interactive
 | Layout styles | `styles.go` |
 
 ## CONVENTIONS
-- Management requests use `/v0/management/` with the configured bearer secret.
+- `Client` targets `http://127.0.0.1:<port>/v0/management/` with the configured bearer secret.
 - UI models do not read server internals directly.
 - OAuth async messages carry a generation token matching the active flow.
 - Starting or canceling a flow invalidates messages from superseded generations.

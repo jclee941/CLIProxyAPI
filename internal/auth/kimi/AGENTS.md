@@ -1,7 +1,7 @@
 # KIMI DEVICE FLOW
 
 ## OVERVIEW
-Domain-aware Kimi device authorization and token refresh; score 11, a distinct provider-routing domain.
+Domain-aware Kimi device authorization and token refresh; score 6, retained provider-routing domain guide.
 
 ## WHERE TO LOOK
 | Task | Location |
@@ -9,7 +9,7 @@ Domain-aware Kimi device authorization and token refresh; score 11, a distinct p
 | Domain normalization and endpoint selection | `kimi.go` |
 | Device-code request and polling | `kimi.go`: `DeviceFlowClient` |
 | Refresh coordination | `kimi.go`: `KimiAuth` |
-| Resolve existing credential domain | `ResolveKimiDomainFromAuth` |
+| Resolve existing credential domain | `kimi.go`: `ResolveKimiDomainFromAuth` |
 | Token/device response structures | `token.go` |
 | Routing and cross-domain isolation | `kimi_test.go` |
 | Refresh sharing | `kimi_refresh_test.go` |

@@ -1,7 +1,7 @@
 # CODEX OAUTH
 
 ## OVERVIEW
-OpenAI/Codex PKCE login, refresh, and token introspection; score 8, a distinct authentication domain.
+OpenAI/Codex PKCE login, refresh, and token introspection; score 6, retained authentication domain guide.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -21,7 +21,7 @@ OpenAI/Codex PKCE login, refresh, and token introspection; score 8, a distinct a
 - Refresh coordination is shared across auth client instances.
 - `ParseJWTToken` decodes the payload only; its claims are introspection data.
 - Filename generation accepts plan type, account hash, and optional provider prefix separately.
-- The normal loopback callback port is 14555; orchestration may override it.
+- `sdk/auth/codex.go` selects default loopback port 1455; this package accepts the caller's port.
 - Keep the callback-server contract aligned with the SDK's interactive flow.
 
 ## ANTI-PATTERNS

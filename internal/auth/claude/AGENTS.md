@@ -1,7 +1,7 @@
 # CLAUDE OAUTH
 
 ## OVERVIEW
-Claude OAuth, credential identity, and native transport behavior; score 8, a distinct concurrency-sensitive provider domain.
+Claude OAuth, credential identity, and native transport behavior; score 6, retained concurrency-sensitive provider guide.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -14,6 +14,7 @@ Claude OAuth, credential identity, and native transport behavior; score 8, a dis
 | Local callback lifecycle | `oauth_server.go` |
 | Token serialization | `token.go` |
 | PKCE verifier/challenge | `pkce.go` |
+| Transport header ordering dependency | `../../httpwire/ordered_conn.go` |
 
 ## CONVENTIONS
 - `claudeDevicePoolMu` guards every access to shared credential metadata, not only device IDs.

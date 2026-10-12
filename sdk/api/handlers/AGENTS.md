@@ -1,7 +1,9 @@
 # PROTOCOL HANDLERS
 
 ## OVERVIEW
-Shared authenticated execution and Claude/Gemini/OpenAI HTTP, SSE, and WebSocket surfaces; score 14, depth-3 guide covering protocol descendants.
+Shared authenticated execution and Claude/Gemini/OpenAI HTTP, SSE, and WebSocket surfaces; score 12, depth-3 guide covering protocol descendants.
+
+Parent map: [SDK guide](../../AGENTS.md); endpoint registration lives in `internal/api/server_routes.go` from the repository root.
 
 ## WHERE TO LOOK
 | Task | Location | Detail |
@@ -13,6 +15,7 @@ Shared authenticated execution and Claude/Gemini/OpenAI HTTP, SSE, and WebSocket
 | Nested host execution | `model_execution.go` | ExecuteModel/ExecuteModelStream and explicit protocol requests. |
 | Error/header handling | `handlers_errors.go`, `header_filter.go` | HTTP envelopes and reserved/upstream header separation. |
 | SSE forwarding | `stream_forwarder.go` | Central flushing, completion/error callbacks, channel closure. |
+| Read request bodies and classify stream failures | `request_body.go`, `openai_responses_stream_error.go` | Shared body loading and sanitized Responses terminal errors. |
 | Claude protocol | `claude/code_handlers.go` | Messages, count tokens, model-list mapping, gzip sniffing. |
 | Gemini protocol | `gemini/gemini_handlers.go`, `gemini/interactions_handlers.go` | Native generation and explicit interaction operations. |
 | OpenAI REST/media | `openai/openai_handlers.go`, `openai/openai_images_handlers.go`, `openai/openai_videos_handlers.go` | Chat/completions, image routes, async video auth binding. |

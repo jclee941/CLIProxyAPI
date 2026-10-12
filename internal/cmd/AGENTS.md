@@ -1,7 +1,7 @@
 # CLI ORCHESTRATION
 
 ## OVERVIEW
-Command implementations behind `cmd/server`; score 8, a distinct startup/login/discovery domain.
+Command implementations behind `../../cmd/server/`; retained as a distinct startup/login/discovery domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -26,6 +26,7 @@ Command implementations behind `cmd/server`; score 8, a distinct startup/login/d
 - Discovery CLI interface filters override configured filters.
 - Discovery config extraction reads only the scan-related subset.
 - LAN discovery output strips terminal-control and invisible formatting characters.
+- Vertex prefixes reject internal `/`; `sanitizeFilePart` replaces both slash forms in filenames.
 
 ## ANTI-PATTERNS
 - Do not let Vertex import prefixes introduce path separators.

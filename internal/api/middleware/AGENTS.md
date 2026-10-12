@@ -1,7 +1,7 @@
 # REQUEST LOGGING KNOWLEDGE BASE
 
 ## OVERVIEW
-Request/response capture without blocking client streaming; score 9, a distinct logging lifecycle domain.
+Request/response capture without blocking client streaming; retained as a distinct logging lifecycle domain.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -23,6 +23,7 @@ Request/response capture without blocking client streaming; score 9, a distinct 
 - Error-only capture may spool to file-backed sources; successful requests discard those sources.
 - Error-only spooling is capped at 32 MiB; decompressed capture is bounded separately.
 - Finalize after `c.Next()` to collect handler-provided context overrides.
+- Spool-backed source ownership continues into `../../logging/request_logger_body_source.go`.
 - Preserve request/response overrides and websocket timelines when composing log sources.
 - Management path prefixes are excluded from request logging.
 - Run `go test -race ./internal/api/middleware` for capture/concurrency checks.

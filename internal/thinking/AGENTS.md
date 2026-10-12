@@ -3,6 +3,8 @@
 ## OVERVIEW
 Reasoning configuration, summary visibility, and provider application; score 14, a central cross-protocol semantic domain.
 
+Parent package map: [internal/AGENTS.md](../AGENTS.md); pipeline contract: [root guide](../../AGENTS.md).
+
 ## WHERE TO LOOK
 | Task | Location |
 |------|----------|
@@ -18,12 +20,13 @@ Reasoning configuration, summary visibility, and provider application; score 14,
 | Typed HTTP-facing errors | `errors.go` |
 
 ## CONVENTIONS
-- Retain the root thinking-pipeline architecture; source intent and target payload are distinct inputs.
+- Source intent and target payload are distinct inputs; source configuration must not replace target bytes.
 - Supplied model metadata lets configured API-key capabilities override generic catalog assumptions.
 - Summary visibility is represented independently from reasoning effort.
 - Cross-family intent conversion differs from strict same-family validation.
 - Provider appliers register through `init()`; executor helper blank imports activate builtins.
 - Plugin appliers have owner/priority registration and explicit owner cleanup.
+- Native provider names are reserved even before their builtin applier is initialized.
 - Kimi aliases share one registered provider applier.
 - Provider `Apply` methods are idempotent and return modified payload copies.
 

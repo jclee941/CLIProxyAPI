@@ -1,12 +1,15 @@
 # SESSION IDENTITY KNOWLEDGE BASE
 
 ## OVERVIEW
-Multi-harness identity extraction, deterministic session derivation, and Merkle prefix affinity; score 9, a distinct protocol-parsing domain.
+Multi-harness identity extraction, deterministic session derivation, and Merkle prefix affinity; retained distinct protocol-parsing domain, conservative score 6.
+
+Parent lifecycle: [service guide](../AGENTS.md).
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
 | Extract explicit identities | `info.go` | `ExtractSessionInfo`, `BoundSessionIdentity` |
+| Follow identity compatibility names | `info.go` | `SessionTreeInfo` aliases SessionInfo; ExtractTreeInfo forwards to ExtractSessionInfo |
 | Index request identity fields | `info.go` | `sessionObject` caches keys and duplicate detection |
 | Reconcile metadata | `identity.go` | `Enrich`, canonical UUID projection, caller scope |
 | Derive fallback identity | `identity.go` | `DeriveID`; `DerivedID` reads stored metadata |

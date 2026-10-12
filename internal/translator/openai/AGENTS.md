@@ -1,7 +1,9 @@
 # OPENAI TRANSLATORS
 
 ## OVERVIEW
-Chat Completions destinations, Responses adaptation and bidirectional Interactions; score 14, a distinct 41-file domain.
+Chat Completions destinations, Responses adaptation and bidirectional Interactions; score 9, a distinct domain with 41 Go files.
+
+Registration and shared wire contracts: [parent guide](../AGENTS.md).
 
 ## WHERE TO LOOK
 | Task | Location | Notes |

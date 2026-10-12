@@ -1,7 +1,7 @@
 # CONFIGURATION CHANGE SUMMARIES
 
 ## OVERVIEW
-Deterministic config/auth change descriptions and model signatures; score 8, a distinct reload-reporting domain.
+Deterministic config/auth change descriptions and model signatures; score 6, retained reload-reporting domain guide.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -17,7 +17,7 @@ Deterministic config/auth change descriptions and model signatures; score 8, a d
 
 ## CONVENTIONS
 - Change messages report structure and non-sensitive values; apply the root secret-logging rule.
-- Shared model hashes delegate to `internal/modelconfig` where the model shape matches.
+- Five provider model hashes delegate to `../../modelconfig/`; excluded-model hashing stays local.
 - Provider/channel summaries normalize their inputs before comparison.
 - Model metadata such as display names, compat flags, and thinking support participates in relevant hashes.
 - OpenAI-compatible lists account for duplicate provider names rather than assuming name uniqueness.

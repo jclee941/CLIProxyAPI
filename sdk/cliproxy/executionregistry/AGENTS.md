@@ -3,12 +3,14 @@
 ## OVERVIEW
 Home-lifetime pending dispatches, resource scopes, release acknowledgements, and observation barriers; score 9, a distinct concurrency domain.
 
+Parent lifecycle: [service guide](../AGENTS.md).
+
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
 | Reserve or install dispatch | `registry.go` | `BeginDispatch`, `PendingDispatch.End`, `Install` |
 | Bind execution resources | `registry.go` | `Scope.Bind`, `End`, `EndWithRelease` |
-| Drain a subscriber lifetime | `registry.go` | Accepting/draining/closed state machine |
+| Drain or close a subscriber lifetime | `registry.go` | `New`, `State`, `Drain`, `Close`; accepting/draining/closed transitions |
 | Connect concurrency releases | `registry.go` | `ReleaseGroup`, `ReleaseTicket`, `SetReleaseSink` |
 | Snapshot active executions | `observation.go` | `ObserveBarrier`, `FreezeInFlight` |
 | Check shutdown races | `registry_test.go` | Late install/bind, pending waits, blocked closers |
@@ -25,6 +27,7 @@ Home-lifetime pending dispatches, resource scopes, release acknowledgements, and
 - Replacing a release sink replays known positive sequences outside the registry mutex.
 - Legacy release callbacks cannot produce acknowledgement tickets; ticket-aware sinks return `*ReleaseTicket`.
 - `WaitPending` waits on the registry change signal until every unresolved reservation is ended or installed.
+- `Drain` waits for pending reservations and scope owners to end; `Close` rejects work and waits for bound resource closers.
 - `FreezeInFlight(time.Time)` returns a copied `Freeze`, with a new snapshot revision.
 - A newer observation barrier remains unpublished while a reservation at or before its captured sequence is unresolved.
 

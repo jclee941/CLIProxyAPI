@@ -1,7 +1,7 @@
 # HOME CLIENT KNOWLEDGE BASE
 
 ## OVERVIEW
-Home control-plane transport, dispatch fencing, and cumulative release delivery; score 11, a distinct protocol domain.
+Home control-plane transport, dispatch fencing, and cumulative release delivery; retained as a distinct protocol domain.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -26,6 +26,7 @@ Home control-plane transport, dispatch fencing, and cumulative release delivery;
 - Release frames carry cumulative sequence numbers per credential/model group.
 - A release ticket completes only when its sequence is acknowledged, not when locally queued.
 - Prefer `RunConfigSubscriberLifetime` where subscriber errors must reach lifecycle management.
+- `StartConfigSubscriber` is the compatibility wrapper for callers not consuming lifetime errors.
 - Preserve root guidance's CLIProxyAPIHome sync rule for wire changes.
 - Run `go test -race ./internal/home` for transport and release-delivery checks.
 

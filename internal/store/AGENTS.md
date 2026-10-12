@@ -1,7 +1,7 @@
 # REMOTE CREDENTIAL STORES
 
 ## OVERVIEW
-Git, object-store, and PostgreSQL persistence with local file mirrors; score 11, a distinct consistency/recovery domain.
+Git, object-store, and PostgreSQL persistence with local file mirrors; score 6, retained consistency/recovery domain guide.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -23,9 +23,10 @@ Git, object-store, and PostgreSQL persistence with local file mirrors; score 11,
 - Git push precedes maintenance GC.
 - Git recovery preserves backup material when rollback cannot safely complete.
 - PostgreSQL cooldown persistence merges concurrent instances rather than replacing unrelated state.
+- Object-store sync overwrites incrementally; PostgreSQL bootstrap resets the local auth spool before repopulating it.
 
 ## ANTI-PATTERNS
-- Do not wipe watched auth directories during synchronization; deletion events can propagate remotely.
+- Do not wipe watched object-store auth directories during synchronization; watcher deletions can propagate remotely.
 - Do not accept watcher-originated removal of tracked Git auth as an explicit deletion request.
 - Do not overwrite overlapping dirty local paths during remote pull or recovery; fail closed.
 - Do not bypass remote-lease checks to force a stale push.

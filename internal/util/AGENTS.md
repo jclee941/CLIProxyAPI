@@ -1,7 +1,7 @@
 # SHARED PAYLOAD UTILITIES
 
 ## OVERVIEW
-Schema adaptation, tool identity, zero-copy JSON, and request metadata helpers; score 14, a central cross-provider utility domain.
+Schema adaptation, tool identity, zero-copy JSON, and request metadata helpers; score 12, a central cross-provider utility domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -24,7 +24,7 @@ Schema adaptation, tool identity, zero-copy JSON, and request metadata helpers; 
 - Default allocating SJSON writes preserve already-derived string views.
 - Tool sanitization maintains forward/reverse identity maps and deterministic collision handling.
 - Responses tool descriptors support direct, namespace, and additional-tool representations.
-- Header attributes can resolve `$CPA_SESSION_ID` and `$CLIENT_HEADER:Name` at request time.
+- Header attributes resolve `$CPA-SESSION-ID` case-insensitively, including inside values; `$Header-Name` reads a client header.
 - Gemini tool-use IDs encode specific synthetic provenance rather than arbitrary client identity.
 
 ## ANTI-PATTERNS

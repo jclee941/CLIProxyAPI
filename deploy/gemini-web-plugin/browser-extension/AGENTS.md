@@ -1,7 +1,7 @@
 # GEMINI LOGIN COMPANION
 
 ## OVERVIEW
-Manifest V3 session-capture companion with explicit user consent; score 10 for its independent TypeScript build and exported protocol surface.
+Manifest V3 session-capture companion with explicit user consent; score 12 for its independent TypeScript build, size, symbols, and exported protocol surface.
 
 ## WHERE TO LOOK
 | Task | Location | Detail |
@@ -25,6 +25,8 @@ Manifest V3 session-capture companion with explicit user consent; score 10 for i
 - Account identity requires agreement between the three expected Google page globals.
 - A selected partition is checked explicitly; partitioned cookies are unsupported.
 - Captured cookie headers must match across the account's supported endpoint paths.
+- Flow's host-only `OSID` and `__Secure-OSID` travel in a separate `flow_cookies` token field, checked again before completion.
+- Parent login/storage policy lives in `../AGENTS.md`; this companion captures rather than owns the ongoing session.
 - The encoded token has a 32768-byte ceiling, including its prefix.
 - Persistent replay protection stores nonce hashes and expiry, not raw portal state.
 - The popup's account selection and consent are separate actions; opening a tab does not authorize capture.
@@ -36,3 +38,4 @@ Manifest V3 session-capture companion with explicit user consent; score 10 for i
 - Do not install a `LOCAL-QA` package for a real login.
 - Do not expose tab titles, conversation paths, GAIA identifiers, or identity digests in the popup.
 - Do not add Manager HTTP calls, clipboard export, token storage, or model generation to this companion.
+- Do not merge Flow-only cookies into the Gemini cookie header.

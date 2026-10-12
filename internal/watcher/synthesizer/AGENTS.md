@@ -1,7 +1,7 @@
 # CREDENTIAL SYNTHESIS
 
 ## OVERVIEW
-Translate config keys and OAuth files into runtime auth records; score 8, a distinct credential-boundary domain.
+Translate config keys and OAuth files into runtime auth records; score 6, retained credential-boundary domain guide.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -22,7 +22,7 @@ Translate config keys and OAuth files into runtime auth records; score 8, a dist
 - Custom header attributes use the `header:` prefix consumed by request helpers.
 - Excluded models combine provider-wide and per-key rules through one helper.
 - File parsing can expand one plugin file into multiple auth records.
-- OpenAI-compatible key values support `${ENV_VAR}` references.
+- `${ENV_VAR}` expansion applies to OpenAI-compatible key values, not all provider credentials.
 - Kimi domain and Codex plan information survive file-to-auth conversion.
 
 ## ANTI-PATTERNS

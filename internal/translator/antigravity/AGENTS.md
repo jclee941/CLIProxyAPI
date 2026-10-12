@@ -1,7 +1,9 @@
 # ANTIGRAVITY TRANSLATORS
 
 ## OVERVIEW
-Antigravity request envelopes, response unwrapping and signature replay; score 14, a distinct 32-file provider domain.
+Antigravity request envelopes, response unwrapping and signature replay; score 9, a distinct domain with 32 Go files.
+
+Registration and shared wire contracts: [parent guide](../AGENTS.md).
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -21,6 +23,7 @@ Antigravity request envelopes, response unwrapping and signature replay; score 1
 ## CONVENTIONS
 - Requests carry `project`, `model` and nested `request`; generated payloads arrive beneath `response`.
 - Responses conversion composes the Gemini Responses implementation with Antigravity-specific wrapping.
+- Responses registers both an ordinary request converter and an SDK request-envelope converter.
 - Native Google Search belongs in dedicated Responses web-search envelopes; normal-chat fallback strips it.
 - Claude-wire Gemini carriers encode direction and semantic target with `cpa-gemini-carrier-v1:`.
 - Tool names are sanitized/disambiguated on ingress and restored from request context on egress.

@@ -1,7 +1,7 @@
 # CONFIGURATION CONTRACT
 
 ## OVERVIEW
-Shared configuration schema, validation, runtime copies, and YAML persistence; score 14, a central configuration boundary.
+Shared configuration schema, validation, runtime copies, and YAML persistence; score 12, a central configuration boundary.
 
 ## WHERE TO LOOK
 | Change | Location |
@@ -19,6 +19,11 @@ Shared configuration schema, validation, runtime copies, and YAML persistence; s
 | Observation windows | `credential_in_flight.go` |
 | Realtime relay settings | `codex_live.go` |
 | Polymorphic image-generation mode | `disable_image_generation_mode.go` |
+| Home listener and control-plane settings | `home.go` |
+| Telegram/environment settings | `telegram.go` |
+| Plugin directory resolution | `plugin_path.go` |
+| Payload rule validation | `config_validation.go` |
+| Trusted reverse proxies | `trusted_proxies.go` |
 
 ## CONVENTIONS
 - Keep `LoadConfigOptional` and `ParseConfigBytes` defaults aligned.
@@ -29,6 +34,7 @@ Shared configuration schema, validation, runtime copies, and YAML persistence; s
 - `CloneForRuntime` deep-copies graphs, including plugin YAML nodes.
 - OAuth-wide alias/error rules are separate from per-API-key rules.
 - Deprecated relay IP settings are translated to the replacement setting with inverse polarity.
+- Optional file loading tolerates missing, empty, or invalid configuration for cloud standby.
 
 ## ANTI-PATTERNS
 - Do not replace preserving saves with an unconditional `yaml.Marshal` rewrite.

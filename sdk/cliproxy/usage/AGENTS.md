@@ -3,6 +3,8 @@
 ## OVERVIEW
 Asynchronous usage-plugin delivery and provider-aware token breakdowns; score 9, a distinct telemetry contract domain.
 
+Parent lifecycle: [service guide](../AGENTS.md).
+
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
@@ -24,6 +26,7 @@ Asynchronous usage-plugin delivery and provider-aware token breakdowns; score 9,
 - Manager start/stop are one-shot operations; a stopped manager does not restart.
 - Plugin panics are recovered at `safeInvoke`, isolating delivery to remaining consumers.
 - `EnsureTokenBreakdownForProvider(detail, provider, executorType)` returns a normalized `Detail`.
+- TokenAccountingSchemaVersion is 2; normalized breakdowns preserve quality rather than inventing missing provider semantics.
 - OpenAI-compatible accounting treats cache/reasoning as subsets; Claude cache tokens are independent; Gemini-family reasoning is separate.
 - Explicit OpenAI-compat executor semantics take precedence over provider-name substring classification.
 - Unknown token semantics remain unclassified; contradictory or overflowing counts produce inconsistent quality.
