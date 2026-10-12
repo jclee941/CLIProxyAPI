@@ -13,7 +13,10 @@ import (
 
 var flowToolIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
-const flowToolOwnerOwned = "owned"
+const (
+	flowToolOwnerOwned    = "owned"
+	flowToolOwnerTemplate = "template"
+)
 
 type flowToolResource struct {
 	ID                 string `json:"id"`
@@ -68,7 +71,7 @@ func decodeFlowTool(row any) (flowToolResource, error) {
 	case code == 0 || code == 1:
 		tool.Owner = flowToolOwnerOwned
 	case code == 2:
-		tool.Owner = "template"
+		tool.Owner = flowToolOwnerTemplate
 	case code == 3:
 		tool.Owner = "community"
 	}

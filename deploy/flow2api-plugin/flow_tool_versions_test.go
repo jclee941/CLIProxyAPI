@@ -7,7 +7,11 @@ import (
 	"testing"
 )
 
-const flowTestThirdVersion = "ffffffff-6666-4666-8666-ffffffffffff"
+const (
+	flowTestThirdVersion = "ffffffff-6666-4666-8666-ffffffffffff"
+	flowTestRemixTool    = "99999999-7777-4777-8777-999999999999"
+	flowTestRemixVersion = "88888888-6666-4666-8666-888888888888"
+)
 
 func flowMessageFixture(text, role, thought, id string) []any {
 	message := make([]any, 10)
@@ -24,9 +28,9 @@ func flowVersionPayloadFixture(toolID, versionID string, messages, files []any) 
 }
 
 func TestFlowToolVersionsComeFromSnapshotMarkers(t *testing.T) {
-	// Given a template tool whose history marks three snapshots, one repeated and one the current version.
+	// Given an owned tool whose history marks three snapshots, one repeated and one the current version.
 	fixture, service, record := flowToolFixtureService(t, flowToolDefaultRows())
-	fixture.reply("ZLaYcd", rpcEnvelope(t, "ZLaYcd", flowVersionPayloadFixture(flowTestTemplateTool, flowTestToolVersion, []any{
+	fixture.reply("ZLaYcd", rpcEnvelope(t, "ZLaYcd", flowVersionPayloadFixture(flowTestOwnedTool, flowTestToolVersion, []any{
 		flowMessageFixture("[VERSION_SNAPSHOT] version="+flowTestThirdVersion, "system", "", "m1"),
 		flowMessageFixture("[STATE_UPDATE] TITLE=Counter", "system", "", "m2"),
 		flowMessageFixture("[VERSION_SNAPSHOT] version="+flowTestOldVersion, "system", "", "m3"),
@@ -36,7 +40,7 @@ func TestFlowToolVersionsComeFromSnapshotMarkers(t *testing.T) {
 	}, []any{})))
 
 	// When the versions are listed.
-	status, code, body := flowToolCall(t, service, record, false, http.MethodGet, flowTestTemplateTool+"/versions", "")
+	status, code, body := flowToolCall(t, service, record, false, http.MethodGet, flowTestOwnedTool+"/versions", "")
 
 	// Then each marker appears once in history order and the current version closes the list.
 	var list struct {
@@ -44,7 +48,7 @@ func TestFlowToolVersionsComeFromSnapshotMarkers(t *testing.T) {
 		Versions []flowToolVersionRef `json:"versions"`
 	}
 	want := []flowToolVersionRef{{ID: flowTestThirdVersion}, {ID: flowTestOldVersion}, {ID: flowTestToolVersion, Current: true}}
-	if err := json.Unmarshal(body, &list); err != nil || status != 200 || list.ToolID != flowTestTemplateTool || len(list.Versions) != len(want) {
+	if err := json.Unmarshal(body, &list); err != nil || status != 200 || list.ToolID != flowTestOwnedTool || len(list.Versions) != len(want) {
 		t.Fatalf("status=%d code=%s body=%s err=%v", status, code, body, err)
 	}
 	for index := range want {
@@ -52,8 +56,72 @@ func TestFlowToolVersionsComeFromSnapshotMarkers(t *testing.T) {
 			t.Fatalf("versions=%+v", list.Versions)
 		}
 	}
+	if jsonField(fixture.args("ZLaYcd", 0), 0) != "applets/"+flowTestOwnedTool+"/versions/"+flowTestToolVersion {
+		t.Fatalf("args=%v", fixture.args("ZLaYcd", 0))
+	}
+}
+
+func TestFlowToolTemplateVersionsListOnlyTheCurrentVersion(t *testing.T) {
+	// Given a template, whose read would answer with the account's remix.
+	fixture, service, record := flowToolFixtureService(t, flowToolDefaultRows())
+
+	// When its versions are listed.
+	status, code, body := flowToolCall(t, service, record, false, http.MethodGet, flowTestTemplateTool+"/versions", "")
+
+	// Then only the current version is listed and no version read creates a remix.
+	if status != 200 || !strings.Contains(string(body), `"versions":[{"id":"`+flowTestToolVersion+`","current":true}]`) ||
+		fixture.count("ZLaYcd") != 0 {
+		t.Fatalf("status=%d code=%s body=%s reads=%d", status, code, body, fixture.count("ZLaYcd"))
+	}
+}
+
+func TestFlowToolTemplateVersionAnswersWithTheAccountRemix(t *testing.T) {
+	// Given Flow answers a template version read with the account's remix of that template.
+	fixture, service, record := flowToolFixtureService(t, flowToolDefaultRows())
+	fixture.reply("ZLaYcd", rpcEnvelope(t, "ZLaYcd", flowVersionPayloadFixture(flowTestRemixTool, flowTestRemixVersion, []any{}, []any{
+		[]any{"App.tsx", "text/typescript-jsx", "export default function App() {}"},
+	})))
+
+	// When the template's current version is read.
+	status, code, body := flowToolCall(t, service, record, false, http.MethodGet, flowTestTemplateTool+"/versions/"+flowTestToolVersion, "")
+
+	// Then the source is returned under the remix identity, with the template version recorded.
+	var version flowToolVersion
+	if err := json.Unmarshal(body, &version); err != nil || status != 200 {
+		t.Fatalf("status=%d code=%s body=%s err=%v", status, code, body, err)
+	}
+	if version.ToolID != flowTestRemixTool || version.VersionID != flowTestRemixVersion || version.RemixOf == nil ||
+		*version.RemixOf != (flowToolVersionSource{ToolID: flowTestTemplateTool, VersionID: flowTestToolVersion}) ||
+		len(version.Files) != 1 || version.Files[0].Content != "export default function App() {}" {
+		t.Fatalf("version=%+v", version)
+	}
 	if jsonField(fixture.args("ZLaYcd", 0), 0) != "applets/"+flowTestTemplateTool+"/versions/"+flowTestToolVersion {
 		t.Fatalf("args=%v", fixture.args("ZLaYcd", 0))
+	}
+}
+
+func TestFlowToolTemplateVersionRejectsAnUnprovenRemix(t *testing.T) {
+	foreignName := flowVersionPayloadFixture(flowTestRemixTool, flowTestRemixVersion, []any{}, []any{})
+	foreignName[0].([]any)[8] = "applets/" + flowTestOwnedTool + "/versions/" + flowTestRemixVersion
+	for _, scenario := range []struct {
+		name    string
+		payload []any
+	}{
+		{"resource name of another tool", foreignName},
+		{"malformed remix id", flowVersionPayloadFixture("remix id", flowTestRemixVersion, []any{}, []any{})},
+		{"missing remix version", flowVersionPayloadFixture(flowTestRemixTool, "", []any{}, []any{})},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			// Given a template reply that does not consistently name one remix version.
+			fixture, service, record := flowToolFixtureService(t, flowToolDefaultRows())
+			fixture.reply("ZLaYcd", rpcEnvelope(t, "ZLaYcd", scenario.payload))
+			// When the template version is read.
+			status, code, _ := flowToolCall(t, service, record, false, http.MethodGet, flowTestTemplateTool+"/versions/"+flowTestToolVersion, "")
+			// Then it is a protocol error instead of data.
+			if status != 502 || code != "flow_tool_version_identity_mismatch" {
+				t.Fatalf("status=%d code=%s", status, code)
+			}
+		})
 	}
 }
 

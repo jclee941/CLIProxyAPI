@@ -24,15 +24,22 @@ type flowToolMessage struct {
 	Thought string `json:"thought,omitempty"`
 }
 
+// flowToolVersionSource names the template version a remix was made from.
+type flowToolVersionSource struct {
+	ToolID    string `json:"toolId"`
+	VersionID string `json:"versionId"`
+}
+
 type flowToolVersion struct {
-	ToolID       string            `json:"toolId"`
-	VersionID    string            `json:"versionId"`
-	Description  string            `json:"description,omitempty"`
-	CreatedAt    string            `json:"createdAt,omitempty"`
-	ResourceName string            `json:"resourceName,omitempty"`
-	Changes      string            `json:"changes,omitempty"`
-	Messages     []flowToolMessage `json:"messages"`
-	Files        []flowToolFile    `json:"files"`
+	ToolID       string                 `json:"toolId"`
+	VersionID    string                 `json:"versionId"`
+	RemixOf      *flowToolVersionSource `json:"remixOf,omitempty"`
+	Description  string                 `json:"description,omitempty"`
+	CreatedAt    string                 `json:"createdAt,omitempty"`
+	ResourceName string                 `json:"resourceName,omitempty"`
+	Changes      string                 `json:"changes,omitempty"`
+	Messages     []flowToolMessage      `json:"messages"`
+	Files        []flowToolFile         `json:"files"`
 }
 
 type flowToolVersionRef struct {
@@ -62,22 +69,30 @@ func decodeFlowToolFiles(value any) ([]flowToolFile, error) {
 
 // readFlowToolVersion reads [meta, changes, [session, messages], files] with
 // meta = tool 0, version 1, description 4, created 7, resource name 8 and
-// message = text 0, role 1, thought 6, id 9.
-func (service *service) readFlowToolVersion(ctx context.Context, record storageRecord, toolID, versionID string) (flowToolVersion, error) {
-	payload, err := service.flowAccountRPC(ctx, record, "ZLaYcd", []any{"applets/" + toolID + "/versions/" + versionID})
+// message = text 0, role 1, thought 6, id 9. Flow answers a template read with
+// the account's own remix of the template, created by the first read and
+// reused afterwards, as when the web opens a template; the result then names
+// that remix and records the requested template version in RemixOf.
+func (service *service) readFlowToolVersion(ctx context.Context, record storageRecord, tool flowToolResource, versionID string) (flowToolVersion, error) {
+	payload, err := service.flowAccountRPC(ctx, record, "ZLaYcd", []any{"applets/" + tool.ID + "/versions/" + versionID})
 	if err != nil {
 		return flowToolVersion{}, err
 	}
-	if tool, _ := jsonField(payload, 0, 0).(string); tool != toolID {
+	result := flowToolVersion{Messages: []flowToolMessage{}}
+	result.ToolID, _ = jsonField(payload, 0, 0).(string)
+	result.VersionID, _ = jsonField(payload, 0, 1).(string)
+	result.ResourceName, _ = jsonField(payload, 0, 8).(string)
+	switch {
+	case result.ToolID == tool.ID && result.VersionID == versionID:
+	case tool.Owner == flowToolOwnerTemplate && result.ToolID != tool.ID &&
+		flowToolIDPattern.MatchString(result.ToolID) && flowToolIDPattern.MatchString(result.VersionID) &&
+		result.ResourceName == "applets/"+result.ToolID+"/versions/"+result.VersionID:
+		result.RemixOf = &flowToolVersionSource{ToolID: tool.ID, VersionID: versionID}
+	default:
 		return flowToolVersion{}, failure(502, "flow_tool_version_identity_mismatch")
 	}
-	if version, _ := jsonField(payload, 0, 1).(string); version != versionID {
-		return flowToolVersion{}, failure(502, "flow_tool_version_identity_mismatch")
-	}
-	result := flowToolVersion{ToolID: toolID, VersionID: versionID, Messages: []flowToolMessage{}}
 	result.Description, _ = jsonField(payload, 0, 4).(string)
 	result.CreatedAt = flowTimestamp(jsonField(payload, 0, 7))
-	result.ResourceName, _ = jsonField(payload, 0, 8).(string)
 	result.Changes, _ = jsonField(payload, 1).(string)
 	messages, ok := jsonField(payload, 2, 1).([]any)
 	if !ok && jsonField(payload, 2, 1) != nil {
@@ -97,7 +112,8 @@ func (service *service) readFlowToolVersion(ctx context.Context, record storageR
 
 // flowToolVersionsHTTP lists versions without a provider list RPC: the ids
 // are the snapshot markers in the current version's history plus the current
-// version itself.
+// version itself. A template lists only its current version, because reading
+// it answers with the account's remix, whose history is not the template's.
 func (service *service) flowToolVersionsHTTP(ctx context.Context, record storageRecord, id string, request flowHTTPRequest) (httpResponse, error) {
 	if request.Method != http.MethodGet {
 		return httpResponse{}, failure(404, "flow_route_not_found")
@@ -107,8 +123,8 @@ func (service *service) flowToolVersionsHTTP(ctx context.Context, record storage
 		return httpResponse{}, err
 	}
 	versions := []flowToolVersionRef{}
-	if tool.VersionID != "" {
-		current, err := service.readFlowToolVersion(ctx, record, id, tool.VersionID)
+	if tool.VersionID != "" && tool.Owner != flowToolOwnerTemplate {
+		current, err := service.readFlowToolVersion(ctx, record, tool, tool.VersionID)
 		if err != nil {
 			return httpResponse{}, err
 		}
@@ -121,6 +137,8 @@ func (service *service) flowToolVersionsHTTP(ctx context.Context, record storage
 			seen[match[1]] = true
 			versions = append(versions, flowToolVersionRef{ID: match[1]})
 		}
+	}
+	if tool.VersionID != "" {
 		versions = append(versions, flowToolVersionRef{ID: tool.VersionID, Current: true})
 	}
 	return flowJSON(http.StatusOK, map[string]any{"toolId": id, "versions": versions})
@@ -133,10 +151,11 @@ func (service *service) flowToolVersionHTTP(ctx context.Context, record storageR
 	}
 	switch {
 	case action == "" && request.Method == http.MethodGet:
-		if _, err := service.findFlowTool(ctx, record, id); err != nil {
+		tool, err := service.findFlowTool(ctx, record, id)
+		if err != nil {
 			return httpResponse{}, err
 		}
-		result, err := service.readFlowToolVersion(ctx, record, id, version)
+		result, err := service.readFlowToolVersion(ctx, record, tool, version)
 		if err != nil {
 			return httpResponse{}, err
 		}

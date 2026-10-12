@@ -58,7 +58,7 @@ func (service *service) buildFlowTool(ctx context.Context, record storageRecord,
 			return httpResponse{}, err
 		}
 		if tool.VersionID != "" {
-			version, err := service.readFlowToolVersion(ctx, record, id, tool.VersionID)
+			version, err := service.readFlowToolVersion(ctx, record, tool, tool.VersionID)
 			if err != nil {
 				return httpResponse{}, err
 			}
