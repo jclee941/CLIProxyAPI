@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/interfaces"
 )
 
 func TestFileRequestLogger_LogRequest_ErrorNamingWhenEnabled(t *testing.T) {
@@ -40,7 +40,7 @@ func TestFileRequestLogger_LogRequest_ErrorNamingWhenEnabled(t *testing.T) {
 	}
 	var found500 string
 	for _, e := range entries {
-		if strings.Contains(e.Name(), "req-fail-500") {
+		if strings.Contains(e.Name(), ShortRequestID("req-fail-500")) {
 			found500 = e.Name()
 			break
 		}
@@ -75,7 +75,7 @@ func TestFileRequestLogger_LogRequest_ErrorNamingWhenEnabled(t *testing.T) {
 	entries, _ = os.ReadDir(dir)
 	var foundRetry string
 	for _, e := range entries {
-		if strings.Contains(e.Name(), "req-retry-200") {
+		if strings.Contains(e.Name(), ShortRequestID("req-retry-200")) {
 			foundRetry = e.Name()
 			break
 		}
@@ -108,7 +108,7 @@ func TestFileRequestLogger_LogRequest_ErrorNamingWhenEnabled(t *testing.T) {
 	entries, _ = os.ReadDir(dir)
 	var foundOk string
 	for _, e := range entries {
-		if strings.Contains(e.Name(), "req-ok-200") {
+		if strings.Contains(e.Name(), ShortRequestID("req-ok-200")) {
 			foundOk = e.Name()
 			break
 		}
@@ -150,7 +150,7 @@ func TestFileRequestLogger_LogStreamingRequest_ErrorNaming(t *testing.T) {
 	}
 	var foundStreamErr string
 	for _, e := range entries {
-		if strings.Contains(e.Name(), "stream-err-1") {
+		if strings.Contains(e.Name(), ShortRequestID("stream-err-1")) {
 			foundStreamErr = e.Name()
 			break
 		}
@@ -184,7 +184,7 @@ func TestFileRequestLogger_LogStreamingRequest_ErrorNaming(t *testing.T) {
 	entries, _ = os.ReadDir(dir)
 	var foundStreamOk string
 	for _, e := range entries {
-		if strings.Contains(e.Name(), "stream-ok-2") {
+		if strings.Contains(e.Name(), ShortRequestID("stream-ok-2")) {
 			foundStreamOk = e.Name()
 			break
 		}

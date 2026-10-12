@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/clienterror"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/clienterror"
 )
 
 // A client that closed its request cancelled it; nothing failed, so full request

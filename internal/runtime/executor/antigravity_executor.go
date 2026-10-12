@@ -15,16 +15,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/cache"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
-	internalsignature "github.com/router-for-me/CLIProxyAPI/v7/internal/signature"
-	antigravityclaude "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/antigravity/claude"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/proxyutil"
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/cache"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
+	internalsignature "github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
+	antigravityclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/claude"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/proxyutil"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -517,11 +517,14 @@ func ensureAntigravityGeminiTrailingUserContent(modelName string, payload []byte
 }
 
 // ensureAntigravityGeminiBoundaryUserContent normalizes both leading and trailing
-// turns for Gemini targets. Claude targets are left unchanged.
+// turns for Gemini targets. A trailing reasoning-only model turn is dropped first
+// so the request does not rely only on a synthetic empty user turn (#6530).
+// Claude targets are left unchanged.
 func ensureAntigravityGeminiBoundaryUserContent(modelName string, payload []byte) []byte {
 	if strings.Contains(strings.ToLower(modelName), "claude") {
 		return payload
 	}
+	payload = helps.DropGeminiTrailingThoughtOnlyContent(payload, "request.contents")
 	return helps.EnsureGeminiBoundaryUserContent(payload, "request.contents")
 }
 
@@ -969,5 +972,8 @@ func (e *AntigravityExecutor) HttpRequest(ctx context.Context, auth *cliproxyaut
 	}
 
 	httpClient := newAntigravityHTTPClient(ctx, e.cfg, auth, 0)
-	return httpClient.Do(httpReq)
+	return helps.WithAntigravityHTTPClientTrace(httpClient, auth, "http_request").Do(httpReq)
 }
+
+// SupportsApplyPatch reports the actual executor contract, independent of its provider name.
+func (e *AntigravityExecutor) SupportsApplyPatch() bool { return e != nil }

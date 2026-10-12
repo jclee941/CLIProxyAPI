@@ -11,7 +11,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
 )
 
 type errorLogsListResponse struct {
@@ -72,7 +73,8 @@ func TestGetRequestErrorLogs_WhenRequestLogEnabled(t *testing.T) {
 
 	// File 1: An explicit error-prefixed log file
 	errLogContent := "=== REQUEST INFO ===\nURL: /v1/chat/completions\nMethod: POST\n=== RESPONSE ===\nStatus: 500\n\n{\"error\":\"internal\"}\n"
-	errFileName := "error-v1-chat-completions-2026-09-22T100000-req-err-1.log"
+	// Request log names carry the short request ID, as the file logger writes them.
+	errFileName := "error-v1-chat-completions-2026-09-22T100000-" + logging.ShortRequestID("req-err-1") + ".log"
 	if err := os.WriteFile(filepath.Join(dir, errFileName), []byte(errLogContent), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}

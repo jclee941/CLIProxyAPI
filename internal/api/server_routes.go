@@ -13,23 +13,25 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	managementHandlers "github.com/router-for-me/CLIProxyAPI/v7/internal/api/handlers/management"
-	claudemodels "github.com/router-for-me/CLIProxyAPI/v7/internal/client/claude/models"
-	codexlive "github.com/router-for-me/CLIProxyAPI/v7/internal/client/codex/live"
-	codexmodels "github.com/router-for-me/CLIProxyAPI/v7/internal/client/codex/models"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/client/grokbuild"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/clienterror"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/home"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers/claude"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers/gemini"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers/openai"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	coreexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
+	managementHandlers "github.com/router-for-me/CLIProxyAPI/v8/internal/api/handlers/management"
+	claudemodels "github.com/router-for-me/CLIProxyAPI/v8/internal/client/claude/models"
+	codexlive "github.com/router-for-me/CLIProxyAPI/v8/internal/client/codex/live"
+	codexmodels "github.com/router-for-me/CLIProxyAPI/v8/internal/client/codex/models"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/client/grokbuild"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/clienterror"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/home"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
+	responsesclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/responses"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers/claude"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers/gemini"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers/openai"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -63,6 +65,10 @@ func (s *Server) setupRoutes() {
 	v1.Use(AuthMiddleware(s.accessManager))
 	{
 		v1.GET("/models", s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
+		v1.GET("/models/*model", func(c *gin.Context) {
+			c.Set(handlers.ModelDetailIDContextKey, strings.TrimPrefix(c.Param("model"), "/"))
+			s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers)(c)
+		})
 		v1.POST("/chat/completions", openaiHandlers.ChatCompletions)
 		v1.POST("/completions", openaiHandlers.Completions)
 		v1.POST("/images/generations", openaiHandlers.ImagesGenerations)
@@ -72,6 +78,8 @@ func (s *Server) setupRoutes() {
 		v1.POST("/videos/edits", openaiHandlers.XAIVideosEdits)
 		v1.POST("/videos/extensions", openaiHandlers.XAIVideosExtensions)
 		v1.GET("/videos/:request_id", openaiHandlers.XAIVideosRetrieve)
+		v1.POST("/audio/speech", openaiHandlers.AudioSpeech)
+		v1.POST("/tts", openaiHandlers.XAITTS)
 		v1.POST("/messages", claudeCodeHandlers.ClaudeMessages)
 		v1.POST("/messages/count_tokens", claudeCodeHandlers.ClaudeCountTokens)
 		v1.GET("/responses", openaiResponsesHandlers.ResponsesWebsocket)
@@ -690,20 +698,90 @@ func (s *Server) handleHomeCodexClientModels(c *gin.Context, clientVersion strin
 
 	models := make([]map[string]any, 0, len(entries))
 	for _, entry := range entries {
-		models = append(models, formatHomeCodexModel(entry))
+		models = append(models, formatHomeCodexModelWithSettings(entry, s.cfg))
 	}
 
 	var webSearchCapabilityForModel codexmodels.WebSearchCapabilityForModelFunc
 	if clientVersion == "cpa" {
 		webSearchCapabilityForModel = homeWebSearchCapabilityForModel(entries)
 	}
-	payload := codexmodels.BuildResponseForClientWithCPACapabilities(models, nil, webSearchCapabilityForModel, s.cfg.Codex.OptimizeMultiAgentV2, clientVersion)
+	var manager *auth.Manager
+	if s.handlers != nil {
+		manager = s.handlers.AuthManager
+	}
+	var applyPatchCapabilityForModel codexmodels.ApplyPatchCapabilityForModelFunc
+	if s.cfg.Client.Codex.EnableApplyPatch {
+		applyPatchCapabilityForModel = homeApplyPatchCapabilityForModel(entries, manager)
+	}
+	var payload map[string]any
+	if responsesclaude.ClientToolSearchEnabled() {
+		payload = codexmodels.BuildResponseForClientWithSearchToolRoutes(models, nil, homeProvidersForModel(entries), webSearchCapabilityForModel, applyPatchCapabilityForModel, homeToolSearchCapabilityForModel(entries), s.cfg.Client.Codex.OptimizeMultiAgentV2, clientVersion)
+	} else {
+		// upstream.claude.tool-search off keeps the catalog that predates
+		// tool_search, which never consulted Home routes for search support.
+		payload = codexmodels.BuildResponseForClientWithToolCapabilities(models, nil, webSearchCapabilityForModel, applyPatchCapabilityForModel, nil, s.cfg.Client.Codex.OptimizeMultiAgentV2, clientVersion)
+	}
 	body, errMarshal := codexmodels.MarshalCompact(payload)
 	if errMarshal != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": errMarshal.Error()})
 		return
 	}
 	s.writeModelListResponse(c, "openai", body)
+}
+
+// homeApplyPatchCapabilityForModel uses only Home's exact public routing evidence,
+// never the local model registry or the template's metadata model ID.
+func homeApplyPatchCapabilityForModel(entries []homeModelEntry, manager *auth.Manager) codexmodels.ApplyPatchCapabilityForModelFunc {
+	providersForModel := homeProvidersForModel(entries)
+	return func(id string) bool {
+		return manager.SupportsApplyPatchForProviders(providersForModel(id))
+	}
+}
+
+// homeProvidersForModel returns Home's routing providers for an exact public
+// model ID. An empty entry stands for an unknown route so it can veto support.
+func homeProvidersForModel(entries []homeModelEntry) codexmodels.ProvidersForModelFunc {
+	providersByID := make(map[string][]string, len(entries))
+	for _, entry := range entries {
+		id := strings.TrimSpace(entry.id)
+		providersByID[id] = append(providersByID[id], entry.providers...)
+		if len(entry.providers) == 0 {
+			providersByID[id] = append(providersByID[id], "")
+		}
+		// The decoder omits empty section names from providers, but an unknown
+		// route must still veto support when combined with a known section.
+		for _, route := range entry.nativeCapabilityRoutes {
+			if strings.TrimSpace(route.Provider) == "" {
+				providersByID[id] = append(providersByID[id], "")
+			}
+		}
+	}
+	return func(id string) []string {
+		return providersByID[strings.TrimSpace(id)]
+	}
+}
+
+// homeToolSearchCapabilityForModel trusts Home's per-route tool_search flag and
+// requires it on every route of the model. A Home that predates the flag never
+// enables native tool search.
+func homeToolSearchCapabilityForModel(entries []homeModelEntry) codexmodels.ToolSearchCapabilityForModelFunc {
+	routesByID := make(map[string][]registry.NativeCapabilityRoute, len(entries))
+	for _, entry := range entries {
+		id := strings.TrimSpace(entry.id)
+		routesByID[id] = append(routesByID[id], entry.nativeCapabilityRoutes...)
+	}
+	return func(id string) bool {
+		routes := routesByID[strings.TrimSpace(id)]
+		if len(routes) == 0 {
+			return false
+		}
+		for _, route := range routes {
+			if route.NativeCapabilities == nil || route.NativeCapabilities.ToolSearch == nil || !*route.NativeCapabilities.ToolSearch {
+				return false
+			}
+		}
+		return true
+	}
 }
 
 func homeWebSearchCapabilityForModel(entries []homeModelEntry) codexmodels.WebSearchCapabilityForModelFunc {
@@ -740,11 +818,41 @@ func formatHomeCodexModel(entry homeModelEntry) map[string]any {
 	if entry.contextLength > 0 {
 		model["context_length"] = entry.contextLength
 	}
+	if entry.maxContextLength > 0 {
+		model["max_context_length"] = entry.maxContextLength
+	}
 	if entry.maxCompletionTokens > 0 {
 		model["max_completion_tokens"] = entry.maxCompletionTokens
 	}
 	if entry.thinking != nil {
 		model["thinking"] = entry.thinking
+	}
+	return model
+}
+
+func formatHomeCodexModelWithSettings(entry homeModelEntry, cfg *config.Config) map[string]any {
+	model := formatHomeCodexModel(entry)
+	if cfg == nil || len(cfg.OAuthSettings) == 0 {
+		return model
+	}
+	providers := append([]string(nil), entry.providers...)
+	sort.SliceStable(providers, func(i, j int) bool {
+		if strings.EqualFold(providers[i], "codex") {
+			return true
+		}
+		if strings.EqualFold(providers[j], "codex") {
+			return false
+		}
+		return strings.ToLower(providers[i]) < strings.ToLower(providers[j])
+	})
+	for _, p := range providers {
+		channel := strings.ToLower(strings.TrimSpace(p))
+		if channelSettings, okChannel := cfg.OAuthSettings[channel]; okChannel {
+			if setting := config.ResolveOAuthModelSetting(channelSettings, entry.id, "", ""); setting != nil && setting.MaxContextLength > 0 {
+				model["max_context_length"] = setting.MaxContextLength
+				break
+			}
+		}
 	}
 	return model
 }
@@ -777,6 +885,7 @@ type homeModelEntry struct {
 	ownedBy                string
 	displayName            string
 	contextLength          int
+	maxContextLength       int
 	maxCompletionTokens    int
 	thinking               *registry.ThinkingSupport
 	providers              []string
@@ -1092,6 +1201,7 @@ func decodeHomeModels(raw []byte) ([]homeModelEntry, error) {
 				ownedBy:                ownedBy,
 				displayName:            displayName,
 				contextLength:          int(homeModelInt64Value(model, "context_length", "contextLength", "inputTokenLimit", "max_input_tokens")),
+				maxContextLength:       int(homeModelInt64Value(model, "max_context_length", "maxContextLength")),
 				maxCompletionTokens:    int(homeModelInt64Value(model, "max_completion_tokens", "maxCompletionTokens", "outputTokenLimit", "max_tokens")),
 				thinking:               thinking,
 				providers:              appendUniqueHomeProvider(nil, provider),
@@ -1112,11 +1222,14 @@ func homeModelNativeCapabilities(model map[string]any) *registry.NativeCapabilit
 	if !ok {
 		return nil
 	}
-	webSearch, ok := raw["web_search"].(bool)
-	if !ok {
-		return &registry.NativeCapabilities{}
+	capabilities := &registry.NativeCapabilities{}
+	if webSearch, okWebSearch := raw["web_search"].(bool); okWebSearch {
+		capabilities.WebSearch = &webSearch
 	}
-	return &registry.NativeCapabilities{WebSearch: &webSearch}
+	if toolSearch, okToolSearch := raw["tool_search"].(bool); okToolSearch {
+		capabilities.ToolSearch = &toolSearch
+	}
+	return capabilities
 }
 
 func appendUniqueHomeProvider(providers []string, provider string) []string {

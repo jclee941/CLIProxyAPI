@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 )
 
 type memoryAuthStorage struct {
@@ -398,5 +398,46 @@ func TestHostAuthSaveCallbackWritesPhysicalFile(t *testing.T) {
 	auths := host.currentAuthManager().List()
 	if len(auths) != 1 || auths[0].FileName != "saved.json" {
 		t.Fatalf("auths = %#v, want one registered auth", auths)
+	}
+}
+
+func TestHostListAuthFilesFromDiskParsesDisabled(t *testing.T) {
+	authDir := t.TempDir()
+	host := New()
+	host.runtimeConfig = &config.Config{AuthDir: authDir}
+
+	disabledFile := filepath.Join(authDir, "disabled.json")
+	if errWrite := os.WriteFile(disabledFile, []byte(`{"type":"demo","disabled":true}`), 0o600); errWrite != nil {
+		t.Fatalf("write disabled file: %v", errWrite)
+	}
+	activeFile := filepath.Join(authDir, "active.json")
+	if errWrite := os.WriteFile(activeFile, []byte(`{"type":"demo","disabled":false}`), 0o600); errWrite != nil {
+		t.Fatalf("write active file: %v", errWrite)
+	}
+
+	files, errList := host.listAuthFilesFromDisk()
+	if errList != nil {
+		t.Fatalf("listAuthFilesFromDisk() error = %v", errList)
+	}
+	if len(files) != 2 {
+		t.Fatalf("listAuthFilesFromDisk() len = %d, want 2", len(files))
+	}
+	for _, f := range files {
+		if f.Name == "disabled.json" {
+			if !f.Disabled {
+				t.Fatalf("disabled.json entry.Disabled = %v, want true", f.Disabled)
+			}
+			if f.Status != string(coreauth.StatusDisabled) {
+				t.Fatalf("disabled.json entry.Status = %v, want %v", f.Status, coreauth.StatusDisabled)
+			}
+		}
+		if f.Name == "active.json" {
+			if f.Disabled {
+				t.Fatalf("active.json entry.Disabled = %v, want false", f.Disabled)
+			}
+			if f.Status != string(coreauth.StatusActive) {
+				t.Fatalf("active.json entry.Status = %v, want %v", f.Status, coreauth.StatusActive)
+			}
+		}
 	}
 }

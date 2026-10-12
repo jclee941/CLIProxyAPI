@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/redisqueue"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/diff"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/synthesizer"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/redisqueue"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/watcher/diff"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/watcher/synthesizer"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -315,8 +315,8 @@ func (w *Watcher) computePerPathUpdatesLocked(oldByID, newByID map[string]*corea
 			updates = append(updates, AuthUpdate{Action: AuthUpdateActionAdd, ID: id, Auth: newAuth.Clone()})
 			continue
 		}
+		w.currentAuths[id] = newAuth.Clone()
 		if !authEqual(existing, newAuth) {
-			w.currentAuths[id] = newAuth.Clone()
 			updates = append(updates, AuthUpdate{Action: AuthUpdateActionModify, ID: id, Auth: newAuth.Clone()})
 		}
 	}

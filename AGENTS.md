@@ -5,7 +5,7 @@
 **Branch:** master
 
 ## OVERVIEW
-Go 1.26+ proxy providing OpenAI/Gemini/Claude/Codex compatible APIs, OAuth, round-robin load balancing, and native C ABI plugins; Gin/Logrus core, embeddable v7 SDK.
+Go 1.26+ proxy providing OpenAI/Gemini/Claude/Codex compatible APIs, OAuth, round-robin load balancing, and native C ABI plugins; Gin/Logrus core, embeddable v8 SDK.
 - Repository: https://github.com/router-for-me/CLIProxyAPI
 
 ## STRUCTURE
@@ -69,6 +69,8 @@ Reference methods/scopes are retained from writer evidence; rg counts are textua
 - Wrap defer errors: `defer func() { if err := f.Close(); err != nil { log.Errorf(...) } }()`.
 - Use logrus structured logging without leaking secrets/tokens.
 - `internal/runtime/executor/` contains executors and their unit tests only; helper/supporting files belong under `internal/runtime/executor/helps/`.
+- Payload configuration is the final semantic barrier before every executor send, including streaming, WebSocket, continuation, retry/fallback, image, and token-count paths. Finish built-in translation, normalization, injection, and cleanup first, then apply user payload rules exactly once; afterwards only transport framing, serialization, signature calculation, and read-only validation may run. Add regression tests when introducing or changing request-building paths.
+- Upstream treats endpoints under `/v0/management` as deprecated: do not change them for features unless a compile fix requires it.
 - When modifying CLIProxyAPIHome-related features, check whether the CLIProxyAPIHome repository needs corresponding updates.
 
 ## ANTI-PATTERNS (THIS PROJECT)
