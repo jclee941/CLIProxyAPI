@@ -2751,6 +2751,27 @@ func TestCodexWebsockets_PingHandlerDoesNotBlockOnWriteMu(t *testing.T) {
 	}
 }
 
+// readWebsocketUntilClosed keeps reading so the server handles control frames
+// such as pongs, and closes the returned channel once the first data message,
+// the client's request, has arrived.
+func readWebsocketUntilClosed(conn *websocket.Conn) <-chan struct{} {
+	requestReceived := make(chan struct{})
+	go func() {
+		received := false
+		for {
+			msgType, _, errRead := conn.ReadMessage()
+			if errRead != nil {
+				return
+			}
+			if !received && msgType == websocket.TextMessage {
+				received = true
+				close(requestReceived)
+			}
+		}
+	}()
+	return requestReceived
+}
+
 func TestCodexWebsockets_KeepalivePingDuringUpload_WithSession(t *testing.T) {
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	serverPongCh := make(chan string, 1)
@@ -2782,15 +2803,7 @@ func TestCodexWebsockets_KeepalivePingDuringUpload_WithSession(t *testing.T) {
 		})
 
 		// Start server reader loop so server processes control frames.
-		readErrCh := make(chan error, 1)
-		go func() {
-			for {
-				if _, _, errRead := conn.ReadMessage(); errRead != nil {
-					readErrCh <- errRead
-					return
-				}
-			}
-		}()
+		requestReceived := readWebsocketUntilClosed(conn)
 
 		// Wait until client has entered writeMessage and is actively holding writeMu.
 		select {
@@ -2812,6 +2825,15 @@ func TestCodexWebsockets_KeepalivePingDuringUpload_WithSession(t *testing.T) {
 			close(pongDeliveredDuringWrite)
 		case <-time.After(2 * time.Second):
 			t.Errorf("pong was not received while payload write was in progress")
+			return
+		}
+
+		// Reply only after the request arrives: closing the connection before the
+		// client's held write completes would fail that write and force a retry.
+		select {
+		case <-requestReceived:
+		case <-time.After(2 * time.Second):
+			t.Errorf("client request was not received")
 			return
 		}
 
@@ -2880,13 +2902,7 @@ func TestCodexWebsockets_KeepalivePingDuringUpload_Sessionless(t *testing.T) {
 			return nil
 		})
 
-		go func() {
-			for {
-				if _, _, errRead := conn.ReadMessage(); errRead != nil {
-					return
-				}
-			}
-		}()
+		requestReceived := readWebsocketUntilClosed(conn)
 
 		// Wait until client has entered writeMessage on sessionless path.
 		select {
@@ -2908,6 +2924,14 @@ func TestCodexWebsockets_KeepalivePingDuringUpload_Sessionless(t *testing.T) {
 			close(pongDeliveredDuringWrite)
 		case <-time.After(2 * time.Second):
 			t.Errorf("pong was not received while payload write was in progress on sessionless connection")
+			return
+		}
+
+		// Reply only after the request arrives, as a real upstream does.
+		select {
+		case <-requestReceived:
+		case <-time.After(2 * time.Second):
+			t.Errorf("client request was not received")
 			return
 		}
 
@@ -2972,13 +2996,7 @@ func TestCodexWebsockets_KeepalivePingDuringUpload_NonstreamSessionless(t *testi
 			return nil
 		})
 
-		go func() {
-			for {
-				if _, _, errRead := conn.ReadMessage(); errRead != nil {
-					return
-				}
-			}
-		}()
+		requestReceived := readWebsocketUntilClosed(conn)
 
 		// Wait until client has entered writeMessage on nonstream path.
 		select {
@@ -3000,6 +3018,14 @@ func TestCodexWebsockets_KeepalivePingDuringUpload_NonstreamSessionless(t *testi
 			close(pongDeliveredDuringWrite)
 		case <-time.After(2 * time.Second):
 			t.Errorf("pong was not received while payload write was in progress on nonstream sessionless connection")
+			return
+		}
+
+		// Reply only after the request arrives, as a real upstream does.
+		select {
+		case <-requestReceived:
+		case <-time.After(2 * time.Second):
+			t.Errorf("client request was not received")
 			return
 		}
 
