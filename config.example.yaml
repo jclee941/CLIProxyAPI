@@ -834,7 +834,7 @@ upstream:
 #         # If the client did not send the specified header, the header is omitted.
 #         # X-Claude-Code-Session-Id: "$ABC" # copies client's "ABC" header
 #       keys:
-#         - api-key: "sk-or-v1-...b780"
+#         - api-key: "sk-or-v1-...b780" # exact ${ENV_VAR} references are resolved when credentials are loaded
 #           weight: 5 # optional: weighted-round-robin share; omitted defaults to 1; maximum 1,000,000
 #           proxy-url: "socks5://proxy.example.com:1080" # optional: per-key proxy override
 #           # proxy-url: "direct" # optional: explicit direct connect for this credential
@@ -1113,6 +1113,15 @@ observability:
 
     # Record proxy request/response logs. Management requests are excluded.
     request-log: false
+
+    # Log encoding. Use "json" for ingestion by Elasticsearch/Logstash; defaults to "text".
+    log-format: "text"
+
+  # Send error log notifications to a Telegram chat through a bot.
+  telegram:
+    enabled: false
+    bot-token: ""
+    chat-id: ""
 
   usage:
     # When false, disable in-memory usage statistics aggregation
