@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Gemini and Google Flow Media API",
-    "version": "2026-10-10",
+    "version": "2026-10-12",
     "summary": "Generate media and manage Google Flow projects, uploads, scenes, characters, voices, agent sessions, and tools.",
     "description": "Authenticate with an API key as a Bearer token, in the x-goog-api-key header, or in the key query parameter. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait, where the official default is 16:9. A new video goes to an account below 80% of its five-hour usage and 90% of its weekly usage with enough video allowance left; when none qualifies, creation fails with 409 account_unavailable until usage resets. A continuation runs in its original conversation while that account can serve; otherwise another account continues from the stored video and returns a new id to continue from.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. The other official resolutions (360p, 1080p, 4k), explicit duration controls, and tasks other than extend are rejected. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data. Each serving account keeps its 16 newest stored interactions; an older id can no longer be retrieved or continued.\n\nErrors answer {\"error\": {\"code\", \"message\"}}: code is the identifier, such as account_unavailable, and message repeats it, behind a gemini_web_omni: prefix for a failure raised during a turn, continuing after ': ' with the product's reply when a turn was answered without a video. Failures the gateway raises before a request reaches this service answer the gateway's own object with message and type: a non-boolean stream, or every account held back by the gateway itself. A missing or unknown API key answers 401 with error as a string.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error.\n\nFlow projects and media live under /v1/flow/projects, at the origin root rather than under /v1beta, so those paths override the server. They need the same API key as every other route. All API keys share the one Flow account the operator configured, so every key sees the same projects and media; nothing is split per key. Responses never include cookies or account credentials. A media url is a signed link that fetches the file without credentials: treat it like a secret. DELETE on a media item moves it to the Flow trash (it archives it), and POST :restore brings it back. Errors from these routes answer {\"error\": {\"code\", \"message\"}} with string values.\n\nThe /v1/flow API uses the single configured Flow account shared by authenticated CPA API keys. Agent and tool-builder responses are buffered until completion. Generated tool UI source executes in a browser. Google likeness registration requires the account holder to complete the returned verification link. Flow Omni does not currently advertise native video extension; Veo can extend compatible Omni output.",
     "license": {
@@ -6692,6 +6692,7 @@
         ],
         "operationId": "flowGetToolsToolVersions",
         "summary": "List available tool versions",
+        "description": "A template lists only its current version, and listing creates nothing.",
         "security": [
           {
             "bearerAuth": []
@@ -6749,6 +6750,7 @@
         ],
         "operationId": "flowGetToolsToolVersionsVersion",
         "summary": "Get tool source and version history",
+        "description": "Reading a template version makes Flow create the account's own remix of that template on the first read and reuse it afterwards, as opening a template in the web does. The remix is listed as an owned tool named after the template and can be deleted. The response then names the remix in toolId and versionId, and remixOf names the template version that was read.",
         "security": [
           {
             "bearerAuth": []
@@ -7500,7 +7502,7 @@
               "mediaId"
             ],
             "additionalProperties": false,
-            "description": "Video only. An existing Flow video media id, optionally limited to a frame range.",
+            "description": "Video only. An existing Flow video media id, optionally limited to a frame range. With mode extend the reply is only the new clip, which continues from the last frame of the source (7 seconds at 720p in live tests); extend the returned mediaId again to continue, and join the clips yourself.",
             "properties": {
               "mediaId": {
                 "type": "string"
@@ -7533,7 +7535,8 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "Flow character ids from /v1/flow/projects/{project}/entities. The live catalog limits how many fit: currently 10 for image models and 3 for Omni and Veo Lite or Fast references; Veo Quality has no reference mode."
           },
           "audioFailurePreference": {
             "type": "string",
@@ -10223,6 +10226,25 @@
           "versionId": {
             "type": "string",
             "minLength": 1
+          },
+          "remixOf": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Present when a template was read: the template version, while toolId and versionId name the account's remix that Flow answered with.",
+            "properties": {
+              "toolId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "versionId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "toolId",
+              "versionId"
+            ]
           },
           "description": {
             "type": "string"

@@ -54,6 +54,11 @@ few minutes, not at once. `429 flow_credit_floor_reached` means a `low` priority
 request was refused and the account holds fewer than 5,000 credits, so it was not
 run at `normal` priority (see `priority` below).
 
+A non-streaming request that outlasts the server's keep-alive interval has
+already answered HTTP 200 and sent blank keep-alive lines when a late failure
+occurs. The failure then arrives as the same `error` object in the body, so
+check the body, not only the status.
+
 ## Parameters
 
 Parameters go in `generationConfig`. Unknown keys return
@@ -118,7 +123,7 @@ never infers a mode: set `edit`, `extend`, or `upscale` yourself
 | `references` | at least one reference | Images, audio, likenesses, or entities. |
 | `frames` | `firstFrame` | Video only. `lastFrame` optional. No other references. |
 | `edit` | image: `baseImage`; video: `sourceVideo` | Video edit length is the selected clip, not `durationSeconds`. |
-| `extend` | `sourceVideo` | Veo only in the current Flow catalog. A compatible Omni result can be extended using Veo. Extension length is not guaranteed. |
+| `extend` | `sourceVideo` | Veo only in the current Flow catalog; a compatible Omni result can be extended using Veo. The reply is only the new clip, which continues from the last frame of the source (7 seconds at 720p in live tests; the length is not guaranteed). To go further, extend the returned `mediaId` again, then join the clips yourself. |
 | `upscale` | image: `baseImage` with a `mediaId`, no crop; video: `sourceVideo` without frame range | No prompt text (send an empty text part), references, or `priority`. Image upscale needs `imageSize` 2K or 4K. |
 
 ## Media IDs and output references
@@ -173,6 +178,18 @@ of clip frames 0 to 48, which returned 2 seconds; 720p, 1080p, and 4K video
 upscales, including IDs returned by earlier upscales; Veo Lite with
 `priority: "low"` and references at 8 seconds and 720p; and a 720p extension,
 which returned 7 seconds. All six models have returned media.
+
+Characters were verified with a character created through the API from one
+generated image and the preset voice `voices/achernar`. Referenced through
+`referenceEntities`, `flow-nano-banana-2` drew that character in a new scene,
+and `flow-veo-3.1-lite` with `priority: "low"` returned an 8 second 720x1280
+video of the character with a speech audio track. Extending that video, and
+then the extension, each returned a 7 second clip whose first frame continues
+the previous clip, so the three clips join into 22 seconds. One extension whose
+prompt asked for dialogue was refused with
+`400 flow_request_rejected: PUBLIC_ERROR_AUDIO_FILTERED`; it used the default
+`require_audio`, and `allow_silent` is the option that accepts a clip without
+sound.
 
 The project and media routes below have also run live against the deployed
 plugin. A project was created (201), read (200), renamed (200, confirmed by a
@@ -308,10 +325,28 @@ and primary-media selection where the web supports them. Character updates
 expose personality notes and voice references. Preset voice references use
 `voices/<name>`; generated audio uses its returned media ID.
 
+Use a character in generation by passing its ID in
+`generationConfig.flow.referenceEntities` or as an `entityId` part of
+`structuredPrompt`. The live catalog currently allows up to 10 characters for
+image models and 3 for Omni and Veo Lite or Fast references. Veo Quality has no
+reference mode, and `frames` takes no references.
+
 Voice previews use native 24 kHz mono PCM. Request
 `GET .../media/{media}:download?format=wav` for a WAV playback container.
 
 ### Agent sessions and tools
+
+Three ways to get media differ in who decides:
+
+- `generateContent` (and the Chat, Responses and Claude routes) runs exactly
+  one generation with the model and options you set and returns the media with
+  its `mediaId`. Use it for automation.
+- An agent session turn lets Google's Flow agent decide what to generate from
+  a natural-language request and run it at Google. The reply lists the agent's
+  tool calls and results after the turn ends; you do not choose the model,
+  count or cost of each step.
+- A tool is a browser app. The API builds, reads and manages tools but does not
+  run them.
 
 - `/v1/flow/projects/{project}/sessions`: create/list sessions, get history,
   rename or delete a session.
@@ -341,6 +376,21 @@ upstream connection when found, not an already committed resource change.
 The tool builder returns the real source files. The generated React UI runs in
 a browser; the API does not claim to execute arbitrary UI interactions on the
 server.
+
+Reading a template version (`GET /v1/flow/tools/{template}/versions/{version}`)
+makes Flow create the account's own remix of the template on the first read and
+reuse it afterwards, as opening a template in the web does. The remix is listed
+as an owned tool named after the template and can be deleted. The response
+names the remix in `toolId` and `versionId`, and `remixOf` names the template
+version. Listing a template's versions returns only its current version and
+creates nothing.
+
+Tools run on Flow's browser `flow-sdk`. Their generation calls
+(`Flow.generate.image`, `Flow.generate.video`, `Flow.generate.text`) have API
+counterparts in `generateContent` with a Flow model and in `text:generate`;
+`Flow.upload` and `Flow.save` have counterparts in the upload and media routes.
+`Flow.media.select` and `Flow.download` are browser interactions. To automate
+what a tool does, read its source and send the matching requests here.
 
 ### Personal likeness
 
