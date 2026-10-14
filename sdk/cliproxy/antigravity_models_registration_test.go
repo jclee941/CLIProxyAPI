@@ -636,6 +636,22 @@ func TestAntigravityPersistedHintsRetriesAfterTransientStoreFailure(t *testing.T
 	}
 }
 
+// modelPublicationHook reports each registry publication as "clientID/modelID".
+type modelPublicationHook struct {
+	published chan string
+}
+
+func (h modelPublicationHook) OnModelsRegistered(_ context.Context, _, clientID string, models []*ModelInfo) {
+	for _, model := range models {
+		select {
+		case h.published <- clientID + "/" + model.ID:
+		default:
+		}
+	}
+}
+
+func (modelPublicationHook) OnModelsUnregistered(context.Context, string, string) {}
+
 func TestAntigravityBlockedHintPersistenceDoesNotBlockPublicationOrOtherAccounts(t *testing.T) {
 	resetAntigravityCapabilityCache()
 	t.Cleanup(resetAntigravityCapabilityCache)
@@ -736,6 +752,11 @@ func TestAntigravityBlockedHintPersistenceDoesNotBlockPublicationOrOtherAccounts
 	antigravityCapabilityMu.Unlock()
 	authAModel.Store("gemini-3.1-flash-lite")
 
+	// Subscribe to registry publications before triggering the refresh.
+	publications := make(chan string, 256)
+	SetGlobalModelRegistryHook(modelPublicationHook{published: publications})
+	t.Cleanup(func() { SetGlobalModelRegistryHook(nil) })
+
 	svc.refreshAntigravityModels(t.Context())
 	select {
 	case <-authBProbed:
@@ -750,6 +771,23 @@ func TestAntigravityBlockedHintPersistenceDoesNotBlockPublicationOrOtherAccounts
 		cancelLifetime()
 		svc.WaitAntigravityProbes()
 		t.Fatal("stalled persistence on authA blocked subsequent probe for authA")
+	}
+	// The probe handlers signal before the HTTP response reaches the client, so authBProbed and
+	// authARefreshed do not prove registry publication. Await the registry's own publication events.
+	wantPublished := map[string]struct{}{
+		authB.ID + "/gemini-3-flash":        {},
+		authA.ID + "/gemini-3.1-flash-lite": {},
+	}
+	publishDeadline := time.After(time.Second)
+	for len(wantPublished) > 0 {
+		select {
+		case published := <-publications:
+			delete(wantPublished, published)
+		case <-publishDeadline:
+			cancelLifetime()
+			svc.WaitAntigravityProbes()
+			t.Fatalf("models were not published while authA persistence was stalled: still waiting for %v", wantPublished)
+		}
 	}
 	// Wait for authA's refreshed persistence to preempt authA's first Save and enter Save
 	// (which happens after applyAntigravityModelHints published authA's updated catalog).
