@@ -88,19 +88,19 @@ func TestVideoCapabilityForTakesTheNamedModeOrRefuses(t *testing.T) {
 		{CapabilityID: "lite", DisplayName: "3.5 Flash-Lite", Mode: 6},
 	}}
 	for mode, want := range map[int]string{0: "flash", 1: "flash", 3: "pro", 6: "lite"} {
-		got, err := webVideoCapabilityFor(account, mode)
+		got, err := webVideoCapabilityFor(account, mode, 0)
 		if err != nil || got.CapabilityID != want {
 			t.Fatalf("mode %d = %+v, %v, want %s", mode, got, err, want)
 		}
 	}
-	if _, err := webVideoCapabilityFor(account, 2); err == nil || safeCredentialCode(err) != "omni_video_mode_unavailable" {
+	if _, err := webVideoCapabilityFor(account, 2, 0); err == nil || safeCredentialCode(err) != "omni_video_mode_unavailable" {
 		t.Fatalf("an unadvertised mode = %v, want omni_video_mode_unavailable", err)
 	}
 	var public *publicError
-	if _, err := webVideoCapabilityFor(account, 2); !asPublicError(err, &public) || public.HTTPStatus != 400 {
+	if _, err := webVideoCapabilityFor(account, 2, 0); !asPublicError(err, &public) || public.HTTPStatus != 400 {
 		t.Fatalf("an unadvertised mode must be a 400, got %v", err)
 	}
-	if _, err := webVideoCapabilityFor(webAccount{}, 0); err == nil || safeCredentialCode(err) != "account_model_unavailable" {
+	if _, err := webVideoCapabilityFor(webAccount{}, 0, 0); err == nil || safeCredentialCode(err) != "account_model_unavailable" {
 		t.Fatalf("no standard mode = %v, want account_model_unavailable", err)
 	}
 }
@@ -137,6 +137,50 @@ func TestVideoTurnsCarryTheLanguageOnTheWire(t *testing.T) {
 				t.Fatalf("extension: slot 1 = %#v and hl = %q, want ko", fixture.fields[last][1], fixture.languages[last])
 			}
 		}
+	}
+}
+
+// The plugin's configured video_mode is the default for requests that name no
+// mode: it applies where the account advertises it, the standard mode stays in
+// use where it does not, and a mode the request names still decides alone.
+func TestConfiguredVideoModeAppliesOnlyWhenTheRequestNamesNone(t *testing.T) {
+	account := webAccount{Capabilities: []capability{
+		{CapabilityID: "flash", DisplayName: "3.8 Flash", Mode: 1},
+		{CapabilityID: "argon", DisplayName: "4 Argon", Mode: 8},
+	}}
+	for _, test := range []struct {
+		requested, configured int
+		want                  string
+	}{
+		{0, 0, "flash"},
+		{0, 8, "argon"},
+		{0, 3, "flash"},
+		{1, 8, "flash"},
+		{8, 0, "argon"},
+	} {
+		got, err := webVideoCapabilityFor(account, test.requested, test.configured)
+		if err != nil || got.CapabilityID != test.want {
+			t.Fatalf("requested %d configured %d = %+v, %v, want %s", test.requested, test.configured, got, err, test.want)
+		}
+	}
+	if _, err := webVideoCapabilityFor(account, 3, 8); err == nil || safeCredentialCode(err) != "omni_video_mode_unavailable" {
+		t.Fatalf("a requested mode the account lacks must stay refused under a configured default, got %v", err)
+	}
+}
+
+func TestConfiguredVideoModeTheAccountLacksKeepsTheStandardMode(t *testing.T) {
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{video: true}
+	continuationWeb(t, service, fixture)
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+	service.config.VideoMode = 3
+
+	result := interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`)
+	if !result.OK {
+		t.Fatalf("a configured default the account does not advertise must fall back to the standard mode, got %+v", result.Error)
+	}
+	if len(fixture.fields) == 0 {
+		t.Fatal("the turn never reached the product")
 	}
 }
 

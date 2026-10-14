@@ -23,6 +23,7 @@ manager_origin: https://cliproxy.jclee.me
 browser_extension_id: REPLACE_WITH_REGISTERED_EXTENSION_ID
 native_continuation: true
 video_wire_mode: legacy
+video_mode: 0
 ```
 
 The plugin speaks to the Gemini web product directly; there is no sidecar path.
@@ -48,6 +49,14 @@ plugin settings. Confirm the saved value with the matching GET and the applied
 variant in real video diagnostics; a saved value alone is not reload evidence.
 Changing only this policy does not drain or replace live sessions. A successful
 change also emits `state=video_wire_mode reason=mode=<value>` in the host log.
+
+`video_mode` is the capability mode an Omni video turn runs on when its request
+names no `generation_config.video_mode`. `0` (the default) keeps each account's
+standard mode, currently 3.8 Flash; `8` selects 4 Argon. An account that does not
+advertise the configured mode uses its standard mode, while a mode named in the
+request still has to be advertised. Set it with the same PATCH, for example
+`{"video_mode":8}`; it does not drain sessions and logs
+`state=video_mode reason=mode=<value>`.
 
 The running process needs `GEMINI_WEB_SESSION_KEY`. On the deployed host,
 `deploy/gemini-web/start-production.sh` (installed on the NAS as

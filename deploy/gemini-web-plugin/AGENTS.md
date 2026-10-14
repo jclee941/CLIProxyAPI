@@ -42,6 +42,7 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 - The native web transport is the only path; `native_generation` is a legacy key accepted only as `true`. `native_continuation` gates continuation registration and dispatch; preserve the configured format/capability pairing.
 - `video_wire_mode` accepts `legacy`, `web`, or `alternate`; continuation inherits its turn's variant unless an explicit mode overrides it.
 - Changing only video wire policy does not drain sessions; verify the applied variant in diagnostics, not only the saved config.
+- Plugin `video_mode` is the default capability mode when a request names none; an account without it keeps its standard mode, request modes stay strict, and changing it does not drain sessions.
 
 ## ANTI-PATTERNS
 - Do not delete owner, intent, or recovery records to clear an uncertain operation.

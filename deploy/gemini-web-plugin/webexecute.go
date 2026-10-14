@@ -96,7 +96,7 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	if err != nil {
 		return httpResponse{}, err
 	}
-	model, err := webVideoCapabilityFor(account, options.VideoMode)
+	model, err := webVideoCapabilityFor(account, options.VideoMode, service.settings().VideoMode)
 	if err != nil {
 		return httpResponse{}, err
 	}
@@ -148,11 +148,17 @@ func webVideoCapability(account webAccount) (capability, bool) {
 	return capability{}, false
 }
 
-// webVideoCapabilityFor is the capability a video turn runs on: the standard one
-// unless the caller named a mode, and a mode the account does not advertise is
-// refused rather than replaced by another model.
-func webVideoCapabilityFor(account webAccount, mode int) (capability, error) {
+// webVideoCapabilityFor is the capability a video turn runs on. A mode the
+// caller named must be advertised and is never replaced by another model.
+// Without one, the configured default mode is used where the account advertises
+// it, and the standard mode everywhere else.
+func webVideoCapabilityFor(account webAccount, mode, configured int) (capability, error) {
 	if mode == 0 {
+		for _, entry := range account.Capabilities {
+			if configured != 0 && entry.Mode == configured {
+				return entry, nil
+			}
+		}
 		if entry, ok := webVideoCapability(account); ok {
 			return entry, nil
 		}

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"sync"
 	"time"
 
@@ -26,10 +27,14 @@ type pluginConfig struct {
 	// LegacyNativeGeneration is only decoded so configurations written while
 	// the sidecar path existed still load; false is rejected because that path
 	// was removed. It is cleared after validation and never read afterwards.
-	LegacyNativeGeneration  *bool         `yaml:"native_generation"`
-	NativeContinuation      bool          `yaml:"native_continuation"`
-	VideoWireMode           videoWireMode `yaml:"video_wire_mode"`
-	SessionExchangeAccounts []string      `yaml:"session_exchange_accounts,omitempty"`
+	LegacyNativeGeneration *bool         `yaml:"native_generation"`
+	NativeContinuation     bool          `yaml:"native_continuation"`
+	VideoWireMode          videoWireMode `yaml:"video_wire_mode"`
+	// VideoMode is the capability mode a video turn runs on when its request
+	// names none; zero keeps the account's standard mode, and so does an
+	// account that does not advertise the configured one.
+	VideoMode               int      `yaml:"video_mode,omitempty"`
+	SessionExchangeAccounts []string `yaml:"session_exchange_accounts,omitempty"`
 	// Drive credentials live here as well as in the environment because the
 	// configuration is mounted and hot reloaded, while the environment can only
 	// change by recreating the container.
@@ -158,6 +163,9 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	default:
 		return nil, failure(400, "invalid_plugin_config")
 	}
+	if config.VideoMode < 0 {
+		return nil, failure(400, "invalid_plugin_config")
+	}
 	if len(config.SessionExchangeAccounts) == 0 {
 		config.SessionExchangeAccounts = nil
 	}
@@ -165,12 +173,16 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	current.HostEnabled, current.HostPriority = config.HostEnabled, config.HostPriority
 	wireChanged := current.VideoWireMode != config.VideoWireMode
 	current.VideoWireMode = config.VideoWireMode
+	modeChanged := current.VideoMode != config.VideoMode
+	current.VideoMode = config.VideoMode
 	current.SessionExchangeAccounts = config.SessionExchangeAccounts
 	unchanged := reflect.DeepEqual(current, config) && (config.SessionDir == "" || service.sessions != nil && service.sessionKeyHash == sha256.Sum256([]byte(os.Getenv("GEMINI_WEB_SESSION_KEY"))))
 	if unchanged {
-		// This policy is read at submission; it does not replace session state
-		// or alter a request whose wire variant has already been selected.
+		// These policies are read at submission; they do not replace session
+		// state or alter a request whose wire variant or capability has already
+		// been selected.
 		service.config.VideoWireMode = config.VideoWireMode
+		service.config.VideoMode = config.VideoMode
 		service.config.SessionExchangeAccounts = config.SessionExchangeAccounts
 	} else {
 		if err := service.lifecycle.reconfigure(func() error {
@@ -199,8 +211,15 @@ func (service *service) register(raw []byte) (interface{}, error) {
 			"reason":   "mode=" + string(config.VideoWireMode),
 		}, "gemini-web: video wire mode applied")
 	}
+	if modeChanged {
+		service.report(map[string]any{
+			"provider": provider,
+			"state":    "video_mode",
+			"reason":   "mode=" + strconv.Itoa(config.VideoMode),
+		}, "gemini-web: default video mode applied")
+	}
 	registration := json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"},{"Name":"session_dir","Type":"string","Description":"Dedicated 0700 encrypted application-session directory; single process owner"},{"Name":"manager_origin","Type":"string","Description":"Exact HTTPS management portal origin"},{"Name":"browser_extension_id","Type":"string","Description":"Registered 32-character browser companion extension ID"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini"],"management_api":true,"frontend_http":true,"request_interceptor":true,"quota_provider":true}}`)
-	registration = bytes.Replace(registration, []byte(`"ConfigFields":[`), []byte(`"ConfigFields":[{"Name":"video_wire_mode","Type":"enum","EnumValues":["legacy","web","alternate"],"Description":"Omni account-tier wire profile; legacy by default, alternate stays fixed per conversation"},`), 1)
+	registration = bytes.Replace(registration, []byte(`"ConfigFields":[`), []byte(`"ConfigFields":[{"Name":"video_wire_mode","Type":"enum","EnumValues":["legacy","web","alternate"],"Description":"Omni account-tier wire profile; legacy by default, alternate stays fixed per conversation"},{"Name":"video_mode","Type":"integer","Description":"Default video capability mode when a request names none; 0 keeps each account's standard mode, which is also used where the mode is not advertised"},`), 1)
 	if config.NativeContinuation {
 		registration = bytes.Replace(registration, []byte(`"request_interceptor":true`), []byte(`"request_interceptor":true,"scheduler":true`), 1)
 		registration = bytes.ReplaceAll(registration, []byte(`["gemini"]`), []byte(`["gemini","interactions"]`))

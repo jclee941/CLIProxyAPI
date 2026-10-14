@@ -135,7 +135,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		language := webLanguageDefault
 		if turn.Model == omniModel {
 			var errCapability error
-			if model, errCapability = webVideoCapabilityFor(account, options.VideoMode); errCapability != nil {
+			if model, errCapability = webVideoCapabilityFor(account, options.VideoMode, service.settings().VideoMode); errCapability != nil {
 				return nil, errCapability
 			}
 			ok, language = true, options.language()
