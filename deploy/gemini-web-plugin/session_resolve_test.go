@@ -9,29 +9,29 @@ import (
 	"testing"
 )
 
-type resolveSidecar struct {
+type resolveObserver struct {
 	mu    sync.Mutex
 	mode  string
 	calls int
 }
 
-func (sidecar *resolveSidecar) set(mode string) {
-	sidecar.mu.Lock()
-	defer sidecar.mu.Unlock()
-	sidecar.mode = mode
+func (observer *resolveObserver) set(mode string) {
+	observer.mu.Lock()
+	defer observer.mu.Unlock()
+	observer.mode = mode
 }
 
-func (sidecar *resolveSidecar) observe() string {
-	sidecar.mu.Lock()
-	defer sidecar.mu.Unlock()
-	sidecar.calls++
-	return sidecar.mode
+func (observer *resolveObserver) observe() string {
+	observer.mu.Lock()
+	defer observer.mu.Unlock()
+	observer.calls++
+	return observer.mode
 }
 
-func (sidecar *resolveSidecar) count() int {
-	sidecar.mu.Lock()
-	defer sidecar.mu.Unlock()
-	return sidecar.calls
+func (observer *resolveObserver) count() int {
+	observer.mu.Lock()
+	defer observer.mu.Unlock()
+	return observer.calls
 }
 
 type resolveView struct {
@@ -51,14 +51,14 @@ func rejectionFixture(t *testing.T, writer http.ResponseWriter, status int, body
 	}
 }
 
-func resolveFixture(t *testing.T) (*service, *loginHostFixture, *resolveSidecar) {
+func resolveFixture(t *testing.T) (*service, *loginHostFixture, *resolveObserver) {
 	t.Helper()
 	service, host := loginFixture(t)
-	sidecar := &resolveSidecar{mode: "healthy"}
-	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		mode := sidecar.observe()
-		switch sidecarPath(request) {
-		case "/v1/session/inspect":
+	observer := &resolveObserver{mode: "healthy"}
+	localWebAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		mode := observer.observe()
+		switch credentialRoute(request) {
+		case "credential:inspect":
 			switch mode {
 			case "probe_unknown":
 				rejectionFixture(t, writer, 500, `{"error":{"code":500,"message":"probe_unavailable"}}`)
@@ -67,27 +67,25 @@ func resolveFixture(t *testing.T) (*service, *loginHostFixture, *resolveSidecar)
 			default:
 				writeIdentityFixture(t, writer)
 			}
-		case "/v1/account-models":
-			writeFixture(t, writer, `{"available":true,"observed_at":1234,"models":[{"capability_id":"actual","display_name":"3.8 Flash","mode":1}]}`)
-		case "/v1/usage":
-			writeFixture(t, writer, `{"tier":"PRO","tier_code":2,"metrics":[{"remaining_units":2400,"usage_fraction":0.25,"reset_unix_seconds":1789363992,"window_kind":"5h","unit":"provider_compute_unit"},{"remaining_units":48384,"usage_fraction":0,"reset_unix_seconds":1789950792,"window_kind":"weekly","unit":"provider_compute_unit"}],"source":"GoogleWeb","estimated":false,"observed_at":1789350000}`)
-		case "/v1/session/renew":
+		case "credential:renew":
 			if mode == "renew_unknown" {
 				rejectionFixture(t, writer, 500, `{"error":{"code":500,"message":"renew_unavailable"}}`)
 				return
 			}
 			writeRotationFixture(writer, request)
 		default:
-			t.Errorf("unexpected sidecar path %s", request.URL.Path)
-			writer.WriteHeader(404)
+			if !serveAccountRPC(t, writer, request) {
+				t.Errorf("unexpected observer path %s", request.URL.Path)
+				writer.WriteHeader(404)
+			}
 		}
 	})
-	return service, host, sidecar
+	return service, host, observer
 }
 
-func localAccountFixture(t *testing.T, interrupted bool) (*service, *resolveSidecar, storageRecord) {
+func localAccountFixture(t *testing.T, interrupted bool) (*service, *resolveObserver, storageRecord) {
 	t.Helper()
-	service, host, sidecar := resolveFixture(t)
+	service, host, observer := resolveFixture(t)
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 	ready := completeFixture(t, service, started)
 	record, err := service.parseStorage(host.records[ready.AccountID], true)
@@ -96,19 +94,19 @@ func localAccountFixture(t *testing.T, interrupted bool) (*service, *resolveSide
 	}
 	expected := localReady
 	if interrupted {
-		sidecar.set("renew_unknown")
+		observer.set("renew_unknown")
 		trapped := maintainFixture(t, service, `{"id":"`+record.ID+`"}`)
 		if len(trapped.Results) != 1 || trapped.Results[0].State != maintenanceOperator || trapped.Results[0].Error != "session_renewal_outcome_unknown_requires_operator" {
 			t.Fatalf("fixture did not trap an interrupted renewal: %+v", trapped.Results)
 		}
-		sidecar.set("healthy")
+		observer.set("healthy")
 		expected = localRenewing
 	}
 	local, err := service.localStore().read(record.TokenRef)
 	if err != nil || local.State != expected {
 		t.Fatalf("fixture state=%s want=%s err=%v", local.State, expected, err)
 	}
-	return service, sidecar, record
+	return service, observer, record
 }
 
 func resolveCall(t *testing.T, service *service, body string) (resolveView, int) {
@@ -146,8 +144,8 @@ func TestResolveReleasesInterruptedRenewal_whenStoredCredentialRemainsValid(t *t
 }
 
 func TestResolveKeepsInterruptedState_whenProbeOutcomeStaysUnknown(t *testing.T) {
-	service, sidecar, record := localAccountFixture(t, true)
-	sidecar.set("probe_unknown")
+	service, observer, record := localAccountFixture(t, true)
+	observer.set("probe_unknown")
 
 	view, status := resolveCall(t, service, `{"id":"`+record.ID+`","consent":true}`)
 
@@ -161,8 +159,8 @@ func TestResolveKeepsInterruptedState_whenProbeOutcomeStaysUnknown(t *testing.T)
 }
 
 func TestResolveFencesRejectedCredential_whenProbeFailsAuthentication(t *testing.T) {
-	service, sidecar, record := localAccountFixture(t, true)
-	sidecar.set("probe_rejected")
+	service, observer, record := localAccountFixture(t, true)
+	observer.set("probe_rejected")
 
 	view, status := resolveCall(t, service, `{"id":"`+record.ID+`","consent":true}`)
 
@@ -197,8 +195,8 @@ func TestResolveRejectsUnsafeRequests_beforeProbingCredential(t *testing.T) {
 		{"uninterrupted_account", `{"id":"ACCOUNT","consent":true}`, false, 409, "resolve_requires_interrupted_operation"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			service, sidecar, record := localAccountFixture(t, scenario.interrupted)
-			before := sidecar.count()
+			service, observer, record := localAccountFixture(t, scenario.interrupted)
+			before := observer.count()
 			expected := localReady
 			if scenario.interrupted {
 				expected = localRenewing
@@ -209,8 +207,8 @@ func TestResolveRejectsUnsafeRequests_beforeProbingCredential(t *testing.T) {
 			if status != scenario.status || view.Error != scenario.code {
 				t.Fatalf("status=%d view=%+v want=%d/%s", status, view, scenario.status, scenario.code)
 			}
-			if sidecar.count() != before {
-				t.Fatalf("unsafe request reached the credential path: calls=%d", sidecar.count()-before)
+			if observer.count() != before {
+				t.Fatalf("unsafe request reached the credential path: calls=%d", observer.count()-before)
 			}
 			local, err := service.localStore().read(record.TokenRef)
 			if err != nil || local.State != expected {

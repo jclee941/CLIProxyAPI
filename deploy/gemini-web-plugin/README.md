@@ -21,10 +21,13 @@ dashboard_path: /CLIProxyAPI/plugins/gemini-web/index.html
 session_dir: /var/lib/gemini-web/sessions
 manager_origin: https://cliproxy.jclee.me
 browser_extension_id: REPLACE_WITH_REGISTERED_EXTENSION_ID
-native_generation: true
 native_continuation: true
 video_wire_mode: legacy
 ```
+
+The plugin speaks to the Gemini web product directly; there is no sidecar path.
+`native_generation` is accepted only as `true`, so configurations written before
+the sidecar path was removed keep loading. Leave it out of new configurations.
 
 `video_wire_mode` accepts `legacy` (the default, unchanged request bytes), `web`,
 or `alternate`. For Omni video only, `web` sends selection-header capacity `3`,
@@ -47,16 +50,12 @@ Changing only this policy does not drain or replace live sessions. A successful
 change also emits `state=video_wire_mode reason=mode=<value>` in the host log.
 
 The running process needs `GEMINI_WEB_SESSION_KEY`. On the deployed host,
-`deploy/gemini-web/start-production.sh` reads the mounted
+`deploy/gemini-web/start-production.sh` (installed on the NAS as
+`/volume1/docker/cliproxy/runtime/start-production.sh`) reads the mounted
 `/run/gemini-web/session.key`; its protected host source is
-`/etc/cliproxy/gemini-web/session.key`. Preserve this existing key and the
+`/volume1/docker/cliproxy/runtime/secrets/session.key`. Preserve this existing key and the
 encrypted session directory together. Never generate a replacement key during an
 upgrade. Directory mode is `0700`; key and session file modes are `0600`.
-
-`compose.yml` is a no-op overlay retained for existing Compose command lists.
-It adds no secret-provider environment or executable mount. The current native
-production path does not require a sidecar. Legacy sidecar code and deployment
-files remain in the repository; their presence is not a reason to start them.
 
 ## Login and account management
 
@@ -93,9 +92,10 @@ result. A lost POST response is not authorization to submit the same job again.
 
 ## Deployment
 
-The host is `192.168.50.114`; the plugin directory is
-`/opt/dashboard/plugins`, mounted at `/CLIProxyAPI/plugins`. The static page is
-`/opt/dashboard/plugins/gemini-web/index.html`.
+Deployment follows [deploy/README.md](../README.md): the committed artifact is
+converged onto the NAS, whose plugin directory
+`/volume1/docker/cliproxy/runtime/plugins` is mounted at `/CLIProxyAPI/plugins`.
+The static page is `/CLIProxyAPI/plugins/gemini-web/index.html`.
 
 Run the build and ABI gates before replacing the artifact. Inspect actual active
 requests before a restart. Local session storage has a process-lifetime owner
@@ -103,6 +103,6 @@ lock: loading another plugin instance can fail with
 `session_store_already_owned`. Do not delete lock/session files. A coordinated
 container restart releases the old owner.
 
-For management checks, load `/etc/cliproxy/gemini-web/core.env` only on the
+For management checks, load `/volume1/docker/cliproxy/runtime/secrets/core.env` only on the
 host and use `MANAGEMENT_PASSWORD` in memory. Do not print the environment or put
 credentials in command arguments, documents, or logs.

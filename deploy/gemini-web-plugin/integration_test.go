@@ -67,17 +67,17 @@ func seedSession(t *testing.T, service *service, record storageRecord, token ses
 }
 
 // The dial override sends every outbound call to this one server, so it has to
-// answer the native credential routes as well as the sidecar ones; otherwise a
-// test that only stubs the sidecar would let account and rotation calls fall
+// answer the native credential routes as well as the handler's; otherwise a
+// test that only stubs the handler would let account and rotation calls fall
 // through to the real product.
-func localSidecar(t *testing.T, service *service, handler http.HandlerFunc) {
+func localWeb(t *testing.T, service *service, handler http.HandlerFunc) {
 	t.Helper()
-	localSidecarRotating(t, service, handler, false)
+	localWebRotating(t, service, handler, false)
 }
 
-// localSidecarAll leaves the credential routes to the handler, for tests that
+// localWebAll leaves the credential routes to the handler, for tests that
 // decide what every call does - usually failing all of them.
-func localSidecarAll(t *testing.T, service *service, handler http.HandlerFunc) {
+func localWebAll(t *testing.T, service *service, handler http.HandlerFunc) {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
@@ -92,7 +92,7 @@ func localSidecarAll(t *testing.T, service *service, handler http.HandlerFunc) {
 
 // A rotation that returns no cookies leaves the token untouched, which is what
 // most tests assume; only the ones about replacement ask for a changed jar.
-func localSidecarRotating(t *testing.T, service *service, handler http.HandlerFunc, rotate bool) {
+func localWebRotating(t *testing.T, service *service, handler http.HandlerFunc, rotate bool) {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {
@@ -148,7 +148,7 @@ func jsonFixture(t *testing.T, value interface{}) []byte {
 	return raw
 }
 
-func TestOmniDoesNotResubmit_whenSidecarReturnsFailure(t *testing.T) {
+func TestOmniDoesNotResubmit_whenSubmissionReturnsFailure(t *testing.T) {
 	service := newService(nil)
 	record := recordFixture(t, "a")
 	auth, err := authFromRecord(record)
@@ -158,9 +158,11 @@ func TestOmniDoesNotResubmit_whenSidecarReturnsFailure(t *testing.T) {
 	seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("test-omni")}})
 	var lock sync.Mutex
 	calls := 0
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if sidecarPath(request) == "/v1/session/renew" {
-			writeFixture(t, writer, `{"token":"`+encodedToken("test-omni")+`"}`)
+	localWeb(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasSuffix(request.URL.Path, "/batchexecute") {
+			if _, err := io.WriteString(writer, rpcEnvelope(t, accountCapabilityRPC, omniCapabilities())); err != nil {
+				t.Error(err)
+			}
 			return
 		}
 		lock.Lock()
@@ -181,12 +183,12 @@ func TestDirectTransportDoesNotFollowRedirects_orEnvironmentProxy(t *testing.T) 
 	service := newService(nil)
 	t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
 	calls := 0
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
+	localWeb(t, service, func(writer http.ResponseWriter, request *http.Request) {
 		calls++
-		writer.Header().Set("Location", sidecarBase+"/v1/usage")
+		writer.Header().Set("Location", "http://redirect.invalid/v1/usage")
 		writer.WriteHeader(307)
 	})
-	_, err := service.sidecar(t.Context(), sidecarRequest{Method: "GET", Path: "/v1/account-models", Token: sessionToken{encodedToken("test-redirect")}})
+	_, err := service.accountModels(t.Context(), "", sessionToken{encodedToken("test-redirect")})
 	if err == nil || calls != 1 || service.client.Transport.(*http.Transport).Proxy != nil || service.client.Timeout != 0 {
 		t.Fatal("direct/redirect transport boundary failed")
 	}

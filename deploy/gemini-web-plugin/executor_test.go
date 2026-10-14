@@ -45,32 +45,8 @@ func TestOmniRejectsAResponseThatCarriesNoVideo(t *testing.T) {
 }
 
 func TestFlashExecutesSelectedSession_andBuffersNativeSSE(t *testing.T) {
-	service := newService(nil)
-	record := recordFixture(t, "a")
-	seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("test-flash")}})
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("x-goog-api-key") != encodedToken("test-flash") || request.Header.Get("Authorization") != "" {
-			t.Error("incorrect outgoing credentials")
-		}
-		switch request.URL.Path {
-		case "/v1/account-models":
-			writeFixture(t, writer, `{"available":true,"models":[{"capability_id":"test-capability","display_name":"3.8 Flash","mode":1}]}`)
-		case "/v1beta/models/gemini-3.8-flash:generateContent":
-			var body struct {
-				Model string            `json:"model"`
-				Tools []json.RawMessage `json:"tools"`
-			}
-			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
-				t.Error(err)
-			}
-			if request.Method != "POST" || body.Model != "gemini-3.8-flash" || len(body.Tools) != 1 {
-				t.Error("native model/tool request changed")
-			}
-			writeFixture(t, writer, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"test_tool","args":{}}}]}}]}`)
-		default:
-			t.Errorf("unexpected path %s", request.URL.Path)
-		}
-	})
+	server := nativeWebServer(t, "```function_call\n{\"name\": \"test_tool\", \"args\": {}}\n```")
+	service, record := nativeService(t, server)
 	result := invoke(t, service, "executor.execute_stream", executorRequest{AuthID: record.ID, AuthProvider: provider, Model: flashModel, Format: "gemini", SourceFormat: "gemini", Stream: true, StorageJSON: jsonFixture(t, record), Payload: []byte(`{"model":"gemini-web-flash-3.8","contents":[{"parts":[{"text":"test"}]}],"tools":[{"functionDeclarations":[{"name":"test_tool"}]}]}`)})
 	if !result.OK {
 		t.Fatalf("flash failed: %+v", result.Error)
@@ -90,8 +66,8 @@ func TestModelDiscoveryDoesNotAdvertiseOldFlashRegistry(t *testing.T) {
 	service := newService(nil)
 	record := recordFixture(t, "a")
 	seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("test-registry")}})
-	localSidecar(t, service, func(writer http.ResponseWriter, _ *http.Request) {
-		writeFixture(t, writer, `{"available":true,"models":[{"capability_id":"old","display_name":"3.7 Flash","mode":1}]}`)
+	localWeb(t, service, func(writer http.ResponseWriter, _ *http.Request) {
+		writeCapabilities(t, writer, "3.7 Flash")
 	})
 	result := invoke(t, service, "model.for_auth", executorRequest{AuthID: record.ID, AuthProvider: provider, StorageJSON: jsonFixture(t, record)})
 	if !result.OK || strings.Contains(string(result.Result), flashModel) || strings.Contains(string(result.Result), "gemini-web-flash\"") {
@@ -107,17 +83,8 @@ func TestOmniReturnsMP4WithoutImageConversion(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("test-video")}})
-	video := base64.StdEncoding.EncodeToString([]byte("test-only-mp4-fixture"))
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if sidecarPath(request) == "/v1/session/renew" {
-			writeFixture(t, writer, `{"token":"`+encodedToken("test-video")+`"}`)
-			return
-		}
-		if request.URL.Path != "/v1beta/models/gemini-web-omni:generateContent" {
-			t.Error("video used wrong endpoint")
-		}
-		writeFixture(t, writer, `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"video/mp4","data":"`+video+`"}}]}}]}`)
-	})
+	video := base64.StdEncoding.EncodeToString([]byte("0000ftypvideo"))
+	omniWebFixture(t, service)
 	payload := []byte(`{"contents":[{"role":"user","parts":[{"text":"test video"}]}]}`)
 	result := invoke(t, service, "executor.execute", executorRequest{AuthID: record.ID, AuthProvider: provider, Model: omniModel, Format: "gemini", SourceFormat: "gemini", Payload: payload, OriginalRequest: payload, StorageJSON: auth.StorageJSON, AuthMetadata: auth.Metadata, HostCallbackID: "scope-list"})
 	if !result.OK {

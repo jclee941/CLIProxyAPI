@@ -130,23 +130,22 @@ func loginFixture(t *testing.T) (*service, *loginHostFixture) {
 			t.Error(err)
 		}
 	})
-	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		switch sidecarPath(request) {
-		case "/v1/session/inspect":
+	localWebAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		switch credentialRoute(request) {
+		case "credential:inspect":
 			writeIdentityFixture(t, writer)
-		case "/v1/account-models":
-			writeFixture(t, writer, `{"available":true,"observed_at":1234,"models":[{"capability_id":"actual","display_name":"3.8 Flash","mode":1}]}`)
-		case "/v1/usage":
-			writeFixture(t, writer, `{"tier":null,"metrics":null,"source":"GoogleWeb","estimated":false,"observed_at":1234}`)
-		case "/v1/session/renew":
+		case "credential:renew":
 			writeRotationFixture(writer, request)
-		case "/v1beta/models/gemini-3.8-flash:generateContent":
-			writeFixture(t, writer, `{"candidates":[{"content":{"parts":[{"text":"fixture response"}]}}]}`)
-		case "/v1beta/models/gemini-web-omni:generateContent":
-			writeFixture(t, writer, `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"video/mp4","data":"Zml4dHVyZQ=="}}]}}]}`)
+		case "account:usage":
+			// An account whose tier and windows the product does not report.
+			writeFixture(t, writer, rpcEnvelope(t, webUsageRPC, []any{float64(3)}))
+		case "account:generate":
+			writeFixture(t, writer, ")]}'\n"+generationFrame(t, "fixture response")+"\n")
 		default:
-			t.Errorf("unexpected sidecar path %s", request.URL.Path)
-			writer.WriteHeader(404)
+			if !serveAccountRPC(t, writer, request) {
+				t.Errorf("unexpected credential path %s", request.URL.Path)
+				writer.WriteHeader(404)
+			}
 		}
 	})
 	return service, host
@@ -199,6 +198,9 @@ func TestLoginHandoffSavesAndExecutesWithoutVault_whenIdentityVerified(t *testin
 		auth, err := authFromRecord(record)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if model == omniModel {
+			omniWebFixture(t, service)
 		}
 		result := invoke(t, service, "executor.execute", executorRequest{AuthID: record.ID, AuthProvider: provider, Model: model, Format: "gemini", SourceFormat: "gemini", Payload: []byte(`{"contents":[{"parts":[{"text":"fixture"}]}]}`), StorageJSON: auth.StorageJSON, AuthMetadata: auth.Metadata, HostCallbackID: "fixture-execute"})
 		if !result.OK {

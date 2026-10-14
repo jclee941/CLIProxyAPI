@@ -74,7 +74,7 @@ func validFlowCookies(cookies map[string]string) bool {
 }
 
 // decodeWebCredential reads the cookie the session token carries. The token is an
-// encoding, not a secret box: the same value is what the sidecar decodes.
+// encoding, not a secret box.
 func decodeWebCredential(token sessionToken) (webCredential, error) {
 	const prefix = "gemini-web:v1:"
 	if !strings.HasPrefix(token.value, prefix) {
@@ -455,8 +455,7 @@ type webAccount struct {
 	Features []int
 }
 
-// webCapabilities reports the models the account may use, in the same shape the
-// sidecar reports them, so the two can be compared before the sidecar is retired.
+// webCapabilities reports the models the account may use.
 func (session *webSession) webCapabilities(ctx context.Context) (webAccount, error) {
 	body, err := session.rpc(ctx, accountCapabilityRPC, []any{})
 	if err != nil {

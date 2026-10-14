@@ -12,14 +12,13 @@ import (
 type sessionWireGate struct {
 	base    http.RoundTripper
 	path    string
-	token   string
 	entered chan struct{}
 	release chan struct{}
 	once    sync.Once
 }
 
 func (gate *sessionWireGate) RoundTrip(request *http.Request) (*http.Response, error) {
-	if sidecarPath(request) == gate.path && (gate.token == "" || request.Header.Get("x-goog-api-key") == gate.token) {
+	if credentialRoute(request) == gate.path {
 		gate.once.Do(func() { close(gate.entered); <-gate.release })
 	}
 	return gate.base.RoundTrip(request)
@@ -37,10 +36,10 @@ type sessionIntentObserver struct {
 
 func (observer *sessionIntentObserver) RoundTrip(request *http.Request) (*http.Response, error) {
 	var expected localState
-	switch sidecarPath(request) {
-	case "/v1/session/renew":
+	switch credentialRoute(request) {
+	case "credential:renew":
 		expected = localRenewing
-	case "/v1beta/models/gemini-web-omni:generateContent":
+	case "account:generate":
 		expected = localSubmitting
 	}
 	if expected != "" {
@@ -55,17 +54,17 @@ func (observer *sessionIntentObserver) RoundTrip(request *http.Request) (*http.R
 		observer.seen = append(observer.seen, expected)
 		observer.mu.Unlock()
 	}
-	if sidecarPath(request) == observer.failPath {
+	if credentialRoute(request) == observer.failPath {
 		if observer.failure != nil {
 			return nil, observer.failure
 		}
-		return &http.Response{StatusCode: 502, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":{"message":"caller_disconnected"}}`))}, nil
+		return &http.Response{StatusCode: 502, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("upstream unavailable"))}, nil
 	}
 	return observer.base.RoundTrip(request)
 }
 
 func TestLocalOmniPersistsIntentBeforeWireAndRetainsAmbiguity_whenUpstreamFails(t *testing.T) {
-	for _, path := range []string{"/v1/session/renew", "/v1beta/models/gemini-web-omni:generateContent"} {
+	for _, path := range []string{"credential:renew", "account:generate"} {
 		t.Run(path, func(t *testing.T) {
 			service, host := loginFixture(t)
 			started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
@@ -92,7 +91,7 @@ func TestLocalOmniPersistsIntentBeforeWireAndRetainsAmbiguity_whenUpstreamFails(
 				t.Fatal(err)
 			}
 			expected := localRenewing
-			if strings.Contains(path, "generateContent") {
+			if path == "account:generate" {
 				expected = localSubmitting
 			}
 			if local.State != expected {
@@ -155,7 +154,7 @@ func TestLocalOmniStopsAfterDurableRenewal_whenHostDisablesAccountDuringSave(t *
 func TestLoginCancellationPreventsCommit_whenIdentityInspectionIsProcessing(t *testing.T) {
 	service, host := loginFixture(t)
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
-	gate := &sessionWireGate{base: service.client.Transport, path: "/v1/session/inspect", entered: make(chan struct{}), release: make(chan struct{})}
+	gate := &sessionWireGate{base: service.client.Transport, path: "credential:inspect", entered: make(chan struct{}), release: make(chan struct{})}
 	service.client.Transport = gate
 	var release sync.Once
 	unblock := func() { release.Do(func() { close(gate.release) }) }

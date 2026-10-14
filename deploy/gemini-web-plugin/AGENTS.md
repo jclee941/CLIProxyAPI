@@ -9,8 +9,6 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 - `browser-extension/`: consented session handoff; follow `browser-extension/AGENTS.md`.
 - `smoke/`: C loader and interceptor ABI checks.
 - `ops/`: operator maintenance tooling and fixtures.
-- `host-compat/`: historical pinned host patch set.
-- `host-compat-v7.3.1/`: separate historical host compatibility snapshot.
 
 ## WHERE TO LOOK
 | Task | Location | Detail |
@@ -41,10 +39,9 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 - Native account discovery, quota snapshots, and scheduler admission are distinct responsibilities.
 - Flow borrows requests through the broker; this plugin alone attaches cookies and persists their rotations.
 - Broker targets and forwarded upload headers are explicit allowlists; cancellation identifies a specific exchange.
-- `native_generation` and `native_continuation` affect registration and dispatch; preserve the configured format/capability pairing.
+- The native web transport is the only path; `native_generation` is a legacy key accepted only as `true`. `native_continuation` gates continuation registration and dispatch; preserve the configured format/capability pairing.
 - `video_wire_mode` accepts `legacy`, `web`, or `alternate`; continuation inherits its turn's variant unless an explicit mode overrides it.
 - Changing only video wire policy does not drain sessions; verify the applied variant in diagnostics, not only the saved config.
-- `README.md` still contains old .114 deployment paths; `build-manifest.json` retains sidecar/vault metadata and is not live configuration.
 
 ## ANTI-PATTERNS
 - Do not delete owner, intent, or recovery records to clear an uncertain operation.

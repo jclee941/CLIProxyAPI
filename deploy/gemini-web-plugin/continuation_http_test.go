@@ -18,12 +18,6 @@ type continuationFixtureTransport struct {
 }
 
 func (transport continuationFixtureTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	if request.URL.Host == "gemini-web2api:8081" {
-		clone := request.Clone(request.Context())
-		clone.URL.Scheme = "https"
-		clone.URL.Host = strings.TrimPrefix(transport.origin, "https://")
-		return transport.base.RoundTrip(clone)
-	}
 	if request.URL.Host != strings.TrimPrefix(transport.origin, "https://") {
 		return nil, failure(500, "fixture_external_network_denied")
 	}
@@ -65,12 +59,10 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		fixture.mu.Lock()
 		defer fixture.mu.Unlock()
-		if request.URL.Path != "/RotateCookies" && request.URL.Path != "/video" && request.URL.Path != "/v1/account-models" && request.URL.Path != "/upload/" && request.URL.Path != "/upload/finalize" && !strings.HasPrefix(request.URL.Path, "/u/2/") {
+		if request.URL.Path != "/RotateCookies" && request.URL.Path != "/video" && request.URL.Path != "/upload/" && request.URL.Path != "/upload/finalize" && !strings.HasPrefix(request.URL.Path, "/u/2/") {
 			t.Errorf("wrong account prefix: %s", request.URL.Path)
 		}
 		switch {
-		case request.URL.Path == "/v1/account-models":
-			writeFixture(t, writer, `{"available":true,"models":[{"capability_id":"cap-flash","display_name":"3.8 Flash","mode":1}]}`)
 		case strings.HasSuffix(request.URL.Path, "/app"):
 			if fixture.expired {
 				writer.WriteHeader(http.StatusUnauthorized)

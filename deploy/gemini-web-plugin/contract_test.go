@@ -93,11 +93,11 @@ func TestOmniRejectsUnsupportedCalls_beforeSecretOrNetwork(t *testing.T) {
 	}
 }
 
-func TestExecutorHTTPRejectsUntrustedRoutes_beforeSecrets(t *testing.T) {
-	for _, target := range []string{"https://google.com/", "http://gemini-web2api:8081@evil.test/v1/usage", "http://gemini-web2api:8081/v1/usage?key=secret", "http://gemini-web2api:8081/v1beta/models/gemini-web-omni:generateContent", "http://gemini-web2api:8081/other"} {
+func TestExecutorHTTPRejectsEveryRoute_beforeSecrets(t *testing.T) {
+	for _, target := range []string{"https://google.com/", "http://127.0.0.1:8081/v1/usage", "http://127.0.0.1:8081/v1/usage?key=secret", "http://127.0.0.1:8081/other"} {
 		t.Run(target, func(t *testing.T) {
 			service := newService(nil)
-			result := invoke(t, service, "executor.http_request", executorHTTPRequest{Method: "GET", URL: target})
+			result := invoke(t, service, "executor.http_request", map[string]string{"Method": "GET", "URL": target})
 			if result.OK || result.Error.HTTPStatus != 400 {
 				t.Fatal("arbitrary HTTP route accepted")
 			}

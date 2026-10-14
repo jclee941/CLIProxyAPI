@@ -100,7 +100,7 @@ func backgroundRestart(t *testing.T, previous *service) *service {
 	}
 	service := newService(nil)
 	service.sessions = store
-	service.config.NativeGeneration, service.config.NativeContinuation = true, true
+	service.config.NativeContinuation = true
 	service.client.Transport = continuationNoNetwork{t}
 	t.Cleanup(func() {
 		if err := service.shutdownSessions(); err != nil {

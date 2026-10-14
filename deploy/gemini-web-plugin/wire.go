@@ -10,7 +10,6 @@ const (
 	provider                  = "gemini-web"
 	flashModel                = "gemini-web-flash-3.8"
 	omniModel                 = "gemini-web-omni"
-	sidecarBase               = "http://gemini-web2api:8081"
 	resourcePath              = "/v0/resource/plugins/gemini-web/index"
 	extensionPath             = "/v0/resource/plugins/gemini-web/extension"
 	openapiPath               = "/v0/resource/plugins/gemini-web/openapi.json"
@@ -110,15 +109,6 @@ type executorRequest struct {
 	}
 	HostCallbackID string `json:"host_callback_id,omitempty"`
 	StreamID       string `json:"stream_id,omitempty"`
-}
-
-type executorHTTPRequest struct {
-	AuthID         string
-	AuthProvider   string
-	Method         string
-	URL            string
-	StorageJSON    []byte
-	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
 type managementRequest struct {

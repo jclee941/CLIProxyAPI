@@ -50,8 +50,8 @@ func TestListingReleasesInterruptedSession_whenProbeIsDefinitive(t *testing.T) {
 }
 
 func TestListingKeepsInterruptedSession_whenProbeIsAmbiguous(t *testing.T) {
-	service, sidecar, record := localAccountFixture(t, true)
-	sidecar.set("probe_unknown")
+	service, observer, record := localAccountFixture(t, true)
+	observer.set("probe_unknown")
 
 	view := listFirstAccount(t, service)
 

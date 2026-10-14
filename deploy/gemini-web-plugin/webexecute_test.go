@@ -26,12 +26,15 @@ func nativeLastGeneration(t *testing.T) string {
 	return nativeGenerationBody.body
 }
 
+// omniCapabilities is the account capability reply the native video turn needs
+// before it submits anything.
+func omniCapabilities() any {
+	return capabilityPayload("3.8 Flash")
+}
+
 func nativeWebServer(t *testing.T, reply string) *httptest.Server {
 	t.Helper()
-	capabilities := slots(16, map[int]any{
-		14: float64(1000),
-		15: []any{slots(18, map[int]any{0: "cap-flash", 11: "3.8 Flash", 17: float64(1)})},
-	})
+	capabilities := omniCapabilities()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {
 		case strings.HasSuffix(request.URL.Path, "/app"):
@@ -78,13 +81,12 @@ func nativeService(t *testing.T, server *httptest.Server) (*service, storageReco
 	service := newService(nil)
 	record := recordFixture(t, "a")
 	seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("SID=a; SAPISID=secret")}})
-	service.config.NativeGeneration = true
 	service.webOriginOverride = server.URL
 	service.webUploadOverride = server.URL
 	return service, record
 }
 
-func TestNativeTextServesFlashWithoutTheSidecar(t *testing.T) {
+func TestNativeTextServesFlash(t *testing.T) {
 	server := nativeWebServer(t, "plain answer")
 	service, record := nativeService(t, server)
 	result := invoke(t, service, "executor.execute", executorRequest{

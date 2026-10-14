@@ -1,10 +1,7 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/json"
-	"io"
-	"net/http"
 	"strings"
 	"testing"
 )
@@ -16,21 +13,13 @@ const translatedOmniRequest = `{"contents":[{"role":"user","parts":[{"text":"A y
 
 const openAIOmniOriginal = `{"model":"gemini-web-omni","messages":[{"role":"user","content":"A yellow balloon floating up into a blue sky."}]}`
 
-func omniSidecarFixture(t *testing.T, service *service, submitted *[]byte) {
+// omniWebFixture serves a native video turn for the seeded session; the
+// fixture records every generation the plugin submits.
+func omniWebFixture(t *testing.T, service *service) *continuationWebFixture {
 	t.Helper()
-	video := base64.StdEncoding.EncodeToString([]byte("test-only-mp4-fixture"))
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if sidecarPath(request) == "/v1/session/renew" {
-			writeFixture(t, writer, `{"token":"`+encodedToken("test-video")+`"}`)
-			return
-		}
-		body, err := io.ReadAll(request.Body)
-		if err != nil {
-			t.Error(err)
-		}
-		*submitted = body
-		writeFixture(t, writer, `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"video/mp4","data":"`+video+`"}}]}}]}`)
-	})
+	fixture := &continuationWebFixture{video: true}
+	continuationWeb(t, service, fixture)
+	return fixture
 }
 
 func TestOmniAcceptsHostTranslatedChatRequest_andRebuildsTheUpstreamBody(t *testing.T) {
@@ -41,8 +30,7 @@ func TestOmniAcceptsHostTranslatedChatRequest_andRebuildsTheUpstreamBody(t *test
 		t.Fatal(err)
 	}
 	seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("test-video")}})
-	var submitted []byte
-	omniSidecarFixture(t, service, &submitted)
+	fixture := omniWebFixture(t, service)
 
 	result := invoke(t, service, "executor.execute", executorRequest{
 		AuthID:          record.ID,
@@ -60,23 +48,16 @@ func TestOmniAcceptsHostTranslatedChatRequest_andRebuildsTheUpstreamBody(t *test
 	if !result.OK {
 		t.Fatalf("host-translated chat request rejected: %+v", result.Error)
 	}
-	var upstream struct {
-		Contents []struct {
-			Role  string `json:"role"`
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-		} `json:"contents"`
-		SafetySettings json.RawMessage `json:"safetySettings"`
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.fields) != 1 {
+		t.Fatalf("submissions: %d, want 1", len(fixture.fields))
 	}
-	if err := json.Unmarshal(submitted, &upstream); err != nil {
-		t.Fatalf("submitted body is not JSON: %v", err)
-	}
-	if len(upstream.SafetySettings) != 0 {
+	submitted := string(jsonFixture(t, fixture.fields[0]))
+	if strings.Contains(submitted, "HARM_CATEGORY") || strings.Contains(submitted, "safetySettings") {
 		t.Fatalf("translation artifacts reached the generation call: %s", submitted)
 	}
-	if len(upstream.Contents) != 1 || len(upstream.Contents[0].Parts) != 1 ||
-		upstream.Contents[0].Parts[0].Text != "A yellow balloon floating up into a blue sky." {
+	if !strings.Contains(submitted, "A yellow balloon floating up into a blue sky.") {
 		t.Fatalf("upstream prompt was not preserved: %s", submitted)
 	}
 	var response struct{ Payload []byte }
@@ -107,8 +88,7 @@ func TestOmniRejectsUnsupportedChatOriginals_beforeSubmitting(t *testing.T) {
 				t.Fatal(err)
 			}
 			seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("test-video")}})
-			var submitted []byte
-			omniSidecarFixture(t, service, &submitted)
+			fixture := omniWebFixture(t, service)
 
 			result := invoke(t, service, "executor.execute", executorRequest{
 				AuthID:          record.ID,
@@ -126,8 +106,10 @@ func TestOmniRejectsUnsupportedChatOriginals_beforeSubmitting(t *testing.T) {
 			if result.OK {
 				t.Fatal("unsupported chat original reached Omni")
 			}
-			if len(submitted) != 0 {
-				t.Fatalf("rejected request still generated a video: %s", submitted)
+			fixture.mu.Lock()
+			defer fixture.mu.Unlock()
+			if len(fixture.fields) != 0 {
+				t.Fatalf("rejected request still generated a video: %d submission(s)", len(fixture.fields))
 			}
 			if result.Error == nil || result.Error.HTTPStatus != 400 {
 				t.Fatalf("error=%+v", result.Error)

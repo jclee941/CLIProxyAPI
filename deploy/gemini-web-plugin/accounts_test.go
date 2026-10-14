@@ -19,6 +19,9 @@ func accountHostScoped(t *testing.T, records []storageRecord, scope string) host
 		if err := json.Unmarshal(raw, &request); err != nil {
 			t.Fatal(err)
 		}
+		if method == "host.log" {
+			return jsonFixture(t, envelope{OK: true}), nil
+		}
 		if scope != "" && request.HostCallbackID != scope {
 			t.Fatalf("callback scope lost in %s", method)
 		}
@@ -63,15 +66,13 @@ func TestAccountsListIsolatesSessions_andReportsExpiredTruthfully(t *testing.T) 
 	first, second := recordFixture(t, "a"), recordFixture(t, "b")
 	service := newService(accountHost(t, []storageRecord{first, second}))
 	seedSessions(t, service, map[string]sessionToken{first.TokenRef: {encodedToken("test-first")}, second.TokenRef: {encodedToken("test-second")}})
-	localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		switch request.Header.Get("x-goog-api-key") {
-		case encodedToken("test-first"):
-			if request.URL.Path == "/v1/usage" {
-				writeFixture(t, writer, `{"tier":"PRO","tier_code":2,"metrics":[{"remaining_units":12,"usage_fraction":0.25,"reset_unix_seconds":1800000000,"window_kind":"5h","unit":"provider_compute_unit"}],"source":"GoogleWeb","estimated":false,"observed_at":1234}`)
-			} else {
-				writeFixture(t, writer, `{"available":true,"observed_at":1234,"models":[{"capability_id":"actual","display_name":"3.8 Flash","mode":1}]}`)
+	localWeb(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		switch cookie := request.Header.Get("Cookie"); {
+		case strings.Contains(cookie, "test-first"):
+			if !serveAccountRPC(t, writer, request) {
+				t.Errorf("unexpected request %s", request.URL)
 			}
-		case encodedToken("test-second"):
+		case strings.Contains(cookie, "test-second"):
 			writer.WriteHeader(401)
 			writeFixture(t, writer, `{"error":"untrusted-upstream-text"}`)
 		default:
@@ -108,7 +109,7 @@ func TestRefreshUsesOnlySelectedAccount(t *testing.T) {
 	first, second := recordFixture(t, "a"), recordFixture(t, "b")
 	service := newService(accountHost(t, []storageRecord{first, second}))
 	seedSessions(t, service, map[string]sessionToken{second.TokenRef: {encodedToken("test-second")}})
-	localSidecar(t, service, func(writer http.ResponseWriter, _ *http.Request) {
+	localWeb(t, service, func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(401)
 		writeFixture(t, writer, `{}`)
 	})

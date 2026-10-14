@@ -252,8 +252,7 @@ func (session *webSession) videoCap(ctx context.Context) (*bool, *float64) {
 	return &capped, until
 }
 
-// nativeUsage reads the quota windows from the web product. The sidecar answered
-// this once and was the last thing the plugin could not do for itself.
+// nativeUsage reads the quota windows from the web product.
 func (service *service) nativeUsage(ctx context.Context, reference string, token sessionToken) (*usageView, error) {
 	credential, err := decodeWebCredential(token)
 	if err != nil {
@@ -325,47 +324,7 @@ func (service *service) webWindows(body any) (*usageView, error) {
 }
 
 func (service *service) usage(ctx context.Context, reference string, token sessionToken) (*usageView, error) {
-	if service.settings().NativeGeneration {
-		return service.nativeUsage(ctx, reference, token)
-	}
-	response, err := service.sidecar(ctx, sidecarRequest{Method: "GET", Path: "/v1/usage", Token: token, Reference: reference})
-	if err != nil {
-		return nil, err
-	}
-	var wire struct {
-		Tier     *string `json:"tier"`
-		TierCode *int    `json:"tier_code"`
-		Metrics  []struct {
-			usageMetric
-			ResetAt *float64 `json:"reset_at"`
-		} `json:"metrics"`
-		Source     string  `json:"source"`
-		Estimated  *bool   `json:"estimated"`
-		ObservedAt float64 `json:"observed_at"`
-	}
-	if json.Unmarshal(response.Body, &wire) != nil || wire.Source != "GoogleWeb" || wire.Estimated == nil || *wire.Estimated || wire.ObservedAt <= 0 {
-		return nil, failure(502, "usage_response_invalid")
-	}
-	result := &usageView{Tier: wire.Tier, TierCode: wire.TierCode, Source: wire.Source, ObservedAt: wire.ObservedAt}
-	if wire.Metrics != nil {
-		result.Metrics = make([]usageMetric, 0, len(wire.Metrics))
-	}
-	for _, metric := range wire.Metrics {
-		if metric.Unit != "provider_compute_unit" {
-			return nil, failure(502, "usage_unit_invalid")
-		}
-		switch metric.WindowKind {
-		case "5h", "weekly", "ai_credit", "unknown":
-		default:
-			return nil, failure(502, "usage_window_invalid")
-		}
-		if metric.ResetUnixSeconds == nil {
-			metric.ResetUnixSeconds = metric.ResetAt
-		}
-		result.Metrics = append(result.Metrics, metric.usageMetric)
-	}
-	orderUsageWindows(result.Metrics)
-	return result, nil
+	return service.nativeUsage(ctx, reference, token)
 }
 
 // orderUsageWindows puts the windows in one order for every account. Google

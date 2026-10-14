@@ -34,7 +34,7 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 		}
 		return response
 	}
-	if !service.settings().NativeContinuation || !service.settings().NativeGeneration {
+	if !service.settings().NativeContinuation {
 		return interactionRejection(failure(400, "native_continuation_disabled"))
 	}
 	if request.SourceFormat != "interactions" {

@@ -21,7 +21,7 @@ func credentialResponse(body string) *http.Response {
 
 func TestCredentialTimeoutDoesNotFence_whenWorkerKilledAndWaited(t *testing.T) {
 	service, _, saves := maintenanceFixture(t)
-	localSidecarAll(t, service, func(writer http.ResponseWriter, _ *http.Request) {
+	localWebAll(t, service, func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(504)
 		writeFixture(t, writer, `{"error":{"code":504,"message":"credential_timeout"}}`)
 	})

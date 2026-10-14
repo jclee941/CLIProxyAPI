@@ -100,8 +100,8 @@ func TestLabelRejectsUnsafeRequests_beforeWriting(t *testing.T) {
 		{"interrupted_session", `{"id":"ACCOUNT","label":"a@b.com"}`, true, 409, "label_requires_ready_session"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			service, sidecar, record := localAccountFixture(t, scenario.interrupted)
-			before := sidecar.count()
+			service, observer, record := localAccountFixture(t, scenario.interrupted)
+			before := observer.count()
 			expected := localReady
 			if scenario.interrupted {
 				expected = localRenewing
@@ -112,8 +112,8 @@ func TestLabelRejectsUnsafeRequests_beforeWriting(t *testing.T) {
 			if status != scenario.status || view.Error != scenario.code {
 				t.Fatalf("status=%d view=%+v want=%d/%s", status, view, scenario.status, scenario.code)
 			}
-			if sidecar.count() != before {
-				t.Fatalf("unsafe rename reached credentials: calls=%d", sidecar.count()-before)
+			if observer.count() != before {
+				t.Fatalf("unsafe rename reached credentials: calls=%d", observer.count()-before)
 			}
 			local, err := service.localStore().read(record.TokenRef)
 			if err != nil || local.State != expected || local.Target.Label != record.Label {

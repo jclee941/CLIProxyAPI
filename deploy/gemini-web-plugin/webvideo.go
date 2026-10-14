@@ -327,7 +327,7 @@ func (session *webSession) downloadVideo(ctx context.Context, url string) (int, 
 }
 
 // generateVideo submits the prompt and then re-reads the conversation until the
-// download appears. The poll interval matches the bridge it replaces.
+// download appears.
 func (session *webSession) generateVideo(ctx context.Context, prompt string, account webAccount, model capability, framing omniFraming, thinking int, language string, attachments []webAttachment) ([]byte, error) {
 	raw, err := session.submitVideo(ctx, prompt, account, model, framing, thinking, language, attachments)
 	if err != nil {

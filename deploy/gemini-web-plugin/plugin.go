@@ -23,10 +23,10 @@ type pluginConfig struct {
 	ManagerOrigin      string `yaml:"manager_origin"`
 	BrowserExtensionID string `yaml:"browser_extension_id"`
 	DashboardPath      string `yaml:"dashboard_path"`
-	// NativeGeneration serves text turns by speaking to the web product directly
-	// instead of delegating to the sidecar. Off until the native path has been
-	// compared against the sidecar on a real account.
-	NativeGeneration        bool          `yaml:"native_generation"`
+	// LegacyNativeGeneration is only decoded so configurations written while
+	// the sidecar path existed still load; false is rejected because that path
+	// was removed. It is cleared after validation and never read afterwards.
+	LegacyNativeGeneration  *bool         `yaml:"native_generation"`
 	NativeContinuation      bool          `yaml:"native_continuation"`
 	VideoWireMode           videoWireMode `yaml:"video_wire_mode"`
 	SessionExchangeAccounts []string      `yaml:"session_exchange_accounts,omitempty"`
@@ -83,7 +83,7 @@ type service struct {
 }
 
 func newService(host hostCall) *service {
-	return &service{config: pluginConfig{DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html", VideoWireMode: videoWireLegacy}, startedAt: time.Now().Unix(), host: host, client: newSidecarClient(), now: time.Now}
+	return &service{config: pluginConfig{DashboardPath: "/CLIProxyAPI/plugins/gemini-web/index.html", VideoWireMode: videoWireLegacy}, startedAt: time.Now().Unix(), host: host, client: newHTTPClient(), now: time.Now}
 }
 
 func (service *service) handle(ctx context.Context, method string, raw []byte) []byte {
@@ -144,6 +144,10 @@ func (service *service) register(raw []byte) (interface{}, error) {
 			return nil, failure(400, "invalid_plugin_config")
 		}
 	}
+	if config.LegacyNativeGeneration != nil && !*config.LegacyNativeGeneration {
+		return nil, &publicError{Code: "invalid_plugin_config", Message: "invalid_plugin_config: native_generation: false is no longer supported; the sidecar path was removed", HTTPStatus: 400}
+	}
+	config.LegacyNativeGeneration = nil
 	if !filepath.IsAbs(config.DashboardPath) || filepath.Ext(config.DashboardPath) != ".html" {
 		return nil, failure(400, "invalid_plugin_config")
 	}
@@ -265,7 +269,7 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 	case "executor.execute", "executor.execute_stream", "executor.count_tokens":
 		return service.execute(ctx, method, raw)
 	case "executor.http_request":
-		return service.executorHTTP(ctx, raw)
+		return nil, failure(400, "executor_http_route_denied")
 	default:
 		return nil, failure(400, "unknown_method")
 	}

@@ -13,7 +13,7 @@ type sessionModelObserver struct {
 }
 
 func (observer sessionModelObserver) RoundTrip(request *http.Request) (*http.Response, error) {
-	if request.URL.Path == "/v1/account-models" {
+	if nativeRPCID(request) == accountCapabilityRPC {
 		if err := observer.observe(); err != nil {
 			return nil, err
 		}

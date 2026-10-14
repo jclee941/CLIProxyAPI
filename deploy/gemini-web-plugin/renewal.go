@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// Credential upkeep talks to Google per account rather than through the bridge,
-// so a failure is attributed to the credential it belongs to.
+// Credential upkeep talks to Google per account, so a failure is attributed to
+// the credential it belongs to.
 func (service *service) renewCredential(ctx context.Context, reference string, token sessionToken) (sessionToken, credentialInspection, error) {
 	credentialContext, cancel := context.WithTimeout(ctx, credentialFenceDuration)
 	defer cancel()
@@ -23,18 +23,6 @@ type AuthenticationFailure struct{}
 
 func (*AuthenticationFailure) Error() string { return "auth_error" }
 func (*AuthenticationFailure) Unwrap() error { return failure(401, "auth_error") }
-
-func (service *service) credentialHTTP(ctx context.Context, reference string, request sidecarRequest) (httpResponse, error) {
-	credentialContext, cancel := context.WithTimeout(ctx, credentialFenceDuration)
-	defer cancel()
-	tagged := request
-	tagged.Reference = reference
-	response, err := service.sidecar(credentialContext, tagged)
-	if err != nil && reference != "" {
-		service.credentialFailure(reference, err)
-	}
-	return response, err
-}
 
 func (service *service) inspectCredential(ctx context.Context, reference string, token sessionToken) (credentialInspection, error) {
 	credentialContext, cancel := context.WithTimeout(ctx, credentialFenceDuration)

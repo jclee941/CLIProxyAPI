@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -41,11 +42,11 @@ func TestAuthStoragePolicySurvivesGenericRoundtrip_whenParsedOrRefreshed(t *test
 				record.Disabled = disabled
 				service := newService(nil)
 				seedSessions(t, service, map[string]sessionToken{record.TokenRef: {encodedToken("test-refresh")}})
-				localSidecar(t, service, func(writer http.ResponseWriter, request *http.Request) {
-					if request.URL.Path != "/v1/account-models" || request.Header.Get("x-goog-api-key") != encodedToken("test-refresh") {
+				localWeb(t, service, func(writer http.ResponseWriter, request *http.Request) {
+					if nativeRPCID(request) != accountCapabilityRPC || !strings.Contains(request.Header.Get("Cookie"), "test-refresh") {
 						t.Error("refresh used a different account or route")
 					}
-					writeFixture(t, writer, `{"available":true,"models":[]}`)
+					writeCapabilities(t, writer)
 				})
 				storage := jsonFixture(t, struct {
 					storageRecord

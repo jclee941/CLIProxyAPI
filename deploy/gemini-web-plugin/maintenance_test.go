@@ -68,7 +68,7 @@ func TestMaintenanceHasNoEffects_whenDisabledOrBusy(t *testing.T) {
 				defer lease.guard.RUnlock()
 				want = maintenanceBusy
 			}
-			localSidecar(t, service, func(http.ResponseWriter, *http.Request) { t.Error("skipped account reached HTTP") })
+			localWeb(t, service, func(http.ResponseWriter, *http.Request) { t.Error("skipped account reached HTTP") })
 
 			result := maintainFixture(t, service, `{}`)
 

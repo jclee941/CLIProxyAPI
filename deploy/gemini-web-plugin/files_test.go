@@ -23,7 +23,6 @@ func filesTestService(t *testing.T, directory string) *service {
 	}
 	svc := newService(nil)
 	svc.sessions = store
-	svc.config.NativeGeneration = true
 	t.Cleanup(func() {
 		if err := svc.shutdownSessions(); err != nil {
 			t.Error(err)

@@ -8,11 +8,9 @@ import (
 	"strings"
 )
 
-// Going native removes the sidecar from the text path: the plugin speaks to the
-// web product itself. The published model identifier is derived from the
-// capability the account advertises rather than matched against a name, because
-// once the sidecar is out of the path nothing else constrains which capability
-// may be used.
+// The plugin speaks to the web product itself. The published model identifier is
+// derived from the capability the account advertises rather than matched against
+// a name, because nothing else constrains which capability may be used.
 
 // webPublicModelID renders the identifier callers use from the capability name
 // the account advertises: "3.8 Flash" becomes gemini-web-flash-3.8.
@@ -75,9 +73,8 @@ func (service *service) nativeText(ctx context.Context, record storageRecord, to
 	return webRenderResponse(requested, text, payload)
 }
 
-// nativeVideo produces the same response body the sidecar would, so the caller's
-// submission bookkeeping and validation stay untouched when only the transport
-// changes.
+// nativeVideo produces the Gemini-native video response body the caller's
+// submission bookkeeping and validation expect.
 func (service *service) nativeVideo(ctx context.Context, record storageRecord, token sessionToken, payload []byte) (result httpResponse, err error) {
 	credential, err := decodeWebCredential(token)
 	if err != nil {
@@ -140,8 +137,8 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	return httpResponse{StatusCode: 200, Headers: http.Header{"Content-Type": {"application/json"}}, Body: body}, nil
 }
 
-// webVideoCapability picks the capability the video turn runs on, matching the
-// bridge it replaces: the first the account offers in its standard mode.
+// webVideoCapability picks the capability the video turn runs on: the first the
+// account offers in its standard mode.
 func webVideoCapability(account webAccount) (capability, bool) {
 	for _, entry := range account.Capabilities {
 		if entry.Mode == 1 {
@@ -169,8 +166,7 @@ func webVideoCapabilityFor(account webAccount, mode int) (capability, error) {
 	return capability{}, failure(400, "omni_video_mode_unavailable")
 }
 
-// webExecutionResult matches the envelope the sidecar path returns, so the two
-// are interchangeable to the host.
+// webExecutionResult builds the envelope the host expects from an execution.
 func webExecutionResult(body []byte, stream bool) interface{} {
 	if stream {
 		payload := append([]byte("data: "), body...)

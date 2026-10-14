@@ -16,7 +16,7 @@ func TestBoundOmniRejectsWrongIdentity_beforeCookieRotation(t *testing.T) {
 	var rotations, submissions atomic.Int32
 	// The page reports a different Google account than the binding expects, so
 	// the turn must stop before it rotates anything or submits.
-	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+	localWebAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
 		switch {
 		case strings.HasSuffix(request.URL.Path, "/app"):
 			writer.Header().Set("Content-Type", "text/html; charset=utf-8")

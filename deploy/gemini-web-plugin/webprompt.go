@@ -9,7 +9,7 @@ import (
 // The web product has no function calling, so a Gemini request is flattened into
 // one prompt and the tool contract is stated in that prompt. Replies are scanned
 // back for the block the model was asked to emit. Both directions have to match
-// the wording the model was trained against by this bridge, so the text here is
+// the wording the model was trained against, so the text here is
 // reproduced rather than rewritten.
 
 type webToolDefinition struct {

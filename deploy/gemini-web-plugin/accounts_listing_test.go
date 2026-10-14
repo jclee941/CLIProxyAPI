@@ -11,11 +11,9 @@ import (
 
 func writeAccountFixture(t *testing.T, writer http.ResponseWriter, request *http.Request) {
 	t.Helper()
-	if request.URL.Path == "/v1/usage" {
-		writeFixture(t, writer, `{"tier":"PRO","tier_code":2,"metrics":[{"remaining_units":12,"usage_fraction":0.25,"reset_unix_seconds":1800000000,"window_kind":"5h","unit":"provider_compute_unit"}],"source":"GoogleWeb","estimated":false,"observed_at":1234}`)
-		return
+	if !serveAccountRPC(t, writer, request) {
+		t.Errorf("unexpected request %s", request.URL)
 	}
-	writeFixture(t, writer, `{"available":true,"observed_at":1234,"models":[{"capability_id":"actual","display_name":"3.8 Flash","mode":1}]}`)
 }
 
 func listingFixture(t *testing.T, letters []string, handler http.HandlerFunc) (*service, []storageRecord) {
@@ -29,7 +27,7 @@ func listingFixture(t *testing.T, letters []string, handler http.HandlerFunc) (*
 	}
 	service := newService(accountHostScoped(t, records, ""))
 	seedSessions(t, service, tokens)
-	localSidecar(t, service, handler)
+	localWeb(t, service, handler)
 	return service, records
 }
 
@@ -63,7 +61,7 @@ func TestAccountsListInspectsEveryAccountConcurrently_andKeepsEntryOrder(t *test
 	barrier := make(chan struct{})
 	var reached sync.Once
 	service, records := listingFixture(t, letters, func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/usage" {
+		if nativeRPCID(request) == accountCapabilityRPC {
 			mu.Lock()
 			inflight++
 			if inflight > peak {
@@ -105,7 +103,7 @@ func TestAccountsListInspectsEveryAccountConcurrently_andKeepsEntryOrder(t *test
 func TestAccountsListReusesRecentResults_untilAWriteOrExpiry(t *testing.T) {
 	var upstream atomic.Int64
 	service, records := listingFixture(t, []string{"a"}, func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/usage" {
+		if nativeRPCID(request) == accountCapabilityRPC {
 			upstream.Add(1)
 		}
 		writeAccountFixture(t, writer, request)

@@ -34,7 +34,6 @@ func continuationFixture(t *testing.T) (*service, localSession) {
 	}
 	service := newService(nil)
 	service.sessions = store
-	service.config.NativeGeneration = true
 	service.config.NativeContinuation = true
 	service.client.Transport = continuationNoNetwork{t}
 	return service, local

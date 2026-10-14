@@ -6,16 +6,18 @@ import (
 	"testing"
 )
 
-func rotationCountingSidecar(t *testing.T, service *service) *atomic.Int32 {
+func rotationCountingServer(t *testing.T, service *service) *atomic.Int32 {
 	t.Helper()
 	rotations := &atomic.Int32{}
-	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if sidecarPath(request) == "/v1/session/renew" {
+	localWebAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		if credentialRoute(request) == "credential:renew" {
 			rotations.Add(1)
 			writeRotationFixture(writer, request)
 			return
 		}
-		writeIdentityFixture(t, writer)
+		if !serveAccountRPC(t, writer, request) {
+			writeIdentityFixture(t, writer)
+		}
 	})
 	return rotations
 }
@@ -42,7 +44,7 @@ func TestTurnRenewalSkipsTheRotation_whenTheSessionRotatedMomentsAgo(t *testing.
 	if err := service.localStore().write(local); err != nil {
 		t.Fatal(err)
 	}
-	rotations := rotationCountingSidecar(t, service)
+	rotations := rotationCountingServer(t, service)
 
 	token, err := service.renewLocalSession(t.Context(), "fixture-renew", record)
 
@@ -60,7 +62,7 @@ func TestTurnRenewalSkipsTheRotation_whenTheSessionRotatedMomentsAgo(t *testing.
 
 func TestTurnRenewalRecordsItsRotation_soAnImmediateRetryReusesIt(t *testing.T) {
 	service, host, record := readyLocalRecord(t)
-	rotations := rotationCountingSidecar(t, service)
+	rotations := rotationCountingServer(t, service)
 
 	first, err := service.renewLocalSession(t.Context(), "fixture-renew", record)
 	if err != nil {

@@ -184,7 +184,7 @@ func (service *service) executeContinuation(ctx context.Context, request executo
 	if err != nil {
 		return nil, err
 	}
-	if !service.settings().NativeGeneration || !service.settings().NativeContinuation {
+	if !service.settings().NativeContinuation {
 		return nil, failure(400, "native_continuation_disabled")
 	}
 	if request.Stream || request.SourceFormat != "gemini" {

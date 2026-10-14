@@ -13,7 +13,7 @@ func TestMaintenanceRejectsBadRequests_beforeUpstreamOrHostLookup(t *testing.T) 
 			service, _, _ := maintenanceFixture(t)
 			var callbacks atomic.Int32
 			service.host = func(string, []byte) ([]byte, error) { callbacks.Add(1); return nil, nil }
-			localSidecarAll(t, service, func(http.ResponseWriter, *http.Request) { t.Error("invalid body reached HTTP") })
+			localWebAll(t, service, func(http.ResponseWriter, *http.Request) { t.Error("invalid body reached HTTP") })
 
 			response, err := service.management(t.Context(), jsonFixture(t, managementRequest{Method: "POST", Path: "/v0/management" + maintainPath, HostCallbackID: "scope-list", Body: []byte(body)}))
 
@@ -65,7 +65,6 @@ func TestMaintenanceRegistrationAdvertisesAuthenticatedRouteAndObjectConfig(t *t
 	}
 }
 
-// The ambiguous-DTO scenario this file used to carry described a malformed
-// bridge error envelope. Upkeep now speaks to Google directly, which answers an
-// unauthenticated session with a plain 401 or the sign-in redirect and never
-// with that envelope, so there is no ambiguity left to reject.
+// Upkeep speaks to Google directly, which answers an unauthenticated session
+// with a plain 401 or the sign-in redirect and never with an error envelope, so
+// there is no ambiguous error shape to reject.

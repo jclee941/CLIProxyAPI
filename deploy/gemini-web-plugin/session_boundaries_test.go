@@ -341,7 +341,7 @@ func TestLoginReconcileVerifiesHostAgain_whenReadyRecordSurvivedRestart(t *testi
 func TestLoginStatusDoesNotClaimReadiness_whenSupportedModelsAreAbsent(t *testing.T) {
 	service, _ := loginFixture(t)
 	base := service.client.Transport
-	service.client.Transport = accountModelsOverride{base: base}
+	service.client.Transport = accountModelsOverride{base: base, t: t}
 	started, _ := loginCall(t, service, "start", []byte(`{"label":"Fixture","consent":true}`))
 
 	view := completeFixture(t, service, started)
@@ -351,11 +351,14 @@ func TestLoginStatusDoesNotClaimReadiness_whenSupportedModelsAreAbsent(t *testin
 	}
 }
 
-type accountModelsOverride struct{ base http.RoundTripper }
+type accountModelsOverride struct {
+	base http.RoundTripper
+	t    *testing.T
+}
 
 func (transport accountModelsOverride) RoundTrip(request *http.Request) (*http.Response, error) {
-	if request.URL.Path == "/v1/account-models" {
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"available":true,"models":[{"capability_id":"future","display_name":"Unknown"}]}`))}, nil
+	if nativeRPCID(request) == accountCapabilityRPC {
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(rpcEnvelope(transport.t, accountCapabilityRPC, capabilityPayload("Unknown"))))}, nil
 	}
 	return transport.base.RoundTrip(request)
 }

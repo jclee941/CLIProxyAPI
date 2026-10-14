@@ -12,8 +12,7 @@ import (
 	"strings"
 )
 
-// Credential upkeep speaks to Google directly rather than through the bridge.
-// Renewal is one call to the fixed rotation origin followed by a fresh bootstrap
+// Credential upkeep speaks to Google directly. Renewal is one call to the fixed rotation origin followed by a fresh bootstrap
 // that proves the rotated jar still reaches the same account.
 
 const webRotateOrigin = "https://accounts.google.com"

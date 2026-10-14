@@ -181,7 +181,7 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 	if !accountDigestPattern.MatchString(request.Metadata.CallerScope) {
 		return nil, failure(400, "interaction_requires_authenticated_caller_scope")
 	}
-	if !service.settings().NativeContinuation || !service.settings().NativeGeneration {
+	if !service.settings().NativeContinuation {
 		return nil, failure(400, "native_continuation_disabled")
 	}
 	if request.Model != interactionOmniModel || request.SourceFormat != "interactions" || request.Alt != "" && request.Alt != interactionRetrieveAlt {

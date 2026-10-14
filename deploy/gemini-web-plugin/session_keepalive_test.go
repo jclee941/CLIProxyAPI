@@ -14,9 +14,9 @@ func TestKeepAliveRotatesIdleSession_withoutChangingTheHostProjection(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		switch sidecarPath(request) {
-		case "/v1/session/renew":
+	localWebAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		switch credentialRoute(request) {
+		case "credential:renew":
 			writeRotationFixture(writer, request)
 		default:
 			writeIdentityFixture(t, writer)
@@ -61,7 +61,7 @@ func TestKeepAliveSkipsBusyAndInterruptedSessions(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			localSidecarAll(t, service, func(http.ResponseWriter, *http.Request) {
+			localWebAll(t, service, func(http.ResponseWriter, *http.Request) {
 				t.Error("keep-alive touched a session it may not rotate")
 			})
 
@@ -77,8 +77,8 @@ func TestKeepAliveSkipsBusyAndInterruptedSessions(t *testing.T) {
 
 func TestKeepAliveLeavesRenewalIntent_whenRotationNeverAnswers(t *testing.T) {
 	service, record, _ := maintenanceFixture(t)
-	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if sidecarPath(request) == "/v1/session/renew" {
+	localWebAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		if credentialRoute(request) == "credential:renew" {
 			rejectionFixture(t, writer, 500, `{"error":{"code":500,"message":"renew_unavailable"}}`)
 			return
 		}
@@ -106,7 +106,7 @@ func TestKeepAliveSkipsASessionRotatedRecently(t *testing.T) {
 	if err := service.localStore().write(local); err != nil {
 		t.Fatal(err)
 	}
-	localSidecarAll(t, service, func(http.ResponseWriter, *http.Request) { t.Error("a freshly rotated session was rotated again") })
+	localWebAll(t, service, func(http.ResponseWriter, *http.Request) { t.Error("a freshly rotated session was rotated again") })
 
 	service.refreshIdleSessions(t.Context())
 }
@@ -116,8 +116,8 @@ func TestKeepAliveIsDrainedByShutdown_soARestartCannotCutARotation(t *testing.T)
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	defer close(release)
-	localSidecarAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
-		if sidecarPath(request) == "/v1/session/renew" {
+	localWebAll(t, service, func(writer http.ResponseWriter, request *http.Request) {
+		if credentialRoute(request) == "credential:renew" {
 			once.Do(func() { close(entered) })
 			<-release
 			writeRotationFixture(writer, request)

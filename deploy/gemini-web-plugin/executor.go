@@ -112,70 +112,26 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 			lease.set(credentialState{state: maintenanceReady})
 		}
 	}
-	if request.Model == flashModel && service.settings().NativeGeneration {
+	if request.Model == flashModel {
 		body, errNative := service.nativeText(ctx, record, token, request.Model, request.Payload)
 		if errNative != nil {
 			return nil, executionFailure(request.Model, errNative)
 		}
 		return webExecutionResult(body, stream), nil
 	}
-	model := omniModel
-	if request.Model == flashModel {
-		model = "gemini-3.8-flash"
-		account, err := service.accountModels(ctx, record.TokenRef, token)
-		if err != nil {
-			return nil, err
-		}
-		found := false
-		for _, available := range verifiedModels(account) {
-			if available.ID == flashModel {
-				found = true
-			}
-		}
-		if !found {
-			return nil, failure(404, "account_model_unavailable")
-		}
-	}
-	body, err := nativePayload(request.Payload, model)
-	if err != nil {
-		return nil, err
-	}
-	if exclusive {
-		if err := service.localSubmission(record, localSubmitting); err != nil {
-			return nil, executionFailure(request.Model, err)
-		}
-	}
-	var response httpResponse
-	if request.Model == omniModel && service.settings().NativeGeneration {
-		response, err = service.nativeVideo(ctx, record, token, request.Payload)
-	} else {
-		response, err = service.sidecar(ctx, sidecarRequest{Method: "POST", Path: "/v1beta/models/" + model + ":generateContent", Token: token, Body: body, Reference: record.TokenRef})
-	}
-	if err != nil {
-		if exclusive {
-			switch safeCredentialCode(err) {
-			case "sidecar_transport_failed", "sidecar_response_failed", "sidecar_response_invalid", "sidecar_caller_disconnected":
-				lease.set(credentialState{state: maintenanceOperator, errCode: "submission_outcome_unknown"})
-			}
-		}
+	if err := service.localSubmission(record, localSubmitting); err != nil {
 		return nil, executionFailure(request.Model, err)
 	}
-	if request.Model == omniModel {
-		if err := validateVideoResponse(response.Body); err != nil {
-			lease.set(credentialState{state: maintenanceOperator, errCode: "submission_outcome_unknown"})
-			return nil, executionFailure(request.Model, err)
-		}
-		if err := service.localSubmission(record, localReady); err != nil {
-			return nil, executionFailure(request.Model, err)
-		}
+	response, err := service.nativeVideo(ctx, record, token, request.Payload)
+	if err != nil {
+		return nil, executionFailure(request.Model, err)
 	}
-	if stream {
-		payload := append([]byte("data: "), response.Body...)
-		payload = append(payload, '\n', '\n')
-		return struct {
-			Headers http.Header                `json:"headers"`
-			Chunks  []struct{ Payload []byte } `json:"chunks"`
-		}{http.Header{"Content-Type": {"text/event-stream"}}, []struct{ Payload []byte }{{payload}}}, nil
+	if err := validateVideoResponse(response.Body); err != nil {
+		lease.set(credentialState{state: maintenanceOperator, errCode: "submission_outcome_unknown"})
+		return nil, executionFailure(request.Model, err)
+	}
+	if err := service.localSubmission(record, localReady); err != nil {
+		return nil, executionFailure(request.Model, err)
 	}
 	return struct {
 		Payload []byte
@@ -314,25 +270,6 @@ func omniOriginalAccepted(raw []byte) bool {
 	return err == nil
 }
 
-func nativePayload(raw []byte, model string) ([]byte, error) {
-	var body map[string]json.RawMessage
-	if len(raw) > 5*1024*1024 || json.Unmarshal(raw, &body) != nil || body == nil {
-		return nil, failure(400, "invalid_generation_request")
-	}
-	if _, exists := body["model"]; exists {
-		encoded, err := json.Marshal(model)
-		if err != nil {
-			return nil, failure(500, "model_encoding_failed")
-		}
-		body["model"] = encoded
-	}
-	encoded, err := json.Marshal(body)
-	if err != nil {
-		return nil, failure(400, "invalid_generation_request")
-	}
-	return encoded, nil
-}
-
 func validateVideoResponse(raw []byte) error {
 	var response struct {
 		Candidates []struct {
@@ -354,30 +291,4 @@ func validateVideoResponse(raw []byte) error {
 		return failure(502, "invalid_video_response")
 	}
 	return nil
-}
-
-func (service *service) executorHTTP(ctx context.Context, raw []byte) (interface{}, error) {
-	var request executorHTTPRequest
-	if json.Unmarshal(raw, &request) != nil || request.Method != "GET" || request.URL != sidecarBase+"/v1/usage" && request.URL != sidecarBase+"/v1/account-models" {
-		return nil, failure(400, "executor_http_route_denied")
-	}
-	if request.AuthProvider != provider {
-		return nil, failure(400, "auth_identity_mismatch")
-	}
-	record, token, err := service.resolve(ctx, request.StorageJSON, request.AuthID)
-	if err != nil {
-		return nil, err
-	}
-	if request.URL == sidecarBase+"/v1/usage" {
-		usage, err := service.usage(ctx, record.TokenRef, token)
-		if err != nil {
-			return nil, err
-		}
-		return managementJSON(200, usage)
-	}
-	account, err := service.accountModels(ctx, record.TokenRef, token)
-	if err != nil {
-		return nil, err
-	}
-	return managementJSON(200, account)
 }
