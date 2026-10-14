@@ -5,7 +5,7 @@ The `sdk/cliproxy` module exposes the proxy as a reusable Go library so external
 ## Install & Import
 
 ```bash
-go get github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy
+go get github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy
 ```
 
 ```go
@@ -14,12 +14,12 @@ import (
     "errors"
     "time"
 
-    "github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-    "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy"
+    "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy"
+    "github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
 )
 ```
 
-Note the `/v6` module path.
+Note the `/v8` module path.
 
 ## Minimal Embed
 
@@ -53,15 +53,15 @@ svc, _ := cliproxy.NewBuilder().
   WithConfigPath("config.yaml").
   WithServerOptions(
     // Add global middleware
-    cliproxy.WithMiddleware(func(c *gin.Context) { c.Header("X-Embed", "1"); c.Next() }),
+    api.WithMiddleware(func(c *gin.Context) { c.Header("X-Embed", "1"); c.Next() }),
     // Tweak gin engine early (CORS, trusted proxies, etc.)
-    cliproxy.WithEngineConfigurator(func(e *gin.Engine) { e.ForwardedByClientIP = true }),
+    api.WithEngineConfigurator(func(e *gin.Engine) { e.ForwardedByClientIP = true }),
     // Add your own routes after defaults
-    cliproxy.WithRouterConfigurator(func(e *gin.Engine, _ *handlers.BaseAPIHandler, _ *config.Config) {
+    api.WithRouterConfigurator(func(e *gin.Engine, _ *handlers.BaseAPIHandler, _ *config.Config) {
       e.GET("/healthz", func(c *gin.Context) { c.String(200, "ok") })
     }),
     // Override request log writer/dir
-    cliproxy.WithRequestLoggerFactory(func(cfg *config.Config, cfgPath string) logging.RequestLogger {
+    api.WithRequestLoggerFactory(func(cfg *config.Config, cfgPath string) logging.RequestLogger {
       return logging.NewFileRequestLogger(true, "logs", filepath.Dir(cfgPath))
     }),
   ).
@@ -81,8 +81,12 @@ These options mirror the internals used by the CLI server.
 The service uses a core `auth.Manager` for selection, execution, and auto‑refresh. When embedding, you can provide your own manager to customize transports or hooks:
 
 ```go
-core := coreauth.NewManager(coreauth.NewFileStore(cfg.AuthDir), nil, nil)
-core.SetRoundTripperProvider(myRTProvider) // per‑auth *http.Transport
+tokenStore := sdkAuth.GetTokenStore()
+if dirSetter, ok := tokenStore.(interface{ SetBaseDir(string) }); ok {
+    dirSetter.SetBaseDir(cfg.AuthDir)
+}
+core := coreauth.NewManager(tokenStore, nil, nil)
+core.SetRoundTripperProvider(myRTProvider{}) // per‑auth *http.Transport
 
 svc, _ := cliproxy.NewBuilder().
     WithConfig(cfg).
@@ -109,8 +113,8 @@ Programmatic execution is available on the manager:
 resp, err := core.Execute(ctx, []string{"gemini"}, req, opts)
 
 // Streaming
-chunks, err := core.ExecuteStream(ctx, []string{"gemini"}, req, opts)
-for ch := range chunks { /* ... */ }
+result, err := core.ExecuteStream(ctx, []string{"gemini"}, req, opts)
+for ch := range result.Chunks { _ = ch /* ... */ }
 ```
 
 Note: Built‑in provider executors are wired automatically when you run the `Service`. If you want to use `Manager` stand‑alone without the HTTP server, you must register your own executors that implement `auth.ProviderExecutor`.

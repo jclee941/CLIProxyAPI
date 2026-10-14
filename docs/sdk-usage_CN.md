@@ -5,7 +5,7 @@
 ## 安装与导入
 
 ```bash
-go get github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy
+go get github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy
 ```
 
 ```go
@@ -14,12 +14,12 @@ import (
     "errors"
     "time"
 
-    "github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-    "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy"
+    "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy"
+    "github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
 )
 ```
 
-注意模块路径包含 `/v6`。
+注意模块路径包含 `/v8`。
 
 ## 最小可用示例
 
@@ -53,15 +53,15 @@ svc, _ := cliproxy.NewBuilder().
   WithConfigPath("config.yaml").
   WithServerOptions(
     // 追加全局中间件
-    cliproxy.WithMiddleware(func(c *gin.Context) { c.Header("X-Embed", "1"); c.Next() }),
+    api.WithMiddleware(func(c *gin.Context) { c.Header("X-Embed", "1"); c.Next() }),
     // 提前调整 gin 引擎（如 CORS、trusted proxies）
-    cliproxy.WithEngineConfigurator(func(e *gin.Engine) { e.ForwardedByClientIP = true }),
+    api.WithEngineConfigurator(func(e *gin.Engine) { e.ForwardedByClientIP = true }),
     // 在默认路由之后追加自定义路由
-    cliproxy.WithRouterConfigurator(func(e *gin.Engine, _ *handlers.BaseAPIHandler, _ *config.Config) {
+    api.WithRouterConfigurator(func(e *gin.Engine, _ *handlers.BaseAPIHandler, _ *config.Config) {
       e.GET("/healthz", func(c *gin.Context) { c.String(200, "ok") })
     }),
     // 覆盖请求日志的创建（启用/目录）
-    cliproxy.WithRequestLoggerFactory(func(cfg *config.Config, cfgPath string) logging.RequestLogger {
+    api.WithRequestLoggerFactory(func(cfg *config.Config, cfgPath string) logging.RequestLogger {
       return logging.NewFileRequestLogger(true, "logs", filepath.Dir(cfgPath))
     }),
   ).
@@ -81,8 +81,12 @@ svc, _ := cliproxy.NewBuilder().
 服务内部使用核心 `auth.Manager` 负责选择、执行、自动刷新。内嵌时可自定义其传输或钩子：
 
 ```go
-core := coreauth.NewManager(coreauth.NewFileStore(cfg.AuthDir), nil, nil)
-core.SetRoundTripperProvider(myRTProvider) // 按账户返回 *http.Transport
+tokenStore := sdkAuth.GetTokenStore()
+if dirSetter, ok := tokenStore.(interface{ SetBaseDir(string) }); ok {
+    dirSetter.SetBaseDir(cfg.AuthDir)
+}
+core := coreauth.NewManager(tokenStore, nil, nil)
+core.SetRoundTripperProvider(myRTProvider{}) // 按账户返回 *http.Transport
 
 svc, _ := cliproxy.NewBuilder().
     WithConfig(cfg).
@@ -109,8 +113,8 @@ func (myRTProvider) RoundTripperFor(a *coreauth.Auth) http.RoundTripper {
 resp, err := core.Execute(ctx, []string{"gemini"}, req, opts)
 
 // 流式
-chunks, err := core.ExecuteStream(ctx, []string{"gemini"}, req, opts)
-for ch := range chunks { /* ... */ }
+result, err := core.ExecuteStream(ctx, []string{"gemini"}, req, opts)
+for ch := range result.Chunks { _ = ch /* ... */ }
 ```
 
 说明：运行 `Service` 时会自动注册内置的提供商执行器；若仅单独使用 `Manager` 而不启动 HTTP 服务器，则需要自行实现并注册满足 `auth.ProviderExecutor` 的执行器。

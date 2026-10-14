@@ -33,7 +33,7 @@ Parent policy: [repository guide](../AGENTS.md).
 
 ## CONVENTIONS
 - Thin public facades use aliases and forwarding calls; implementation lives in the corresponding internal package.
-- Current imports use `github.com/router-for-me/CLIProxyAPI/v8`; `docs/sdk-usage.md`, `docs/sdk-access.md`, and `docs/sdk-advanced.md` still show older v6 examples.
+- Current imports use `github.com/router-for-me/CLIProxyAPI/v8`; the `docs/sdk-*.md` guides use that path and only public `sdk/...` packages.
 - Package-local checks: `go test ./sdk/<package>`; handler descendants require `go test ./sdk/api/handlers/...`.
 - `proxyutil.BuildHTTPTransport` may return nil transport with ModeInherit and no error; callers retain inherited behavior.
 

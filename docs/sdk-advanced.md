@@ -5,7 +5,7 @@ This guide explains how to extend the embedded proxy with custom providers and s
 - Register request/response translators for schema conversion
 - Register models so they appear in `/v1/models`
 
-The examples use Go 1.24+ and the v6 module path.
+The examples use Go 1.26+ and the v8 module path.
 
 ## Concepts
 
@@ -22,10 +22,11 @@ package myprov
 
 import (
   "context"
+  "errors"
   "net/http"
 
-  coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
-  clipexec "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
+  coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+  clipexec "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 )
 
 type Executor struct{}
@@ -45,22 +46,36 @@ func (Executor) Execute(ctx context.Context, a *coreauth.Auth, req clipexec.Requ
   return clipexec.Response{Payload: []byte(`{"ok":true}`)}, nil
 }
 
-func (Executor) ExecuteStream(ctx context.Context, a *coreauth.Auth, req clipexec.Request, opts clipexec.Options) (<-chan clipexec.StreamChunk, error) {
+func (Executor) ExecuteStream(ctx context.Context, a *coreauth.Auth, req clipexec.Request, opts clipexec.Options) (*clipexec.StreamResult, error) {
   ch := make(chan clipexec.StreamChunk, 1)
   go func() { defer close(ch); ch <- clipexec.StreamChunk{Payload: []byte("data: {\"done\":true}\n\n")} }()
-  return ch, nil
+  return &clipexec.StreamResult{Chunks: ch}, nil
 }
 
 func (Executor) Refresh(ctx context.Context, a *coreauth.Auth) (*coreauth.Auth, error) {
   // Optionally refresh tokens and return updated auth
   return a, nil
 }
+
+func (Executor) CountTokens(ctx context.Context, a *coreauth.Auth, req clipexec.Request, opts clipexec.Options) (clipexec.Response, error) {
+  return clipexec.Response{}, errors.New("count tokens not implemented")
+}
+
+func (e Executor) HttpRequest(ctx context.Context, a *coreauth.Auth, req *http.Request) (*http.Response, error) {
+  httpReq := req.WithContext(ctx)
+  if err := e.PrepareRequest(httpReq, a); err != nil { return nil, err }
+  return http.DefaultClient.Do(httpReq)
+}
 ```
 
 Register the executor with the core manager before starting the service:
 
 ```go
-core := coreauth.NewManager(coreauth.NewFileStore(cfg.AuthDir), nil, nil)
+tokenStore := sdkAuth.GetTokenStore()
+if dirSetter, ok := tokenStore.(interface{ SetBaseDir(string) }); ok {
+    dirSetter.SetBaseDir(cfg.AuthDir)
+}
+core := coreauth.NewManager(tokenStore, nil, nil)
 core.RegisterExecutor(myprov.Executor{})
 svc, _ := cliproxy.NewBuilder().WithConfig(cfg).WithConfigPath(cfgPath).WithCoreAuthManager(core).Build()
 ```
@@ -82,7 +97,7 @@ package myprov
 
 import (
   "context"
-  sdktr "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+  sdktr "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 )
 
 const (
@@ -93,13 +108,13 @@ const (
 func init() {
   sdktr.Register(FOpenAI, FMyProv,
     // Request transform (model, rawJSON, stream)
-    func(model string, raw []byte, stream bool) []byte { return convertOpenAIToMyProv(model, raw, stream) },
+    func(model string, raw []byte, stream bool) ([]byte, error) { return convertOpenAIToMyProv(model, raw, stream), nil },
     // Response transform (stream & non‑stream)
     sdktr.ResponseTransform{
-      Stream: func(ctx context.Context, model string, originalReq, translatedReq, raw []byte, param *any) []string {
+      Stream: func(ctx context.Context, model string, originalReq, translatedReq, raw []byte, param *any) [][]byte {
         return convertStreamMyProvToOpenAI(model, originalReq, translatedReq, raw)
       },
-      NonStream: func(ctx context.Context, model string, originalReq, translatedReq, raw []byte, param *any) string {
+      NonStream: func(ctx context.Context, model string, originalReq, translatedReq, raw []byte, param *any) []byte {
         return convertMyProvToOpenAI(model, originalReq, translatedReq, raw)
       },
     },
