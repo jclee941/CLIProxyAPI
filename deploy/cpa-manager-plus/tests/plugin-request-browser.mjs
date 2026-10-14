@@ -73,7 +73,7 @@ async function scenario(name, verify, options = {}) {
 
 try {
   for (const width of [1280, 768, 375]) for (const theme of ['light', 'dark']) {
-    await scenario(`remember-off-${theme}-${width}`, async ({ host, page, frame, open, capture, settle, expect }) => {
+    await scenario(`remember-off-${theme}-${width}`, async ({ host, page, frame, open, capture, expect }) => {
       await open();
       await expect(frame.locator('.account-card[data-account-id]')).toHaveCount(1);
       await expect(frame.locator('html')).toHaveAttribute('data-theme', theme === 'dark' ? 'dark' : 'white');
@@ -99,14 +99,6 @@ try {
       assert.deepEqual(privacy.fields.sort(), ['pluginID', 'request', 'resourceURL', 'version']);
       assert.equal(privacy.enumerable, false); assert.equal(privacy.frozen, true); assert.equal(privacy.leaked, false);
       assert(!privacy.persistedKey); assert.deepEqual(privacy.sessionKeys, []);
-      await page.evaluate(() => { location.hash = '#/plugin-pages/chatgpt2api/0'; });
-      await expect(frame.locator('main')).toHaveAttribute('data-state', 'healthy');
-      await settle();
-      assert.equal(await frame.locator('#route-count').innerText(), '17');
-      assert(host.calls.some((call) => call.path === '/v0/management/plugins/chatgpt2api/status' && call.authorized));
-      await frame.locator('#refresh').click();
-      await expect(frame.locator('main')).toHaveAttribute('data-state', 'healthy');
-      await capture('chatgpt');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       assert.equal(await frame.locator('html').evaluate((root) => root.scrollWidth > innerWidth), false);
     }, { width, theme });

@@ -177,9 +177,9 @@ does not claim to isolate arbitrary same-origin XSS from the parent.
 
 ## Actual Nested Build QA
 
-Build both separately owned plugin artifacts first with their documented Bun
+Build the GeminiWeb dashboard first with its documented Bun
 typecheck/build/test/qa commands. Then run the actual built Manager containing
-the actual built Gemini/ChatGPT resource HTML, not a placeholder child:
+the actual built Gemini resource HTML, not a placeholder child:
 
 ```sh
 node deploy/cpa-manager-plus/tests/plugin-request-browser.mjs \
@@ -198,20 +198,3 @@ redirect rejection, logout/reload/history/unmount aborts, fresh-key login, and
 legacy standalone behavior. `browser.json` records paths, safe synthetic outcomes,
 PNG hashes and cleanup. No production browser, real Google login, extension
 installation, deployment or secret-manager access is performed.
-
-The GPTWeb account surface has a separate harness in its owned plugin tree:
-
-```sh
-node deploy/chatgpt2api-plugin/web/tests/accounts-browser.mjs \
-  /tmp/opencode/manager-gemini-review/vendor \
-  /tmp/opencode/manager-gemini-review/gptweb-browser \
-  "$PWD/deploy/chatgpt2api-plugin/web/node_modules/@playwright/test/index.mjs"
-```
-
-Choose a new evidence directory. This keeps the original 23 nested scenarios
-intact and adds 20 account/import/quota/toggle scenarios using synthetic scoped
-API DTOs. It checks Remember off, exact ID/boolean POST bodies, no iframe key or
-direct authenticated iframe requests, disabled source consent, disabled imports,
-duplicate preservation, capability/configuration errors, stale quota/rotation,
-explicit Web-only toggles and keyboard states at all three light/dark widths.
-See the [resource UI guide](../chatgpt2api-plugin/web/README.md) for data semantics.

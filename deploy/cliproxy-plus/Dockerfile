@@ -1,3 +1,0 @@
-ARG BASE_IMAGE=cliproxyapi:web-base-09a29bd
-FROM ${BASE_IMAGE}
-COPY CLIProxyAPIPlus /CLIProxyAPI/CLIProxyAPI

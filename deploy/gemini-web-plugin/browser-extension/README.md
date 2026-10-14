@@ -203,8 +203,8 @@ underlying API errors and their causes are discarded without string conversion.
    belonging to other top-level sites are not queried.
 6. The selected URL, the sidecar's account-prefixed `/app`, `batchexecute`, and
    `StreamGenerate` URLs must all produce the same complete header. These routes
-   come from [account.py](../../gemini-web2api/extension/account.py) and
-   [native.py](../../gemini-web2api/extension/native.py). All applicable unpartitioned root-path cookies
+   come from [account.py](https://github.com/jclee941/CLIProxyAPI/blob/43a3298a/deploy/gemini-web2api/extension/account.py) and
+   [native.py](https://github.com/jclee941/CLIProxyAPI/blob/43a3298a/deploy/gemini-web2api/extension/native.py). All applicable unpartitioned root-path cookies
    are included, including HttpOnly, persistent, session, unknown-name, and
    empty-value cookies. There is no required-cookie list or scoring. Duplicate
    names, any applicable non-root path, unsupported scope, invalid ASCII cookie

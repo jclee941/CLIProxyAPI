@@ -1,3 +1,0 @@
-services:
-  cliproxyapi:
-    image: cliproxyapi:plus-v7.2.157-4-webplugins.2

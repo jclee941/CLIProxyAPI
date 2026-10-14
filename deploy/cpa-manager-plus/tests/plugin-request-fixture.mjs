@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { chatgptFixture, chatgptPrefix } from '../../chatgpt2api-plugin/web/tests/accounts-fixture.mjs';
 
 export const accountId = 'gemini-web-mock-bridge.json';
 export const managerKey = 'SYNTHETIC_MANAGER_MEMORY_ONLY';
@@ -23,13 +22,11 @@ export const measured = {
 export async function fixture(vendor) {
   const manager = await readFile(resolve(vendor, 'apps/web/dist/index.html'));
   const gemini = await readFile(new URL('../../gemini-web-plugin/web/index.html', import.meta.url));
-  const chatgpt = await readFile(new URL('../../chatgpt2api-plugin/web/index.html', import.meta.url));
   const calls = [];
   const waiting = new Set();
-  const chatgptAccounts = chatgptFixture();
   const state = { key: managerKey, account: measured, models: measured.models, modelStatus: 200, resource: resourcePath,
     pluginEnabled: true, hold: '', aborted: 0, loginStatus: 'pending', loginStarts: 0, loginCompletes: 0,
-    registrationStatus: 200, chatgpt: chatgptAccounts.state };
+    registrationStatus: 200 };
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, 'http://localhost');
     let body = '';
@@ -40,7 +37,7 @@ export async function fixture(vendor) {
     }
     if (path.startsWith('/v0/resource/')) {
       response.writeHead(200, { 'content-type': 'text/html' });
-      response.end(path === resourcePath ? gemini : path === '/v0/resource/plugins/chatgpt2api/index' ? chatgpt : '<!doctype html><title>MOCK unregistered document</title>');
+      response.end(path === resourcePath ? gemini : '<!doctype html><title>MOCK unregistered document</title>');
       return;
     }
     const headers = { 'content-type': 'application/json', 'x-cpa-support-plugin': 'true', 'x-cpa-version': 'v7.2.157' };
@@ -60,19 +57,15 @@ export async function fixture(vendor) {
     if (path === `${geminiPath}redirect`) {
       response.writeHead(302, { location: '/v0/management/config' }); response.end(); return;
     }
-    if (path.startsWith(chatgptPrefix) && path !== `${chatgptPrefix}status`) {
-      const result = chatgptAccounts.handle(path, request.method, body);
-      response.writeHead(result.status, headers); response.end(JSON.stringify(result.payload)); return;
-    }
     const plugin = (id) => ({ id, oauth_provider: id, configured: true, registered: true, enabled: state.pluginEnabled,
       effective_enabled: state.pluginEnabled, supports_oauth: id === 'gemini-web', metadata: { name: id },
-      menus: [{ menu: id, path: id === 'gemini-web' ? state.resource : '/v0/resource/plugins/chatgpt2api/index' }] });
+      menus: [{ menu: id, path: state.resource }] });
     let payload = {};
     let status = 200;
     switch (path) {
       case '/usage-service/info': payload = { service: 'cpa-manager-plus', configured: true, projectInitialized: true, setupRequired: false }; break;
       case '/v0/management/config': payload = { 'api-keys': [], plugins: { enabled: true } }; break;
-      case '/v0/management/plugins': payload = { plugins_enabled: true, plugins: [plugin('gemini-web'), plugin('chatgpt2api')] }; break;
+      case '/v0/management/plugins': payload = { plugins_enabled: true, plugins: [plugin('gemini-web')] }; break;
       case '/v0/management/auth-files': payload = { files: [{ id: accountId, name: accountId, type: 'gemini-web', provider: 'gemini-web', label: measured.label, status: 'ready' }] }; break;
       case `${geminiPath}accounts`:
         if (request.method === 'POST') { status = state.registrationStatus; payload = { error: 'account_unavailable' }; }
@@ -90,10 +83,6 @@ export async function fixture(vendor) {
         payload = { state: 'MOCK_LOGIN_NONCE', status: state.loginStatus, account_id: accountId, models_ready: true }; break;
       case `${geminiPath}failure`:
         status = 503; payload = { error: state.key, config: { headers: { Authorization: state.key } } }; break;
-      case '/v0/management/plugins/chatgpt2api/status':
-        payload = { plugin: { id: 'chatgpt2api', version: '1.0.1', route_count: 17 },
-          routing: { provider: 'chatgpt2api', mode: 'native-provider', model_names: ['MOCK-model'], credential_source: 'host-auth-manager' },
-          upstream: { healthy: true, accounts: { active: 4, total: 5 } } }; break;
     }
     response.writeHead(status, headers); response.end(JSON.stringify(payload));
   });

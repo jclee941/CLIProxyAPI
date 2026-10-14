@@ -22,7 +22,7 @@ export async function runSecurityCases(scenario) {
     const denied = [
       { path: `${host.base}${geminiPath}accounts`, method: 'GET' },
       { path: `//example.invalid${geminiPath}accounts`, method: 'GET' },
-      { path: '/v0/management/plugins/chatgpt2api/status', method: 'GET' },
+      { path: '/v0/management/plugins/other-plugin/status', method: 'GET' },
       { path: `${geminiPath}../config`, method: 'GET' },
       { path: `${geminiPath}%2e%2e/config`, method: 'GET' },
       { path: `${geminiPath}%252e%252e/config`, method: 'GET' },
@@ -113,14 +113,13 @@ export async function runSecurityCases(scenario) {
     assert.equal((await page.evaluate((path) => window.__qaRetained.request({ path, method: 'GET' }), `${geminiPath}accounts`)).status, 401);
   });
 
-  for (const resource of ['/v0/resource/plugins/chatgpt2api/index', 'https://wrong-origin.invalid/resource']) {
-    await scenario(`registered-resource-rejects-${resource.startsWith('https:') ? 'foreign-origin' : 'wrong-plugin'}`, async ({ host, page, frame, expect }) => {
+  for (const resource of ['/v0/resource/plugins/other-plugin/index', 'https://wrong-origin.invalid/resource']) {
+    await scenario(`registered-resource-rejects-${resource.startsWith('https:') ? 'foreign-origin' : 'wrong-plugin'}`, async ({ host, page }) => {
       host.state.resource = resource;
       await page.goto(`${host.base}/management.html#/plugin-pages/gemini-web/0`);
       await page.locator('input[type="password"]').fill(managerKey);
       await page.getByRole('button', { name: 'Login', exact: true }).click();
       await page.locator('iframe').waitFor();
-      if (!resource.startsWith('https:')) await expect(frame.locator('main')).toHaveAttribute('data-state', 'auth-error');
       const granted = await page.evaluate(() => {
         try { return Boolean(document.querySelector('iframe').contentWindow.__CPAMP_PLUGIN_HOST__); } catch { return false; }
       });
@@ -137,7 +136,5 @@ export async function runSecurityCases(scenario) {
     await page.goto(`${host.base}${resourcePath}`);
     await expect(page.locator('.account-card[data-account-id]')).toHaveCount(1);
     assert.equal(await page.evaluate(() => window.__CPAMP_PLUGIN_HOST__), undefined);
-    await page.goto(`${host.base}/v0/resource/plugins/chatgpt2api/index`);
-    await expect(page.locator('main')).toHaveAttribute('data-state', 'healthy');
   }, { remember: true });
 }
