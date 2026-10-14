@@ -33,6 +33,8 @@ const (
 	antigravityCapabilityRetryBase   = time.Minute
 	antigravityCapabilityRetryMax    = 30 * time.Minute
 	antigravityRefreshScanInterval   = time.Minute
+	antigravityUnlistedModelLimit    = 3
+	antigravityUnlistedModelRecheck  = 5 * time.Minute
 )
 
 type antigravityProbeStatus int
@@ -52,6 +54,49 @@ type antigravityCapabilityCacheEntry struct {
 	appliedEpoch      uint64
 	persistedRevision uint64
 	pending           bool
+	unlisted          map[string]antigravityUnlistedModel
+}
+
+type antigravityUnlistedModel struct {
+	misses int
+	since  time.Time
+}
+
+// trackUnlistedAntigravityModels keeps a model that drops out of a successful, non-empty
+// catalog registered until antigravityUnlistedModelLimit catalogs in a row leave it out,
+// and returns every recently unlisted model so the account is re-probed at
+// antigravityUnlistedModelRecheck instead of the catalog cadence. On 2026-10-14 the
+// upstream catalog left out gemini-4-argon-high while the model kept serving, and every
+// request for it was refused as an unknown model until the 3h refresh. An empty catalog
+// still revokes at once: it reports a lost entitlement, not one missing model.
+func trackUnlistedAntigravityModels(previous map[string]struct{}, unlisted map[string]antigravityUnlistedModel, latest map[string]struct{}, now time.Time) (map[string]struct{}, map[string]antigravityUnlistedModel) {
+	effective := maps.Clone(latest)
+	tracked := make(map[string]antigravityUnlistedModel)
+	candidates := maps.Clone(previous)
+	if candidates == nil {
+		candidates = make(map[string]struct{}, len(unlisted))
+	}
+	for id := range unlisted {
+		candidates[id] = struct{}{}
+	}
+	for id := range candidates {
+		if _, listed := latest[id]; listed {
+			continue
+		}
+		state := unlisted[id]
+		if state.since.IsZero() {
+			state.since = now
+		}
+		if now.Sub(state.since) > antigravityCapabilityCacheTTL {
+			continue
+		}
+		state.misses++
+		tracked[id] = state
+		if _, wasRegistered := previous[id]; wasRegistered && len(latest) > 0 && state.misses < antigravityUnlistedModelLimit {
+			effective[id] = struct{}{}
+		}
+	}
+	return effective, tracked
 }
 
 // Keep attempt history beyond nextRetry; deleting it at retry time would turn
@@ -415,8 +460,13 @@ func (s *Service) fetchAntigravityModelCapabilityHintsForAuth(ctx context.Contex
 			}
 		}
 		if status == antigravityProbeStatusSuccess && hints.ModelIDs != nil {
+			hints.ModelIDs, current.unlisted = trackUnlistedAntigravityModels(current.hints.ModelIDs, current.unlisted, hints.ModelIDs, now)
 			hints.revision = revision
-			current.hints, current.expiresAt, current.lastUsed = hints.clone(), now.Add(antigravityCapabilityCacheTTL), now
+			expiresAt := now.Add(antigravityCapabilityCacheTTL)
+			if len(current.unlisted) > 0 {
+				expiresAt = now.Add(antigravityUnlistedModelRecheck)
+			}
+			current.hints, current.expiresAt, current.lastUsed = hints.clone(), expiresAt, now
 			antigravityCapabilityCache[cacheKey] = current
 			delete(antigravityAuthFailureCache, failureKey)
 			return hints, nil
