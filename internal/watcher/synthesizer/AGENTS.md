@@ -1,7 +1,7 @@
 # CREDENTIAL SYNTHESIS
 
 ## OVERVIEW
-Translate config keys and OAuth files into runtime auth records; score 6, retained credential-boundary domain guide.
+Translate config keys and OAuth files into runtime auth records; score 8 (111 symbols, 15 exports, 12 importing files), a distinct credential-boundary domain.
 
 ## WHERE TO LOOK
 | Task | File |

@@ -1,7 +1,7 @@
 # SHARED PAYLOAD UTILITIES
 
 ## OVERVIEW
-Schema adaptation, tool identity, zero-copy JSON, and request metadata helpers; score 12, a central cross-provider utility domain.
+Schema adaptation, tool identity, zero-copy JSON, and request metadata helpers; score 14 (30 Go files, 73 exports, 131 importing files), a central cross-provider utility domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -18,6 +18,8 @@ Schema adaptation, tool identity, zero-copy JSON, and request metadata helpers; 
 | Header templates/session context | `header_helpers.go` |
 | Provider resolution and redaction | `provider.go` |
 | Config-aware proxy selection | `proxy.go` |
+| Model-family and Codex request probes | `claude_model.go`, `codex.go` |
+| Auth dir, log level, writable paths | `util.go` |
 
 ## CONVENTIONS
 - No-copy GJSON results alias the caller's bytes; payload ownership is part of the API contract.

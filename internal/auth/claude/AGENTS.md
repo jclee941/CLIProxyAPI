@@ -1,7 +1,7 @@
 # CLAUDE OAUTH
 
 ## OVERVIEW
-Claude OAuth, credential identity, and native transport behavior; score 6, retained concurrency-sensitive provider guide.
+Claude OAuth, credential identity, and native transport behavior; score 11 (152 symbols, 57 exports, 23 importing files), a concurrency-sensitive provider domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -14,6 +14,9 @@ Claude OAuth, credential identity, and native transport behavior; score 6, retai
 | Local callback lifecycle | `oauth_server.go` |
 | Token serialization | `token.go` |
 | PKCE verifier/challenge | `pkce.go` |
+| PKCE/token/bundle DTOs | `anthropic.go` |
+| Typed OAuth/authentication errors | `errors.go` |
+| Callback landing pages | `html_templates.go` |
 | Transport header ordering dependency | `../../httpwire/ordered_conn.go` |
 
 ## CONVENTIONS

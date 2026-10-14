@@ -1,7 +1,7 @@
 # THINKING AND SUMMARY INTENT
 
 ## OVERVIEW
-Reasoning configuration, summary visibility, and provider application; score 14, a central cross-protocol semantic domain.
+Reasoning configuration, summary visibility, and provider application; score 14 (23 Go files, 45 exports, 76 importing files), a central cross-protocol semantic domain.
 
 Parent package map: [internal/AGENTS.md](../AGENTS.md); pipeline contract: [root guide](../../AGENTS.md).
 
@@ -24,7 +24,9 @@ Parent package map: [internal/AGENTS.md](../AGENTS.md); pipeline contract: [root
 - Supplied model metadata lets configured API-key capabilities override generic catalog assumptions.
 - Summary visibility is represented independently from reasoning effort.
 - Cross-family intent conversion differs from strict same-family validation.
-- Provider appliers register through `init()`; executor helper blank imports activate builtins.
+- Provider appliers register through `init()`; blank imports in `../runtime/executor/helps/thinking_providers.go` activate builtins.
+- `provider/xai` embeds the Codex applier, so Codex output changes also reach xAI.
+- A new builtin provider needs both its `init()` registration and a blank import in that helper file.
 - Plugin appliers have owner/priority registration and explicit owner cleanup.
 - Native provider names are reserved even before their builtin applier is initialized.
 - Kimi aliases share one registered provider applier.

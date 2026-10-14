@@ -1,13 +1,15 @@
 # MANAGEMENT HANDLER KNOWLEDGE BASE
 
 ## OVERVIEW
-Management control surface under `management/`; retained as a distinct persistence/OAuth domain at depth three.
+Management control surface under `management/`; subtree score 12, a distinct persistence/OAuth domain documented at depth three.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
 | Handler state and authorization | `management/handler.go` | Locks, reload generations, management-key verification |
 | Scalar/YAML configuration | `management/config_basic.go` | Validate uploaded YAML before committing |
+| V8 configuration view/mutation | `management/config_v8.go` | YAML-tree paths, alias projection, read-only GET |
+| V8 OAuth dispatch | `management/auth_files_v8.go` | Provider login/import adapters |
 | Credential list edits | `management/config_lists.go` | Tuple identity, normalization, comment preservation |
 | Config/runtime credential joins | `management/config_auth_index.go` | Stable synthesized auth IDs |
 | Disable static API keys | `management/config_apikey_disable.go` | Wildcard excluded-model marker |
@@ -29,6 +31,8 @@ Management control surface under `management/`; retained as a distinct persisten
 - Save and clone under `h.mu`; invoke reload callbacks after releasing it.
 - Reload snapshots carry generations so older asynchronous work cannot replace newer state.
 - Credential identity includes API key, base URL, and prefix; ambiguous matches require disambiguation.
+- V8 GET normalizes a view without migrating the file; successful mutations persist the new layout.
+- V8 JSON config views add auth indexes and remove ICE secrets; raw YAML has a separate contract.
 - APICall proxy order: request, credential, global, then direct; environment proxies are bypassed.
 - `management/oauth_sessions.go` publishes callback JSON through temporary siblings plus rename.
 - Token saves require a still-pending session; cancellation invalidates background waiters.

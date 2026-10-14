@@ -1,7 +1,7 @@
 # KIMI DEVICE FLOW
 
 ## OVERVIEW
-Domain-aware Kimi device authorization and token refresh; score 6, retained provider-routing domain guide.
+Domain-aware Kimi device authorization and token refresh; score 8 (56 symbols, 32 exports), a distinct domain-routing provider.
 
 ## WHERE TO LOOK
 | Task | Location |

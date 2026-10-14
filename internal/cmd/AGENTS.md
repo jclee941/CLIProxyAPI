@@ -1,7 +1,7 @@
 # CLI ORCHESTRATION
 
 ## OVERVIEW
-Command implementations behind `../../cmd/server/`; retained as a distinct startup/login/discovery domain.
+Command implementations behind `../../cmd/server/`; score 9, a distinct startup/login/discovery domain.
 
 ## WHERE TO LOOK
 | Task | File |

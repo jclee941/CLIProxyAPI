@@ -1,7 +1,7 @@
 # EXECUTION CONTRACT KNOWLEDGE BASE
 
 ## OVERVIEW
-Shared request/response types, transport context, and lifecycle contracts; score 9, a distinct SDK boundary rather than provider implementation code.
+Shared request/response types, transport context, and lifecycle contracts; score 9 from dense exported contracts and cross-package references.
 
 Parent lifecycle: [service guide](../AGENTS.md).
 

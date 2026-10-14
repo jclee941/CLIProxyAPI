@@ -1,7 +1,7 @@
 # EXECUTION REGISTRY KNOWLEDGE BASE
 
 ## OVERVIEW
-Home-lifetime pending dispatches, resource scopes, release acknowledgements, and observation barriers; score 9, a distinct concurrency domain.
+Home-lifetime pending dispatches, resource scopes, release acknowledgements, and observation barriers; score 9 from symbol density, exported contracts, code ratio, and references.
 
 Parent lifecycle: [service guide](../AGENTS.md).
 

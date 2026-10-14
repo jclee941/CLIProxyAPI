@@ -1,7 +1,7 @@
 # SHARED TRANSLATOR HELPERS
 
 ## OVERVIEW
-Protocol-specific primitives shared by converter pairs; score 14, with 25 Go files and a high-reference JSON/SSE helper surface.
+Protocol-specific primitives shared by converter pairs; score 15, with 38 Go files (18 non-test), imported by 85 translator files plus `internal/runtime/executor` helpers.
 
 Converter architecture and registry contracts: [parent guide](../AGENTS.md).
 
@@ -21,6 +21,10 @@ Converter architecture and registry contracts: [parent guide](../AGENTS.md).
 | File data normalization | `file_data.go` | Raw base64 versus data URL inputs |
 | IDs and model selection | `request.go` | Claude call IDs and RequestModelName |
 | Interactions accounting | `interactions_usage.go` | Common usage object |
+| Unsendable parts | `parts.go` | UnsupportedPartError, UserTurnDrops, UserRun |
+| Native Claude JSON as SSE | `claude_native_response.go` | ClaudeMessagesJSONToSSE |
+| apply_patch request side | `apply_patch_responses.go` | NormalizeApplyPatchResponsesRequest, ApplyPatchResponsesBridge |
+| apply_patch streaming | `apply_patch_input.go`, `apply_patch_events.go` | Argument decoder, delta/done/failure payloads |
 | Helper tests | `go test ./internal/translator/common` | Repository-root command |
 
 ## CONVENTIONS
@@ -32,6 +36,10 @@ Converter architecture and registry contracts: [parent guide](../AGENTS.md).
 - Gemini user-part ordering places text before functionResponse for Vertex compatibility.
 - `MergeAdjacentGeminiContents` may combine user tool-result turns; `MergeAdjacentGeminiUserContents` preserves those boundaries.
 - DeriveClaudeUserID prefers session identity before stable conversation-derived fallback.
+- A dropped part is allowed while its user turn keeps one sendable part; the first emptied turn becomes the request error.
+- apply_patch normalization collects declaration winners before rewriting, so precedence never shifts.
+- Bridge events are JSON payloads without SSE framing; callers frame them.
+- The bridge consumes Responses response paths in claude, codex, gemini, openai/openai and openai/interactions.
 
 ## ANTI-PATTERNS
 - Do not merge consecutive Gemini model turns here; part indices participate in signature replay.
@@ -39,4 +47,7 @@ Converter architecture and registry contracts: [parent guide](../AGENTS.md).
 - Never steal or rewrite an unmatched explicit Responses call ID to satisfy another pending call.
 - Do not reinterpret tool-result JSON containing string-valued $ref as media references; preserve opaque text.
 - Do not apply ordinary message cache-control placement to nested Claude tool-result content.
+- Never copy an ApplyPatchInputDecoder after use or share an ApplyPatchResponsesBridge across goroutines or responses.
+- Do not reveal a folded dispatcher name as the selected child tool name; identity checks withhold names.
+- Do not expose upstream arguments in apply_patch failure events.
 - Do not substitute broad JSON remarshal logic for byte-helper contracts without checking their no-op and escaping tests.

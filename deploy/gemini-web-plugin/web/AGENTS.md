@@ -18,6 +18,7 @@ Self-contained Gemini and Flow iframe portals; score 12 for the independent fron
 | Host-compatible styling | `src/tokens.css`, `src/styles.css` | Shared design tokens |
 | Deployment artifacts | `build.ts`, `src/index.html`, `src/flow/index.html` | Generate local and Flow sibling HTML bundles |
 | Browser fixtures | `tests/browser.ts`, `tests/login-browser.ts`, `tests/flow-browser.ts` | Mock Gemini login and Flow accounts |
+| Boundary regression tests | `tests/host-request.test.ts`, `tests/login-contract.test.ts`, `tests/flow-contract.test.ts` | Host capability and provider DTO contracts |
 
 ## CONVENTIONS
 - Source lives under `src/`; root `index.html` is the bundled deployment artifact.
@@ -25,6 +26,7 @@ Self-contained Gemini and Flow iframe portals; score 12 for the independent fron
 - Shared login/session ownership follows `../AGENTS.md`; Flow's native backend has its own sibling guide.
 - Bun inlines the IIFE, styles, and assets into one HTML file; no external runtime resource loading.
 - Prefer the parent's `__CPAMP_PLUGIN_HOST__` transport when available.
+- Accept that bridge only for the matching plugin ID, exact resource URL, and same-origin parent; query strings and fragments invalidate it.
 - Transport rejects redirects and off-origin requests; mutations have no automatic retries.
 - Render the backend's explicit login state, not inferred success from a completed fetch.
 - Missing metrics remain visibly unknown; compute units are not token counts.

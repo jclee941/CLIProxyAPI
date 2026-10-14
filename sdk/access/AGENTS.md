@@ -1,7 +1,7 @@
 # REQUEST ACCESS AUTHENTICATION
 
 ## OVERVIEW
-Ordered frontend credential-provider registry and authentication coordinator; retained distinct inbound-access domain, conservative score 6.
+Ordered frontend credential-provider registry and authentication coordinator; score 6, retained in UPDATE mode and flagged below the creation threshold.
 
 Parent map: [SDK guide](../AGENTS.md).
 

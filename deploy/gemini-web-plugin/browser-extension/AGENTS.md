@@ -10,6 +10,7 @@ Manifest V3 session-capture companion with explicit user consent; score 12 for i
 | Consent state machine | `companion.ts` | Selected tab, approval, capture, cancellation |
 | Capture boundary | `capture.ts` | Tab/store/document snapshots and cookie checks |
 | Chrome API adapter | `chrome-adapter.ts` | Identity extraction from selected document |
+| Runtime cancellation | `browser-runtime.ts` | Candidate listing and abortable capture |
 | Wire authorization | `protocol.ts` | Origins, port names, schemas, sender checks |
 | Restart replay protection | `replay.ts` | Bounded hashed tombstones |
 | Popup surface | `popup.ts`, `popup.html` | Selection and explicit approval |
@@ -21,6 +22,7 @@ Manifest V3 session-capture companion with explicit user consent; score 12 for i
 - Install dependencies with `bun --no-env-file install --frozen-lockfile --ignore-scripts`.
 - Validation commands: `bun --no-env-file run check` and `bun --no-env-file test`.
 - Package with `bun --no-env-file run build`; exercise browser flows with `run qa` and `run qa:production`.
+- `build.ts` emits `dist/production/` or `dist/qa/` and an archive under `artifacts/`; QA archives carry the `-LOCAL-QA` suffix.
 - Session capture checks the selected tab's cookie store and document before and after reading cookies.
 - Account identity requires agreement between the three expected Google page globals.
 - A selected partition is checked explicitly; partitioned cookies are unsupported.

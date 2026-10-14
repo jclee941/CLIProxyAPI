@@ -1,7 +1,7 @@
 # ANTIGRAVITY TRANSLATORS
 
 ## OVERVIEW
-Antigravity request envelopes, response unwrapping and signature replay; score 9, a distinct domain with 32 Go files.
+Antigravity request envelopes, response unwrapping and signature replay; score 9, a distinct domain with 38 Go files.
 
 Registration and shared wire contracts: [parent guide](../AGENTS.md).
 
@@ -23,13 +23,15 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 ## CONVENTIONS
 - Requests carry `project`, `model` and nested `request`; generated payloads arrive beneath `response`.
 - Responses conversion composes the Gemini Responses implementation with Antigravity-specific wrapping.
-- Responses registers both an ordinary request converter and an SDK request-envelope converter.
+- Responses registers a nil plain request converter; the SDK request-envelope converter does the request work.
 - Native Google Search belongs in dedicated Responses web-search envelopes; normal-chat fallback strips it.
 - Claude-wire Gemini carriers encode direction and semantic target with `cpa-gemini-carrier-v1:`.
 - Tool names are sanitized/disambiguated on ingress and restored from request context on egress.
 - `cpaUsageMetadata` restoration preserves accounting after upstream filtering.
 - Canonical no-op transformations have byte-slice reuse tests, not just JSON equality tests.
 - Chat finish reasons are cached until token accounting is available; `[DONE]` supplies the fallback terminal path.
+- Chat completion_tokens include thoughts token counts.
+- The default Chat streaming delta template omits `tool_calls`; only real calls add them.
 
 ## ANTI-PATTERNS
 - Never inject dummy Claude thinking blocks; Antigravity validates their signatures.

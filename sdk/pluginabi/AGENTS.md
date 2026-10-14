@@ -16,7 +16,6 @@ Parent map: [SDK guide](../AGENTS.md); payload interfaces live in [pluginapi](..
 | Check wire stability | `types_test.go` | Round trips, method values, scheduler name, error constructors. |
 
 ## CONVENTIONS
-- ABIVersion and SchemaVersion track different compatibility dimensions.
 - Schema version is negotiated at plugin.register, not inferred from method presence.
 - v2 adds request lifecycle completion and active request termination.
 - v3 omits request bodies on payload stream chunks; header-init retains them.
@@ -25,6 +24,7 @@ Parent map: [SDK guide](../AGENTS.md); payload interfaces live in [pluginapi](..
 - v6 preserves raw management-response JSON without HTML escaping.
 - Named SchemaVersion* thresholds let adapters retain older plugin behavior.
 - Method values are wire identifiers, including underscore/dot distinctions.
+- Host HTTP operations separate open/cancel from stream read/close; host model streams have their own read/close identifiers.
 - Envelope.Result is json.RawMessage, not an already-quoted JSON string.
 - Error.StatusCode returns the embedded value, including zero when unset.
 - The host interprets omitted/zero HTTPStatus as its default internal-server-error response.

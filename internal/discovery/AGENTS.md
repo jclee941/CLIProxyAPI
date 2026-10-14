@@ -1,7 +1,7 @@
 # LAN GATEWAY DISCOVERY
 
 ## OVERVIEW
-DNS-SD service construction, mDNS advertisement, and browsing; retained as a distinct network discovery domain.
+DNS-SD service construction, mDNS advertisement, and browsing; score 9, a distinct network discovery domain.
 
 ## WHERE TO LOOK
 | Task | File |

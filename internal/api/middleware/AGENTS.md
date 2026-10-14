@@ -1,7 +1,7 @@
 # REQUEST LOGGING KNOWLEDGE BASE
 
 ## OVERVIEW
-Request/response capture without blocking client streaming; retained as a distinct logging lifecycle domain.
+Request/response capture without blocking client streaming; score 9, a distinct logging lifecycle domain.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -21,7 +21,9 @@ Request/response capture without blocking client streaming; retained as a distin
 - Clone headers including each value slice before asynchronous processing.
 - NoRoute requests defer body capture until the authenticated handler consumes bytes.
 - Error-only capture may spool to file-backed sources; successful requests discard those sources.
-- Error-only spooling is capped at 32 MiB; decompressed capture is bounded separately.
+- Eager error-only capture permits known bodies up to 1 MiB; deferred spooling caps at 32 MiB.
+- Full logging removes the deferred capture cap; native handlers still bound their own reads.
+- Decompressed capture has a separate size bound.
 - Finalize after `c.Next()` to collect handler-provided context overrides.
 - Spool-backed source ownership continues into `../../logging/request_logger_body_source.go`.
 - Preserve request/response overrides and websocket timelines when composing log sources.

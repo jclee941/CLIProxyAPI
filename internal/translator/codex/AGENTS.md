@@ -1,7 +1,7 @@
 # CODEX DESTINATION TRANSLATORS
 
 ## OVERVIEW
-Codex Responses payload conversion and reverse stream adaptation; score 9, a distinct domain with 32 Go files.
+Codex Responses payload conversion and reverse stream adaptation; score 9, a distinct domain with 35 Go files.
 
 Registration and shared wire contracts: [parent guide](../AGENTS.md).
 
@@ -18,7 +18,8 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 | Chat adaptation | `openai/chat-completions/` | Tool strictness, names and stream deltas |
 | Responses normalization | `openai/responses/codex_openai-responses_request.go` | Unsupported fields and system roles |
 | Domain tests | `go test ./internal/translator/codex/...` | Repository-root command |
-| History benchmark | `go test -run='^$' -bench=. ./internal/translator/codex/claude` | Large Claude histories |
+| History benchmark | `go test -run='^$' -bench=. ./internal/translator/codex/claude` | `codex_claude_request_benchmark_test.go` |
+| Responses output | `openai/responses/codex_openai-responses_response.go` | Model rewrite, optional apply_patch bridge |
 
 ## CONVENTIONS
 - Codex request conversion forces streaming even when the client-facing response is non-streaming.
@@ -29,6 +30,8 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 - Claude reasoning summaries can span multiple parts of one Codex reasoning item.
 - The final reasoning signature arrives on output_item.done, not summary-part completion.
 - Tool arguments may precede function names; Claude streaming buffers them before block announcement.
+- Native Codex Responses events pass through unchanged unless a per-stream apply_patch bridge exists; native Codex never opts in.
+- Over-length Chat tool-call IDs are shortened, not rejected.
 
 ## ANTI-PATTERNS
 - Never emit a pre-content encrypted-content snapshot as the final thinking signature.

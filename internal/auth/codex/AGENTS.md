@@ -1,7 +1,7 @@
 # CODEX OAUTH
 
 ## OVERVIEW
-OpenAI/Codex PKCE login, refresh, and token introspection; score 6, retained authentication domain guide.
+OpenAI/Codex PKCE login, refresh, and token introspection; score 8 (75 symbols, 44 exports, 14 importing files), a distinct OAuth domain.
 
 ## WHERE TO LOOK
 | Task | File |

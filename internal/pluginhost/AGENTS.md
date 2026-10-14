@@ -1,7 +1,7 @@
 # PLUGIN HOST KNOWLEDGE BASE
 
 ## OVERVIEW
-Native plugin lifecycle, capability adapters, and scoped RPC bridges; retained as a distinct ABI/concurrency domain.
+Native plugin lifecycle, capability adapters, and scoped RPC bridges; score 12, a distinct ABI/concurrency domain.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -13,6 +13,7 @@ Native plugin lifecycle, capability adapters, and scoped RPC bridges; retained a
 | Unsupported builds | `loader_unsupported.go`, `support*.go` | Build tags and support header |
 | JSON-RPC contract | `rpc_client.go`, `rpc_schema.go` | Native calls and wire payloads |
 | Executor integration | `adapters_executors.go`, `executor_route.go` | Translation and direct routing |
+| Credential-owned stop rules | `executor_stop_policy.go` | Schema-6 metadata mapped to request-scoped errors |
 | Interception | `adapters_interceptors.go` | Cloning, ordering, schema-gated payloads |
 | Auth/model adaptation | `auth_provider.go`, `adapters.go` | OAuth, atomic tokens, model registration |
 | Native callbacks | `host_callbacks*.go`, `callback_contexts.go` | Caller and instance-scoped contexts |

@@ -1,7 +1,7 @@
 # PLUGIN STORE KNOWLEDGE BASE
 
 ## OVERVIEW
-Registry validation, authenticated artifact retrieval, and safe binary installation; retained as a distinct distribution boundary.
+Registry validation, authenticated artifact retrieval, and safe binary installation; score 12, a distinct distribution boundary.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -13,6 +13,7 @@ Registry validation, authenticated artifact retrieval, and safe binary installat
 | Archive installation | `install.go` | Root-only binary, atomic replacement, loaded-file guard |
 | Checksum manifests | `checksum.go` | Parse and verify checksums |
 | Auth matching | `auth.go` | Request kind, URL scope, redirects, clearable secrets |
+| Shared GitHub token fallback | `../githubauth/token.go`, `global_token_test.go` | Configuration/environment precedence and API-host scoping |
 | Request/cache identity | `request_identity.go` | Credential snapshot plus network scope |
 | GitHub cooldowns | `github_rate_limit.go` | Shared limiter and Retry-After handling |
 | Home exchange contract | `home_sync.go` | Resolved auth, expiry, schema validation |

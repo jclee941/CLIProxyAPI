@@ -1,7 +1,7 @@
 # PROVIDER LOGIN AND TOKEN STORAGE
 
 ## OVERVIEW
-Provider login orchestration, refresh-lead registration, and filesystem credential persistence; conservative score 9, distinct login lifecycle domain.
+Provider login orchestration, refresh-lead registration, and filesystem credential persistence; score 12, distinct login lifecycle domain with 24 Go files.
 
 Parent map: [SDK guide](../AGENTS.md); runtime credential selection belongs to [the conductor](../cliproxy/auth/AGENTS.md).
 

@@ -1,7 +1,7 @@
 # SHARED CLIENT AND CREDENTIAL HELPERS
 
 ## OVERVIEW
-Client-version caching, OAuth callbacks, metadata merging, and header defaults; score 9, a distinct shared-helper domain.
+Client-version caching, OAuth callbacks, metadata merging, and header defaults; measured score 6, retained existing shared-helper guidance pending consolidation.
 
 ## WHERE TO LOOK
 | Task | File |

@@ -1,7 +1,7 @@
 # CHATGPT WEB PLUGIN
 
 ## OVERVIEW
-ChatGPT web chat/image execution and Codex/Web quota reporting; score 10 for a dense, separately configured Go module.
+ChatGPT web chat/image execution and Codex/Web quota reporting; score 13 for file count, code density, configuration, module boundary, symbol density, and LSP reference centrality.
 
 ## WHERE TO LOOK
 | Task | Location | Detail |
@@ -12,6 +12,8 @@ ChatGPT web chat/image execution and Codex/Web quota reporting; score 10 for a d
 | Model and credential routing | `images.go`, `webmodes.go` | Image/chat claims and requested effort |
 | Chat prompt and tools | `webchat.go` | Agent action blocks and tool-call extraction |
 | Image lifecycle | `webimage.go` | Sentinel, SSE, conversation inspection, downloads |
+| Image intent and refusals | `imagehints.go`, `webpolicy.go` | Size/quality prompt hints and terminal content-policy errors |
+| Safe transport retries | `webretry.go` | Retry only DNS/dial failures that provably sent nothing |
 | Proof of work | `pow.go` | SHA3-512 target search and token formatting |
 | Incremental replies | `webreply.go`, `webstream.go` | Patch folding and host stream bridge |
 | Quota projections | `quota.go`, `usage.go` | Separate Codex and ChatGPT Web windows |
@@ -30,6 +32,7 @@ ChatGPT web chat/image execution and Codex/Web quota reporting; score 10 for a d
 - Codex quota-disabled credentials may still have usable Web allowance; preserve that distinction in candidate selection.
 - Streaming emits through `host.stream.emit` and terminates through `host.stream.close`.
 - A possible tool-call block is held back until it can be classified instead of leaking partial markup as content.
+- Image policy failures keep `content_policy_violation` in the public message because the host may discard the envelope's code field.
 
 ## ANTI-PATTERNS
 - Do not retry a transport failure once a request may have been sent; repeated image requests spend quota again.

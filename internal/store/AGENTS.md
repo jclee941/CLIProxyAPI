@@ -1,7 +1,7 @@
 # REMOTE CREDENTIAL STORES
 
 ## OVERVIEW
-Git, object-store, and PostgreSQL persistence with local file mirrors; score 6, retained consistency/recovery domain guide.
+Git, object-store, and PostgreSQL persistence with local file mirrors; score 8 (219 symbols, 41 exports; sole importer `cmd/server/main.go`), a distinct consistency/recovery domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -23,6 +23,8 @@ Git, object-store, and PostgreSQL persistence with local file mirrors; score 6, 
 - Git push precedes maintenance GC.
 - Git recovery preserves backup material when rollback cannot safely complete.
 - PostgreSQL cooldown persistence merges concurrent instances rather than replacing unrelated state.
+- `PostgresStore` alone also provides the cooldown state store (`CooldownStateStoreProvider`).
+- Startup selection priority: `PGSTORE_DSN`, then `OBJECTSTORE_ENDPOINT`, then `GITSTORE_GIT_URL`.
 - Object-store sync overwrites incrementally; PostgreSQL bootstrap resets the local auth spool before repopulating it.
 
 ## ANTI-PATTERNS

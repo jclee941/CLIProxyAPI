@@ -1,7 +1,7 @@
 # MODEL REGISTRY
 
 ## OVERVIEW
-Live model availability, capability projections, and embedded/remote catalogs; score 12, a central routing metadata domain.
+Live model availability, capability projections, and embedded/remote catalogs; score 14 (26 Go files, 82 exports, 221 importing files), the central routing metadata domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -13,7 +13,9 @@ Live model availability, capability projections, and embedded/remote catalogs; s
 | Codex remote refresh | `codex_client_models_updater.go` |
 | Devin namespacing and catalog parsing | `devin_models.go` |
 | Devin remote refresh | `devin_models_updater.go` |
-| Embedded fallback assets | `models/*.json` |
+| Per-catalog source overrides and validation | `catalog_config.go` |
+| Catalog reader lifecycle and reload | `catalog_sources.go` |
+| Embedded fallback assets | `models/models.json`, `models/codex_client_models.json`, `models/devin_models.json` |
 
 ## CONVENTIONS
 - Query APIs return defensive clones, including nested metadata and response maps.
@@ -25,6 +27,9 @@ Live model availability, capability projections, and embedded/remote catalogs; s
 - Validate downloaded catalogs before swapping the current snapshot.
 - Builtin overlays preserve required models even when remote catalogs omit them.
 - Hooks run asynchronously outside the registry's critical path.
+- Embedded catalogs load in `init()` via `go:embed`; `ModelsRefreshInterval` (3h) is the one shared cadence.
+- `CatalogSources` overrides each catalog independently; relative paths and unsupported URL schemes are rejected.
+- `SetLocalModelCatalogs` sets the pre-start default; `UpdateModelCatalogSources` before start or after shutdown starts no readers.
 
 ## ANTI-PATTERNS
 - Do not expose internal model fields such as metadata model ID, compat flags, or native capabilities in ordinary listings.

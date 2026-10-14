@@ -1,24 +1,27 @@
 # TERMINAL MANAGEMENT CLIENT
 
 ## OVERVIEW
-Bubbletea management UI over the local REST API; retained as a distinct interactive state-machine domain.
+Bubbletea management UI over REST; score 9, a distinct interactive state-machine domain.
 
 ## WHERE TO LOOK
 | Task | File |
 |------|------|
 | Root model, navigation, and runner | `app.go` |
 | Management HTTP client | `client.go` |
+| Remote base URL and bearer handling | `client_test.go` |
 | Overview metrics | `dashboard.go` |
 | Credential operations | `auth_tab.go` |
 | Key operations | `keys_tab.go` |
 | Configuration editor | `config_tab.go` |
 | OAuth flow and cancellation | `oauth_tab.go` |
+| Platform browser commands | `browser.go` |
 | Log capture and presentation | `loghook.go`, `logs_tab.go` |
 | Locale dictionaries and tab names | `i18n.go` |
 | Layout styles | `styles.go` |
 
 ## CONVENTIONS
-- `Client` targets `http://127.0.0.1:<port>/v0/management/` with the configured bearer secret.
+- `NewClient` targets localhost; `NewClientWithBaseURL` supports a configured HTTP(S) origin.
+- Client methods still use `/v0/management` paths and attach the configured bearer secret.
 - UI models do not read server internals directly.
 - OAuth async messages carry a generation token matching the active flow.
 - Starting or canceling a flow invalidates messages from superseded generations.

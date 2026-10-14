@@ -22,6 +22,7 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 | Flow session broker | `session_exchange.go`, `session_exchange_cancel.go` | Cookie ownership, scoped uploads, explicit cancellation |
 | Account selection | `session_slots.go`, `session_quota_routing.go` | Slot rotation and quota admission |
 | Native upstream protocol | `webaccount.go`, `webgenerate.go`, `webvideo.go` | WIZ frames, JSPB slots, Veo replies |
+| Video wire experiments | `video_wire.go`, `video_diag.go` | Per-turn variant selection and redacted wire diagnostics |
 | Continuation lifecycle | `continuation*.go` | Durable intents, pinned turns, recovery |
 | Interaction API and replay | `interactions*.go` | Caller-scoped receipts and SSE cursors |
 | File upload/download | `files*.go`, `webdrive.go`, `webupload.go` | Drive capabilities and encrypted metadata |
@@ -41,6 +42,9 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 - Flow borrows requests through the broker; this plugin alone attaches cookies and persists their rotations.
 - Broker targets and forwarded upload headers are explicit allowlists; cancellation identifies a specific exchange.
 - `native_generation` and `native_continuation` affect registration and dispatch; preserve the configured format/capability pairing.
+- `video_wire_mode` accepts `legacy`, `web`, or `alternate`; continuation inherits its turn's variant unless an explicit mode overrides it.
+- Changing only video wire policy does not drain sessions; verify the applied variant in diagnostics, not only the saved config.
+- `README.md` still contains old .114 deployment paths; `build-manifest.json` retains sidecar/vault metadata and is not live configuration.
 
 ## ANTI-PATTERNS
 - Do not delete owner, intent, or recovery records to clear an uncertain operation.

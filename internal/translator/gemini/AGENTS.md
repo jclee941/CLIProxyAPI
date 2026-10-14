@@ -1,7 +1,7 @@
 # GEMINI TRANSLATORS
 
 ## OVERVIEW
-Gemini content conversion, Interactions bridges and Responses grounding/replay; score 9, a distinct domain with 36 Go files.
+Gemini content conversion, Interactions bridges and Responses grounding/replay; score 9, a distinct domain with 47 Go files.
 
 Registration and shared wire contracts: [parent guide](../AGENTS.md).
 
@@ -19,6 +19,8 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 | Search and citations | `openai/responses/gemini_openai-responses_web_search.go` | Capability checks, grounding merge, rune offsets |
 | Reasoning carriers | `openai/responses/signature_carrier.go` | Encoding, validation and spoof stripping |
 | Late signatures | `openai/responses/trailing_signature.go` | Replay cache and ordering |
+| Terminal regressions | `openai/responses/issue6258_terminal_test.go` | Stream completion edge cases |
+| apply_patch coverage | `openai/responses/apply_patch_test.go`, `apply_patch_review_test.go` | Shared `common` bridge |
 | Domain tests | `go test ./internal/translator/gemini/...` | Repository-root command |
 
 ## CONVENTIONS
@@ -31,6 +33,8 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 - `_cpa_reasoning_*` fields are transient pipeline metadata, never trusted client annotations.
 - Missing safety settings receive OFF for harassment, hate speech, sexual content and dangerous content; civic integrity uses BLOCK_NONE.
 - Existing safety settings are preserved, including explicitly configured empty arrays.
+- `gemini/` registers Gemini-to-Gemini as a request normalizer with no-op response passthrough.
+- `interactions/` registers three pairs, so check every `init.go` registration before changing a direction.
 
 ## ANTI-PATTERNS
 - Do not enable search when static native_capabilities.web_search is explicitly false.

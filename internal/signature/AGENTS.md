@@ -1,7 +1,7 @@
 # REASONING SIGNATURE COMPATIBILITY
 
 ## OVERVIEW
-Signature shape inspection, provider compatibility, and history sanitization; score 8, a distinct protocol-integrity domain.
+Signature shape inspection, provider compatibility, and history sanitization; score 11 (304 symbols, 62 exports, 42 importing files), a distinct protocol-integrity domain.
 
 Parent package map: [internal/AGENTS.md](../AGENTS.md).
 
@@ -16,6 +16,8 @@ Parent package map: [internal/AGENTS.md](../AGENTS.md).
 | GPT reasoning transport shape | `gpt_validation.go` |
 | Grok opaque ciphertext replay checks | `grok_validation.go` |
 | Kimi exact-length/entropy checks | `kimi_validation.go` |
+| Antigravity CAQS inspection | `claude_antigravity_validation.go` |
+| Synthetic test envelopes | `signaturetest/claude.go` (`AntigravityCAQS`) |
 
 ## CONVENTIONS
 - JSON mutations operate on raw payload bytes; envelope inspection uses `protowire`.
@@ -24,6 +26,7 @@ Parent package map: [internal/AGENTS.md](../AGENTS.md).
 - Native Claude expects single-layer E form; Antigravity Claude replay expects double-layer R form.
 - Optional provider cache prefixes are parsed separately from payload shape.
 - Gemini bypass belongs only on the first synthetic parallel `functionCall`; siblings remain unsigned.
+- `signaturetest` envelopes are generated zeros, never captured or replayable state; executor tests import them too.
 - Function-call pairing validates history order, names, IDs, and response counts.
 
 ## ANTI-PATTERNS

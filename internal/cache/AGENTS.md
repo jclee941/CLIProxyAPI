@@ -1,7 +1,7 @@
 # SIGNATURE AND REPLAY CACHES
 
 ## OVERVIEW
-Provider-specific replay state with local and Home KV backends; score 11, a distinct state-consistency domain.
+Provider-specific replay state with local and Home KV backends; score 11 (302 symbols, 75 exports, 31 importing files), a distinct state-consistency domain.
 
 Parent package map: [internal/AGENTS.md](../AGENTS.md).
 
@@ -15,6 +15,7 @@ Parent package map: [internal/AGENTS.md](../AGENTS.md).
 | Claude signed assistant turns | `claude_thinking_replay_cache.go` |
 | Kimi signed content and byte accounting | `kimi_thinking_replay_cache.go` |
 | Provenance-aware Grok replay | `xai_reasoning_replay_cache.go` |
+| Antigravity Interactions continuation IDs | `antigravity_interactions_session.go` |
 
 ## CONVENTIONS
 - Home mode selects the distributed backend exclusively; local mode uses in-process state.
@@ -25,6 +26,8 @@ Parent package map: [internal/AGENTS.md](../AGENTS.md).
 - Claude and Kimi share snapshot machinery but retain separate cache namespaces.
 - Replay reads refresh Home TTL; conditional writes compare opaque serialized snapshots.
 - `signature_cache.go` owns one cleanup loop for the replay caches.
+- `InteractionsSessionCache` is bounded and process-local; callers build keys that already isolate caller, credential, model, conversation, and pending call IDs.
+- `InteractionsCallKey` rejects ambiguous or incomplete call sets.
 - Fake KV client hooks exercise distributed behavior without an external service.
 
 ## ANTI-PATTERNS

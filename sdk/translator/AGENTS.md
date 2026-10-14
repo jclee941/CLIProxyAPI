@@ -32,6 +32,7 @@ Parent map: [SDK guide](../AGENTS.md); implementation change restrictions remain
 - Native stream transforms may intentionally return nil outputs; that is not a missing-route fallback.
 - Pipeline middleware executes in registration order around its terminal registry call.
 - NewPipeline(nil) selects Default; tests needing isolation can supply NewRegistry explicitly.
+- `RequestEnvelope.Err` carries request-scoped translation failure independently of the pipeline's returned error.
 - Unregister removes both request and response entries and prunes empty pair maps.
 - Focused checks: `go test ./sdk/translator ./sdk/translator/builtin`.
 
@@ -41,3 +42,4 @@ Parent map: [SDK guide](../AGENTS.md); implementation change restrictions remain
 - Do not reverse request lookup to match response lookup; the asymmetry is intentional.
 - Do not overwrite a plugin normalizer's removal of summary fields after native request translation.
 - Do not mutate Default in tests without restoring registrations/hooks.
+- Do not send `RequestEnvelope.Body` upstream when `Err` is set; byte-only TranslateRequest does not expose that error.

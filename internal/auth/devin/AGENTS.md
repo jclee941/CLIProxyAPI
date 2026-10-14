@@ -1,7 +1,7 @@
 # DEVIN AUTHENTICATION
 
 ## OVERVIEW
-Devin session acquisition, profile discovery, and runtime-auth construction; score 6, retained provider domain guide.
+Devin session acquisition, profile discovery, and runtime-auth construction; score 8 (49 symbols, 25 exports), a distinct session-token domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -20,7 +20,7 @@ Devin session acquisition, profile discovery, and runtime-auth construction; sco
 - `CreateAuthRecord` produces shared SDK auth records, not just a provider token DTO.
 - Profile and status information populate identity, plan, and quota signals.
 - Attribute and metadata views both carry provider-specific runtime information.
-- Missing profile identity falls back to a token-derived hash to avoid overwriting another account.
+- Missing profile identity falls back to a SHA-256 session-token hash (`record.go`) to avoid overwriting another account.
 - Unsafe or oversized profile identifiers become hashed file identifiers.
 - The live status test is opt-in through `CPA_LIVE_TEST=true` and requires credentials.
 

@@ -1,7 +1,7 @@
 # CONFIG AND AUTH WATCHER
 
 ## OVERVIEW
-Filesystem/config reload and ordered runtime credential updates; score 9, a distinct concurrent reconciliation domain.
+Filesystem/config reload and ordered runtime credential updates; score 14 (subtree 36 Go files, 3 packages), a distinct concurrent reconciliation domain.
 
 ## WHERE TO LOOK
 | Task | Location |

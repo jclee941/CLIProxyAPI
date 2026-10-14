@@ -1,7 +1,8 @@
 # CODEX CLIENT INTEGRATION
 
 ## OVERVIEW
-Codex-specific catalogs, realtime sessions, and collaboration adaptation; score 9, a distinct client protocol domain.
+Codex-specific catalogs, realtime sessions, and collaboration adaptation; score 14 (5 packages, 27 Go files, 26 importing files), a distinct client protocol domain.
+Packages: `apply-patch/` (`applypatch`), `live/`, `models/`, `optimize-multi-agent-v2/` (`multiagentv2`), `tool-schema/` (`toolschema`).
 
 ## WHERE TO LOOK
 | Task | Location |
@@ -16,6 +17,9 @@ Codex-specific catalogs, realtime sessions, and collaboration adaptation; score 
 | Unsupported capabilities and hangup | `live/capabilities.go` |
 | Tool/namespace preparation and restoration | `optimize-multi-agent-v2/optimize_multi_agent_v2.go` |
 | Orphan delegation output repair | `optimize-multi-agent-v2/orphan_delegation.go` |
+| Custom `apply_patch` tool wrap/unwrap | `apply-patch/tool.go` |
+| Per-model apply_patch capability callback | `models/apply_patch.go` |
+| Codex number-to-integer tool schema fixes | `tool-schema/tool_schema.go` |
 | Catalog validation and revision ownership | `../../registry/AGENTS.md` |
 
 ## CONVENTIONS
@@ -30,7 +34,10 @@ Codex-specific catalogs, realtime sessions, and collaboration adaptation; score 
 - WebRTC calls pin the selected credential for later sideband and hangup operations.
 - Collaboration namespace optimization is reversible on responses.
 - Boundary tool preparation is recorded in the Gin context to avoid preparing tools twice.
-- The hyphenated optimization directory is imported with package alias `multiagentv2`.
+- Hyphenated directories declare package names `applypatch`, `multiagentv2`, and `toolschema`.
+- `apply_patch` arguments are a JSON object with exactly one string `input`; trailing JSON is rejected.
+- apply_patch capability requires every routing candidate; `false` also means unknown.
+- Integer normalization runs only for Codex user agents, keyed by explicit `parameters.properties` paths.
 
 ## ANTI-PATTERNS
 - Do not remove required null catalog fields or either supported instruction field representation.
@@ -42,6 +49,7 @@ Codex-specific catalogs, realtime sessions, and collaboration adaptation; score 
 - Do not end a relay session from inside the resource closer that it waits on.
 - Do not forward `OpenAI-Alpha` on direct Realtime WebSocket handshakes.
 
-Run `go test ./internal/client/codex/...` for all three packages.
+Run `go test ./internal/client/codex/...` for all five packages.
+`apply-patch/` consumers: `../../util/responses_tools.go` and the Codex chat-completions request translator.
 Catalog consumer regressions also live in `internal/api` and `sdk/api/handlers/openai`.
 Realtime lifecycle changes need the Pion, TCP proxy, and client-secret regression suites together.

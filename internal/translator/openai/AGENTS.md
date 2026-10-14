@@ -1,7 +1,7 @@
 # OPENAI TRANSLATORS
 
 ## OVERVIEW
-Chat Completions destinations, Responses adaptation and bidirectional Interactions; score 9, a distinct domain with 41 Go files.
+Chat Completions destinations, Responses adaptation and bidirectional Interactions; score 9, a distinct domain with 52 Go files.
 
 Registration and shared wire contracts: [parent guide](../AGENTS.md).
 
@@ -18,7 +18,9 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 | Responses tool identity | `openai/responses/openai_openai-responses_tools.go` | Namespaces and collision resolution |
 | Request-scoped lookup | `openai/responses/responses_tool_index.go` | Reverse identity and custom-tool recovery |
 | Interactions chat routes | `interactions/chat-completions/` | Separate files per request direction |
+| Shell tool history | `openai/responses/shell_tool.go` | Normalized before call grouping and output pairing |
 | Interactions Responses routes | `interactions/responses/` | Both directions share request/response files |
+| Interactions apply_patch identity | `interactions/responses/apply_patch_*_test.go` | Stream state and alias/index agreement |
 | Domain tests | `go test ./internal/translator/openai/...` | Repository-root command |
 
 ## CONVENTIONS
@@ -30,6 +32,9 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 - Long names preserve the local tool-name tail under the 64-character cap; collisions receive distinct aliases.
 - Interactions Responses conversion has separate Antigravity and Devin model-specific branches.
 - Chat self-format requests reuse matching-model bytes and remember [DONE] across stream calls.
+- Claude-client streams defer message_delta until the trailing usage chunk.
+- Shell output envelopes stay JSON text, including truncation metadata.
+- Interactions request converters return errors for user turns emptied by unsendable attachments.
 
 ## ANTI-PATTERNS
 - Never expose Claude redacted_thinking as reasoning_content.
@@ -40,4 +45,5 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 - Partial or invalid argument JSON must not fabricate a successfully completed Responses tool item.
 - Ambiguous local tool names must never dispatch to an arbitrary namespace.
 - Deduplication and discarded custom declarations must not change surviving ordinary tools' identities.
+- A later array position must not rebind an unrelated item that has a different supplied ID.
 - Preserve malformed video parts for upstream validation rather than silently degrading to text-only input.

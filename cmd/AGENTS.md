@@ -17,9 +17,10 @@ Standalone executables and startup orchestration; score 9 from file count, direc
 | --- | --- | --- |
 | Flags and startup modes | `server/main.go` | `main`, `argvEnablesBoolFlag`, `splitArgvFlag` |
 | Default-key startup gate | `server/main.go` | `shouldEnableExampleAPIKeySafeMode` |
-| Catalog refresh selection | `server/main.go` | `modelCatalogUpdaterPlan` |
-| Pre-start plugin config | `server/main.go` | `loadPluginBootstrapConfig` |
-| Startup regression cases | `server/main_test.go` | Flags, safe mode, Home port, updater plan |
+| Local catalog mode | `server/main.go` | `localModel` flag gates `registry.SetLocalModelCatalogs` beside the auto-updaters (two startup branches) |
+| Pre-start plugin config | `server/main.go` | `pluginBootstrapConfigPath`, `loadPluginBootstrapConfig` |
+| Management URL resolution | `server/main.go` | `resolveManagementBaseURL` |
+| Startup regression cases | `server/main_test.go` | Bool-flag argv parsing, safe mode, Home port, management base URL |
 | Devin wire decoding | `fetch_devin_models/main.go` | `protowire` parsing and model aggregation |
 | Error grouping | `telegram-log-forwarder/state.go` | Bounded groups and persisted delivery state |
 | Usage schedules and offsets | `telegram-usage-bot/bot.go`, `telegram-usage-bot/state.go` | Report dispatch and restart progress |
@@ -30,6 +31,8 @@ Standalone executables and startup orchestration; score 9 from file count, direc
 - Discovery has an early subcommand path and legacy boolean flags; JSON discovery must keep stdout machine-readable.
 - Safe-mode decisions distinguish server, command, Home, cloud standby, and non-standalone TUI modes.
 - Fetchers write catalogs; `validate_codex_models` validates the resulting file rather than contacting a provider.
+- CI catalog refresh (`../.github/scripts/refresh-model-catalogs.sh`) validates the remote Codex candidate with `go run ./cmd/validate_codex_models --file` and keeps the embedded catalog on failure.
+- Telegram commands keep one shared `test_helpers_test.go` per directory; test names follow `Test<Subject>_<behavior>_when<Condition>`.
 - Run command tests from the repository root with `go test ./cmd/...`.
 - Inspect `../deploy/AGENTS.md` before treating retained Telegram commands as deployed services.
 - Shared coding rules live in `../AGENTS.md`; startup implementation helpers live under `../internal/cmd/`.

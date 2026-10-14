@@ -14,6 +14,7 @@ Google Flow generation and resource APIs over Gemini-owned sessions; score 13 fo
 | Captcha providers | `flow_captcha.go`, `flow_captcha_browser.go` | Native, signed-out browser, external solver |
 | Resource operations | `flow_projects_api.go`, `flow_scenes_api.go`, `flow_collections_api.go`, `flow_entities_api.go` | Validated Google resource shapes |
 | Tools and workflows | `flow_tools_api.go`, `flow_tool_versions.go`, `flow_workflows_api.go` | Builder state, version history, recovery reads |
+| Agent sessions and messages | `flow_agents_api.go`, `flow_agent_messages.go` | Project-scoped conversations, typed events, structured prompts |
 | Uploads and media | `flow_upload_image.go`, `flow_upload_video.go`, `flow_media_api.go` | Scoped resumable transfers and references |
 | Protocol output | `flow_response_formats.go`, `flow_response_chat.go`, `flow_response_claude.go`, `flow_response_responses.go` | Plain and streaming responses |
 | Status and dashboard | `flow_status.go`, `flow_resource.go`, `DESIGN.md` | Account credits, lease state, bundled resource |
@@ -23,7 +24,7 @@ Google Flow generation and resource APIs over Gemini-owned sessions; score 13 fo
 - Deployment authority and artifact reload policy live in `../AGENTS.md`.
 - Flat `package main`, separate `go.mod`; run `make check` here for race/shuffle tests, vet, and C loader smoke.
 - `make build` emits `flow2api.so` with `CGO_ENABLED=1` and `-buildmode=c-shared`.
-- Ship bookworm-built artifacts with `flow2api.so.sha256` and `build-manifest.json`; no host-side rebuild.
+- Keep `flow2api.so.sha256` and `build-manifest.json` paired with the built artifact.
 - Gemini owns credentials and rotation; Flow receives broker response bodies and scoped headers, never its cookie jar.
 - A refused credential lease can be awaited before submission; `withoutLeaseWait` makes account listings return busy promptly.
 - Rejected captcha tokens can be replaced because no generation started; a lost response is an unknown outcome.

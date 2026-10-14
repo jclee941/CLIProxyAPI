@@ -1,7 +1,7 @@
 # CONFIGURATION CHANGE SUMMARIES
 
 ## OVERVIEW
-Deterministic config/auth change descriptions and model signatures; score 6, retained reload-reporting domain guide.
+Deterministic config/auth change descriptions and model signatures; score 8 (124 symbols, 30 exports), a distinct reload-reporting domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -13,6 +13,7 @@ Deterministic config/auth change descriptions and model signatures; score 6, ret
 | OAuth exclusion changes | `oauth_excluded.go` |
 | OAuth alias changes | `oauth_model_alias.go` |
 | OAuth scoped-error changes | `oauth_request_scoped_errors.go` |
+| OAuth model-setting changes | `oauth_settings.go` |
 | Duplicate OpenAI-compat providers | `openai_compat.go` |
 
 ## CONVENTIONS

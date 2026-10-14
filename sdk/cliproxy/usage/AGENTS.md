@@ -16,6 +16,7 @@ Parent lifecycle: [service guide](../AGENTS.md).
 | Validate breakdowns | `accounting.go` | Schema, quality, overflow-safe totals |
 | Check context contracts | `manager_test.go` | Flags and record fields |
 | Check token arithmetic | `accounting_test.go` | Cache/reasoning relationships and inconsistent counts |
+| Acknowledge downstream delivery | `stream_delivery.go`, `stream_delivery_test.go` | HTTP outcome independent of cancellation; internal-execution isolation |
 
 ## CONVENTIONS
 - The queue is a mutex/condition-variable slice, not a bounded channel; `NewManager(buffer int)` currently does not enforce the supplied capacity.
@@ -30,6 +31,8 @@ Parent lifecycle: [service guide](../AGENTS.md).
 - OpenAI-compatible accounting treats cache/reasoning as subsets; Claude cache tokens are independent; Gemini-family reasoning is separate.
 - Explicit OpenAI-compat executor semantics take precedence over provider-name substring classification.
 - Unknown token semantics remain unclassified; contradictory or overflowing counts produce inconsistent quality.
+- `WithStreamDelivery` consumers resolve every exit; producers close output before `WaitStreamDelivery`.
+- `WithoutStreamDelivery` preserves cancellation and unrelated context while isolating nested execution accounting.
 
 ## ANTI-PATTERNS
 - Do not assume the constructor's buffer argument bounds memory or provides producer backpressure.
@@ -38,5 +41,6 @@ Parent lifecycle: [service guide](../AGENTS.md).
 - Do not sum cache or reasoning buckets identically across providers; use the accounting constructors.
 - Do not convert invalid arithmetic into apparently complete accounting.
 - Do not emit deprecated `RequestServiceTier`; it is an input-only compatibility alias for `ServiceTier`.
+- Do not treat upstream EOF or request cancellation as the tracked HTTP consumer's delivery acknowledgement.
 
 Package check from repository root: `go test ./sdk/cliproxy/usage`.

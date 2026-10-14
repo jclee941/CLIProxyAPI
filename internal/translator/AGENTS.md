@@ -1,7 +1,7 @@
 # TRANSLATOR KNOWLEDGE BASE
 
 ## OVERVIEW
-Protocol conversion and registration hub; score 16, with eight immediate domains and 206 Go files below this directory.
+Protocol conversion and registration hub; score 16, with eight immediate domains, 26 blank-imported pair packages and 266 Go files below this directory.
 
 Parent package map: [internal/AGENTS.md](../AGENTS.md).
 
@@ -27,7 +27,9 @@ translator/
 | Identify direction | Pair package `init.go` | Registration arguments are authoritative |
 | Shared transformations | `common/` | Separate guidance for helper contracts |
 | Claude to Interactions | `interactions/claude/` | Request, response and compat conversion |
-| Interactions architecture | `interactions/import_boundary_test.go` | Scans four non-Gemini route trees |
+| Interactions architecture | `interactions/import_boundary_test.go` | Scans four non-Gemini route trees; regex still pins `/v7/` |
+| Context-aware requests | `claude/openai/responses/init.go`, `antigravity/openai/responses/init.go` | `RegisterRequestEnvelope`; plain request slot is nil |
+| Unsendable parts | `common/parts.go` | Shared drop/refusal policy for request converters |
 | Large payload costs | `request_benchmark_test.go`, `response_benchmark_test.go` | Root-package benchmarks |
 | Scoped validation | `go test ./internal/translator/...` | Run from repository root |
 | Payload benchmarks | `go test -run='^$' -bench=. ./internal/translator` | Requests and responses |
@@ -36,6 +38,8 @@ translator/
 - Most paths mean destination/source, not request direction read left-to-right.
 - Exceptions include bidirectional Interactions packages; inspect registration rather than guessing.
 - Each registration pairs a forward request converter with reverse response hooks.
+- Request converters return `([]byte, error)` (`sdk/translator/types.go` RequestTransform); the facade `Request` returns bytes only.
+- Envelope converters receive request context, e.g. the pinned `upstream.claude.tool-search` value.
 - The facade shares `sdk/translator.Default()`; runtime dispatch need not call this wrapper.
 - Streaming hooks retain per-stream state through `param *any`; non-stream hooks are separate.
 - Converters predominantly query raw JSON with gjson and build payloads with sjson.
@@ -45,6 +49,7 @@ translator/
 
 ## ANTI-PATTERNS
 - Apply [the root translator change policy](../../AGENTS.md) before modifying this subtree.
-- Do not route non-Gemini Interactions conversions through Gemini translators: the import-boundary test forbids that dependency.
+- Do not route non-Gemini Interactions conversions through Gemini translators. The import-boundary test's regex matches only `/v7/` paths, so it cannot catch v8 imports; verify by hand.
+- Do not silently drop parts that empty a user turn; record them with `common.UserTurnDrops` so the request is refused.
 - Do not assume equal source/destination formats mean no work; self-format converters normalize requests and terminal events.
 - Do not treat registration reference counts as the full runtime call graph; dispatch is indirect.

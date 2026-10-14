@@ -1,7 +1,7 @@
 # API SERVER KNOWLEDGE BASE
 
 ## OVERVIEW
-Gin server assembly, protocol multiplexing, and route lifecycle; retained as a distinct transport domain.
+Gin server assembly, protocol multiplexing, and route lifecycle; score 12, a distinct transport domain.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -10,6 +10,7 @@ Gin server assembly, protocol multiplexing, and route lifecycle; retained as a d
 | Embedding options | `server_options.go` | Middleware, router, plugin host, auth hooks |
 | Provider routes and model lists | `server_routes.go` | Compatibility endpoints and OAuth redirects |
 | Management route installation | `server_management.go` | Lazy registration and availability gate |
+| V8 management contract | `server_management_v8.go` | Independent configuration and operational route groups |
 | Authentication and safe mode | `server_middleware.go` | Access checks and example-key restrictions |
 | Native plugin fallback | `server_frontend_http.go` | Gin NoRoute dispatch |
 | Runtime configuration update | `server_reload.go` | `UpdateClientsContext` and old YAML snapshot |
@@ -27,6 +28,7 @@ Gin server assembly, protocol multiplexing, and route lifecycle; retained as a d
 - Server receiver methods are split by responsibility across `server_*.go`.
 - Public compatibility handlers are assembled here; implementations live under SDK handlers.
 - Management route registration and route availability are separate atomic states.
+- V8 configuration routes mark handler context with `management.ConfigV8ContextKey`.
 - Keep `/backend-api/codex` aliases aligned with the corresponding response endpoints.
 - Config reload compares against a serialized prior snapshot, not a shared mutable pointer.
 - HTTP and RESP share the listening socket; protocol inspection belongs to each accepted connection.

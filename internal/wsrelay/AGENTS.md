@@ -1,7 +1,7 @@
 # HTTP-OVER-WEBSOCKET RELAY
 
 ## OVERVIEW
-Provider session routing and correlated HTTP/stream transport; retained as a distinct concurrent wire-protocol domain.
+Provider session routing and correlated HTTP/stream transport; score 8 (54 symbols, 13 exports), a distinct concurrent wire-protocol domain.
 
 ## WHERE TO LOOK
 | Task | File |

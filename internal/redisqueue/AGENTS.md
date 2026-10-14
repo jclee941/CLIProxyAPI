@@ -1,7 +1,7 @@
 # IN-MEMORY USAGE QUEUES
 
 ## OVERVIEW
-Usage/error publication and usage-plugin serialization; retained as a distinct event-delivery domain.
+Usage/error publication and usage-plugin serialization; score 8 (76 symbols, 12 exports, 15 importing files), a distinct event-delivery domain.
 
 ## WHERE TO LOOK
 | Task | File |

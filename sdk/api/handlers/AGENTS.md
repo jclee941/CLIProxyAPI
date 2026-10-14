@@ -21,6 +21,7 @@ Parent map: [SDK guide](../../AGENTS.md); endpoint registration lives in `intern
 | OpenAI REST/media | `openai/openai_handlers.go`, `openai/openai_images_handlers.go`, `openai/openai_videos_handlers.go` | Chat/completions, image routes, async video auth binding. |
 | Responses SSE | `openai/openai_responses_handlers.go` | Frame repair, terminal events, compact endpoint. |
 | Responses WebSocket | `openai/openai_responses_websocket*.go` | Connection lifecycle, transcripts, steering, tool repair, timeline. |
+| Speech and native media routes | `openai/openai_speech_handlers.go`, `openai/openai_videos_handlers.go` | AudioSpeech/XAITTS and xAI video generation, editing, extension. |
 
 ## CONVENTIONS
 - Protocol handlers embed BaseAPIHandler; execution uses its auth-manager entry points.
@@ -31,7 +32,7 @@ Parent map: [SDK guide](../../AGENTS.md); endpoint registration lives in `intern
 - Nested execution invalidates outer prepared routes that could point back to the caller.
 - Preserve original requested-model metadata separately from the normalized execution model.
 - Internal model calls receive filtered upstream headers even when public passthrough is configured.
-- Video retrieval/content requests reuse the creator auth/model binding; bindings expire after 24 hours.
+- Video retrieval/content requests reuse the creator auth/model binding; TTL defaults to 3 hours and accepts a positive `VideoResultAuthCacheTTL` duration.
 - Gemini interaction creation requires exactly one of model or agent; retrieval uses interaction.get, not create replay.
 - Focused checks: `go test ./sdk/api/handlers/...`; streaming regressions live in bootstrap, forwarder, and protocol stream tests.
 - WebSocket transcript allocation checks: `go test ./sdk/api/handlers/openai -run '^$' -bench BenchmarkNormalizeResponseSubsequentRequestTranscripts`.

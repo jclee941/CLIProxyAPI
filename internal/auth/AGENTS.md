@@ -1,7 +1,8 @@
 # PROVIDER AUTHENTICATION
 
 ## OVERVIEW
-Provider login/refresh clients and persisted token formats; score 11, a distinct multi-provider authentication boundary.
+Provider login/refresh clients and persisted token formats; score 16 (subtree: 58 Go files, 9 provider packages, `claude/` has 23 importers), a distinct multi-provider authentication boundary.
+Child guides: `claude/`, `codex/`, `devin/`, `kimi/`; `antigravity/`, `meta/`, `vertex/`, `xai/`, `empty/` are covered here.
 
 ## STRUCTURE
 | Path | Provider-specific responsibility |
@@ -33,6 +34,8 @@ Provider login/refresh clients and persisted token formats; score 11, a distinct
 - Provider storage encodes provider-specific fields alongside supported custom metadata.
 - Credential filename builders encode account identity rather than assuming email uniquely identifies every account.
 - Callback ports belong to SDK orchestration; provider callback servers accept the selected port.
+- `xai/` refresh singleflight is package-wide, like its guided siblings.
+- Claude and Codex filename builders keep the legacy email-based format only as a fallback.
 - Test provider primitives with `go test ./internal/auth/...` from the repository root.
 
 ## ANTI-PATTERNS

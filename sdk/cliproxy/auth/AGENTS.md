@@ -1,7 +1,7 @@
 # AUTH CONDUCTOR KNOWLEDGE BASE
 
 ## OVERVIEW
-Credential execution, scheduling, cooldown, refresh, and Home selection; score 12, a distinct runtime domain spanning 148 Go files.
+Credential execution, scheduling, cooldown, refresh, and Home selection; score 12, a distinct runtime domain spanning 168 Go files.
 
 Parent lifecycle: [service guide](../AGENTS.md); distributed credential ownership follows the [repository policy](../../../AGENTS.md).
 
@@ -22,6 +22,8 @@ Parent lifecycle: [service guide](../AGENTS.md); distributed credential ownershi
 | Publish concurrency state | `home_concurrency.go`, `home_in_flight_publisher.go` | Accounted identity checks and bounded snapshot frames |
 | Merge passive quota data | `quota_signals.go` | Watermark snapshots separate from scheduling |
 | Maintain session bindings | `session_cache.go`, `home_session_alias.go` | Grouped aliases, conditional invalidation, TTL |
+| Observe credential replacement | `auth_change_watch.go` | Coalesced structural notifications, not request-result generation changes |
+| Persist concurrent mutations | `conductor_persistence.go`, `persist_policy.go` | Reload barrier, credential gate, creation intent, batch alias rebuild policy |
 
 ## CONVENTIONS
 - `Manager` methods are split by concern across `conductor_*.go`, not separate conductor subpackages.
@@ -36,6 +38,8 @@ Parent lifecycle: [service guide](../AGENTS.md); distributed credential ownershi
 - `ResultPolicy` runs before quota mutation and must support concurrent calls.
 - Batch callers deferring API-key alias rebuilds must call `RefreshAPIKeyModelAlias` afterward.
 - Home client, registry, and generation travel as one immutable `HomeDispatchBundle`; retained selections own session resources.
+- Mutation lock order is reload barrier, credential gate, then `m.mu`; retain the first two through publication.
+- Auth-change watchers must reread current state after notification and unsubscribe when their work ends.
 
 ## ANTI-PATTERNS
 - Do not change `Error`'s public four-field layout; causal errors use wrappers for unkeyed-literal compatibility.
@@ -49,6 +53,7 @@ Parent lifecycle: [service guide](../AGENTS.md); distributed credential ownershi
 - Do not mutate bindings or refresh TTL during passive affinity lookups.
 - Do not reschedule disabled `invalid_grant` credentials.
 - Do not resurrect removed/disabled credentials from stale scheduler snapshots.
+- Do not mutate the manager from Store callbacks; read access is permitted.
 
 Package check: `go test ./sdk/cliproxy/auth`; concurrency check: `go test -race ./sdk/cliproxy/auth`.
 Hot regression suites: `conductor_oauth_alias_nofork_test.go`, `conductor_scheduler_*_test.go`, `home_retry_contract_test.go`.

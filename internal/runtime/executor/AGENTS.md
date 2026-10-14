@@ -1,7 +1,7 @@
 # EXECUTOR KNOWLEDGE BASE
 
 ## OVERVIEW
-Provider execution, native wire fidelity, replay, and stream lifecycle; score 12, distinct domain with 166 direct Go files. Covers the 109-Go-file `helps/` package at the default depth-3 limit.
+Provider execution, native wire fidelity, replay, and stream lifecycle; score 17 (217 direct Go files, imported by 31 files outside `internal/runtime/`). Also covers the 146-Go-file `helps/` package (16 outside importers), which sits past the default depth-3 limit.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -17,13 +17,15 @@ Provider execution, native wire fidelity, replay, and stream lifecycle; score 12
 | xAI protocol adaptation | `xai_executor_{request,response,media}.go`, `xai_reasoning_replay.go` | Tool folding, search filtering, media, isolated replay |
 | xAI WebSocket IDs | `xai_websockets_executor.go` | Separate session store, downstream/upstream ID map, compacted transcript |
 | Gemini / Vertex / AI Studio | `gemini_executor.go`, `gemini_vertex_executor.go`, `aistudio_executor.go` | Interactions, service-account/API-key paths, relay |
-| Devin / Kimi / Meta | `devin_executor.go`, `kimi_executor.go`, `meta_executor*.go` | Connect-RPC, Claude delegation, temporary DCA credentials |
+| Devin / Kimi / Meta | `devin_executor.go`, `helps/devin_wire.go`, `kimi_executor.go`, `kimi_thinking_replay.go`, `meta_executor*.go` | Connect-RPC framing, Claude embedding, DCA singleflight minting |
+| Credential-scoped copies | `oauth_scope_executor.go` | `ForAPIKey` value receivers copy config; shared transport/session stores stay shared |
 | OpenAI-compatible providers | `openai_compat_executor.go`, `openai_responses_signature.go`, `codex_openai_images.go` | Compatibility knobs, reasoning sanitization, Images adaptation |
-| Usage and token timing | `helps/usage_helpers.go`, `helps/*ttft_helpers.go`, `helps/stream_response_model_observer.go` | Protocol-aware usage and chunk-safe model observation |
-| Served-model accounting | `helps/response_model.go`, `helps/usage_helpers.go` | Upstream model extraction, terminal observation, side-model records |
+| Usage, TTFT, served model | `helps/usage_helpers.go`, `helps/{chat,claude,gemini,responses}_ttft_helpers.go`, `helps/response_model.go` | Protocol-aware usage; requested/upstream/served models; chunk-safe observation |
+| Payload-rule barrier | `helps/payload_finalizer.go`, `helps/payload_helpers.go`, `payload_barrier_test.go` | Finalizer reapplies rules to the unconfigured body on every rebuilt attempt |
+| Upstream request capture | `helps/logging_helpers.go` | `RecordAPIResponseError` is the most-referenced helper; CommercialMode skips capture |
 | Home refresh and identity caches | `helps/home_refresh.go`, `helps/{session_id_cache,user_id_cache}.go` | Refresh result contract and Home-aware required cache operations |
 | Payload / transport utilities | `helps/payload_helpers.go`, `helps/codex_multi_agent_v2.go`, `helps/{proxy_helpers,transport_cache,utls_client}.go` | Payload rules, translation baselines, connection caches |
-| Package tests | `go test ./internal/runtime/executor/...` | Includes `helps`; run from repository root |
+| Package tests | `go test ./internal/runtime/executor/...` | Includes `helps`; `testdata/tool_search_disabled/` is the Claude tool-search-disabled golden |
 | Targeted race checks | `go test -race ./internal/runtime/executor -run 'TestClaudeExecutorSharedCredential|TestWebsocket|TestCodex.*Duplex'` | Shared auth, session lifecycle, duplex ordering |
 
 ## CONVENTIONS
@@ -37,7 +39,9 @@ Provider execution, native wire fidelity, replay, and stream lifecycle; score 12
 - Antigravity isolates transports by credential and proxy and suppresses HTTP/2; pool settings are part of the cache key.
 - Codex auto routing requires both downstream WebSocket transport and credential opt-in; xAI auto routing applies that choice only to streaming requests.
 - WebSocket sessions bind lifecycle and active channels to a connection, not just a session ID; stale closes must not affect replacements.
-- Error scope is behavioral: request-scoped failures stop locally; credential-scoped failures inform rotation/cooling.
+- Error scope is behavioral and declared by `IsRequestScoped`/`IsCredentialScoped` marker methods: request-scoped failures stop locally; credential-scoped failures inform rotation/cooling.
+- Tests are white-box (`package executor`/`helps`) except four `helps_test` files that consume translator, registry, and plugin-host packages; `_legacy_oracle`, `_differential`, and `issue<N>` file names mark test role.
+- `helps/xai_version.go` bounds npm Grok CLI version lookups with a 10s timeout; it is a background utility fetch, not a precedent for upstream-call timeouts.
 - Replay logic is provider-specific. Match session, history, and call semantics before restoring hidden state; commit only complete turns.
 - xAI chat routing differs from compact/WebSocket routing: the CLI chat proxy does not implement the latter endpoints.
 - xAI aliases repeated upstream response IDs with `-xai-N`; preserve the reverse mapping for `previous_response_id`.
@@ -60,6 +64,7 @@ Provider execution, native wire fidelity, replay, and stream lifecycle; score 12
 - Do not infer safe Codex bootstrap buffering from missing TTFT. The closed event allowlist prevents replaying server-side tool effects.
 - Preserve both bootstrap limits: 48 budget units and 1 MiB retained bytes; SSE charges lines, WebSocket charges messages read.
 - Do not fall back to HTTP when the execution context requires upstream WebSocket replay.
+- Do not hold Codex WebSocket session locks across account checks; they may call back into the auth manager.
 - Do not notify downstream disconnect on a retryable Codex bootstrap overload teardown.
 - Do not consume duplex follow-ups until the initial bootstrap succeeds.
 - Do not enable Codex or xAI outbound WebSocket write compression; negotiating `permessage-deflate` is permitted.
@@ -69,7 +74,7 @@ Provider execution, native wire fidelity, replay, and stream lifecycle; score 12
 
 ### Helpers and regression tests
 - Keep frozen Antigravity legacy oracles independent of production; assert intentional new behavior separately, not by rewriting the oracle.
-- Do not parallelize tests that replace process-global logrus hooks and model-substitution throttles.
+- Do not parallelize tests that replace process-global logrus hooks and model-substitution throttles (`helps/response_model_test.go`).
 - Do not reenter `TransportCache.Get` from its build callback; the cache lock is held.
 - Do not share TLS resumption state across proxy identities; keep `pre_shared_key` last in the Claude ClientHello extension list.
 - For Claude fingerprint changes, inspect `helps/utls_client_test.go` and native-capture fixtures together with header tests.

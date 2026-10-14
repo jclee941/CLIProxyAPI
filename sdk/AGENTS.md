@@ -16,8 +16,8 @@ Parent policy: [repository guide](../AGENTS.md).
 | `logging/` | Public request logger aliases and file-logger constructors. |
 | `pluginabi/` | Native plugin RPC envelope, method identifiers, compatibility versions. |
 | `pluginapi/` | Plugin capability interfaces and request/response contracts. |
-| `pluginhost/` | Public host wrapper over `internal/pluginhost`; `New()` then `ApplyConfig`. |
-| `pluginstore/` | Marketplace/install facade over `internal/pluginstore`. |
+| `pluginhost/` | Public host configuration/model conversion; follow `pluginhost/AGENTS.md`. |
+| `pluginstore/` | Artifact clients and install facade; follow `pluginstore/AGENTS.md`. |
 | `proxyutil/` | Shared proxy-setting parser, HTTP transports, and connection dialers. |
 | `translator/` | Translation registry and middleware; `builtin/` enables built-in registrations. |
 
@@ -27,8 +27,8 @@ Parent policy: [repository guide](../AGENTS.md).
 | Configure embedded routes | `api/options.go` | Engine hook runs before routes; router hook after routes. |
 | Embed OAuth management | `api/management.go` | Handler constructors and session/callback forwarders. |
 | Preserve configuration comments | `config/config.go` | Public preserve-comments save functions. |
-| Change plugin host settings | `pluginhost/host.go` | RuntimeConfig conversion retains plugin YAML nodes. |
-| Share marketplace cooldowns | `pluginstore/pluginstore.go` | WithNetworkScope labels egress; does not configure transport. |
+| Embed plugin lifecycle and quota | `pluginhost/AGENTS.md` | Public host contracts and configuration ownership. |
+| Fetch/install plugin artifacts | `pluginstore/AGENTS.md` | Client auth, egress identity, manifest/release entry points. |
 | Interpret proxy overrides | `proxyutil/proxy.go` | Empty inherits; direct/none bypass; concrete proxy URLs select a transport. |
 
 ## CONVENTIONS
@@ -41,4 +41,3 @@ Parent policy: [repository guide](../AGENTS.md).
 - Do not duplicate internal config, logging, or marketplace implementations inside their public facades.
 - Do not conflate inbound API-key access (`access`) with provider login credentials (`auth`).
 - Do not treat `direct`/`none` proxy settings as empty inheritance or use Parse alone to validate execution overrides; use ValidRequestProxy.
-- Do not assume a pluginstore network-scope label changes outbound proxy routing.

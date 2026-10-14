@@ -1,7 +1,7 @@
 # HOME PLUGIN SYNC KNOWLEDGE BASE
 
 ## OVERVIEW
-Home-directed plugin artifact reconciliation and install/load reporting; retained as a distinct synchronization domain.
+Home-directed plugin artifact reconciliation and install/load reporting; score 9, a distinct synchronization domain.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |

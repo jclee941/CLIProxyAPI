@@ -26,7 +26,7 @@ cliproxy/
 | Bind provider executors | `service_executors.go` | Baseline/native/plugin bindings and refresh wrappers |
 | Register model projections | `service_models.go` | Config indexes, exclusions, aliases, prefixes |
 | Coordinate registration workers | `service_plugins.go` | Config API keys first; bounded category workers |
-| Enrich Antigravity capabilities | `antigravity_models.go` | Async singleflight probes and TTL caches |
+| Enrich Antigravity capabilities | `antigravity_models.go`, `antigravity_model_probes.go` | Async singleflight probes, stale-work fencing, hint persistence |
 | Manage Home connection lifetimes | `service_home.go`, `home_plugins.go` | Supervisor, overlays, plugin staging/finalization |
 | Adapt watcher hooks | `watcher.go`, `types.go` | Closure-based wrapper; `SnapshotAuths` |
 | Manage auxiliary listeners | `pprof_server.go`, `discovery_advertiser.go` | Server ownership and bound endpoint identity |

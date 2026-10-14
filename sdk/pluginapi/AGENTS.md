@@ -25,6 +25,7 @@ Parent map: [SDK guide](../AGENTS.md); wire version gates live in [pluginabi](..
 - Request bodies and history are fresh header-init snapshots; payload omission follows negotiated pluginabi gates.
 - ManagementResponse carries raw body bytes; representation compatibility belongs to the native adapter.
 - Quota result types have custom UnmarshalJSON paths; inspect those before changing field shapes.
+- SchedulerPickResponse also has custom JSON decoding; scheduler selection/rejection fields are wire contracts, not ordinary struct-only changes.
 - Frontend HTTP is buffered, not streaming: bodies capped at 128 MiB and RPC messages at 192 MiB.
 - FrontendHTTPAuthCore is the empty/default mode; scoped routes supply their own Authenticator.
 - Scoped authentication runs before body reading and therefore receives nil Body.
