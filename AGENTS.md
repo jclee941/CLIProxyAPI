@@ -14,7 +14,7 @@ cmd/AGENTS.md             # Executables, startup modes, catalog utilities
 internal/AGENTS.md        # Internal package map and smaller domains
 sdk/AGENTS.md             # Public facades and integration contracts
 sdk/cliproxy/AGENTS.md    # Embedded service and runtime conductor
-deploy/AGENTS.md          # Active deployment authority and retired packages
+deploy/AGENTS.md          # Active deployment authority and ancillary packages
 examples/plugin/AGENTS.md # Polyglot native ABI examples; nested modules
 test/                     # Cross-package protocol/thinking tests
 docs/                     # SDK guides and steering
@@ -90,7 +90,7 @@ Digest evidence retains measurement method/scope: rg counts are textual/import c
 - Timeouts are allowed only during credential acquisition; once upstream is connected, do not set timeouts for subsequent network behavior. Preserve intentional exceptions: Codex websocket liveness deadlines in `internal/runtime/executor/codex_websockets_connection.go`; session deadlines in `internal/wsrelay/session.go`; management APICall timeout in `internal/api/handlers/management/api_tools.go`; utility timeouts in `cmd/fetch_antigravity_models`; the 10s npm version fetch in `internal/runtime/executor/helps/xai_version.go` (not an upstream model call).
 - No wall-clock `time.Sleep` in TTL, expiration, ordering, or cache-eviction unit tests: timer granularity and CI jitter make them unreliable. Use `nowFunc` / mock clocks, explicit timestamps, or deterministic synchronization.
 - Do not break the thinking pipeline's canonical representation -> per-provider translation architecture.
-- Do not promote legacy sidecars/overlays or historical Compose defaults into supported CPA deployment guidance.
+- Do not promote legacy sidecars/overlays into supported CPA deployment guidance.
 - Home caches are exclusive: never fall back to local cache on a Home miss. No-copy JSON aliases caller bytes; do not mutate them in place.
 - Never send a request envelope with `RequestEnvelope.Err`; byte-only translation APIs do not expose that error. Request/credential-scoped error markers control retry, rotation and penalties.
 
@@ -125,12 +125,11 @@ go build -o test-output ./cmd/server && rm test-output # Verify compile (REQUIRE
 - `internal/managementasset/` owns management HTML, not config snapshots; usage/token accounting is in `sdk/cliproxy/usage/` (no internal usage package).
 - Supported CPA topology is core, PostgreSQL, and native plugins. Core convergence uses checksum-verified artifacts and direct Docker stop/start, not Compose or automatic rollback.
 - CI closes PRs changing root or nested AGENTS.md and rejects translator changes; repository permission does not bypass these independent guards.
-- Current deployment authority: `deploy/README.md`, NAS 192.168.50.215 at /volume1/docker/cliproxy; explicit convergence as jclee, `GITOPS_COMPOSE_FILES` set to one space (empty selects historical defaults). `deploy/pull-deploy.sh` uses a dedicated deploy clone, rejects tracked modifications and prevents overlap with non-blocking flock.
+- Current deployment authority: `deploy/README.md`, NAS 192.168.50.215 at /volume1/docker/cliproxy; explicit convergence as jclee with `/usr/local/bin` on PATH (script defaults are the NAS paths and `deploy/cpa-plugins.json`; it never runs Compose). `deploy/pull-deploy.sh` uses a dedicated deploy clone, rejects tracked modifications and prevents overlap with non-blocking flock.
 - `deploy/cpa-plugins.json` selects gemini-web (restart), chatgpt-web and flow2api (hot), dashboards and companion ZIP. Core uses checksum-verified cpa-core releases; hot-load proof is a versioned host log line; restart health checks loaded plugins, ready accounts and `X-CPA-COMMIT`.
 - Gemini's web build emits both Gemini and Flow dashboards; ChatGPT's dashboard is hand-authored. QA companion archives are not production login packages. Stop captured account profiles while CPA owns rotating cookies; keep the signed-out Flow captcha browser running.
 - Model catalogs have embedded fallbacks, per-catalog `CatalogSources` overrides and a 3h refresh interval; `--local-model` disables remote updates. Release automation refreshes/validates catalogs via `.github/scripts/refresh-model-catalogs.sh`; server build metadata uses `main.Version`, `main.Commit`, `main.BuildDate`.
 - GitHub token precedence: configured value, environment, eligible Git-store fallback; `internal/githubauth/token.go` releases tokens only to HTTPS api.github.com. Plugin request-kind/URL auth precedence remains separate.
 - Error-only request capture: known bodies up to 1 MiB eager, deferred up to 32 MiB; full logging clears the deferred cap, native handlers retain read bounds. TUI supports remote HTTP(S) origins but still uses v0 management.
 - Video creator auth/model bindings default to 3h, overridable with positive `VideoResultAuthCacheTTL`. SDK plugin-store `WithNetworkScope` labels shared cooldown identity, not outbound transport.
-- CI core-build runs root tests for relevant master changes, ignoring Markdown; PRs build the server; main-target PRs retarget to dev. Root README translations are parallel; SDK docs retain v6 examples and some nested examples retain v7 module paths despite v8 imports.
-- The translator Interactions import-boundary test still matches v7 rather than v8; treat it as incomplete guard coverage, not evidence that v8 imports were checked.
+- CI core-build runs root tests for relevant master changes, ignoring Markdown; PRs build the server; main-target PRs retarget to dev. Root README translations are parallel; SDK guides and nested example modules use the v8 module path (example modules stay under `.../v8/examples/` so they may import root `internal/` packages).
