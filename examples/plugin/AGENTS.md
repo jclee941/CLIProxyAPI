@@ -26,8 +26,8 @@ Capability-focused C ABI examples across Go, C, and Rust; score ~17 from file co
 
 ## CONVENTIONS
 - Standard examples have `go/`, `c/`, and `rust/` peers; specialized examples may be Go-only.
-- Every Go implementation except `structured-output/go/` has its own `go.mod` (module `.../CLIProxyAPI/v7/examples/plugin/<name>/go`); run its tests from that directory.
-- SDK-consuming modules `replace github.com/router-for-me/CLIProxyAPI/v7 => ../../../..` while sources import `.../v8/` paths; keep both in sync when touching imports.
+- Every Go implementation except `structured-output/go/` has its own `go.mod` (module `.../CLIProxyAPI/v8/examples/plugin/<name>/go`); run its tests from that directory.
+- SDK-consuming modules require `github.com/router-for-me/CLIProxyAPI/v8 v8.0.0` with `replace ... => ../../../..`; keep module paths under `.../v8/` (the generator writes them) so imports of root `internal/` packages stay legal.
 - `structured-output/go/` has no `go.mod`: root tests cover it; targeted check is `go test ./examples/plugin/structured-output/go`.
 - Use `make -C examples/plugin list` to inspect configured targets before choosing a build.
 - The Makefile emits `bin/<example>-<lang>.<so|dylib|dll>`; outside `EXAMPLES` are `codex-service-tier`, `frontend-auth-exclusive`, `request-lifecycle`, `scheduler`, `structured-output` (use their README direct builds).
