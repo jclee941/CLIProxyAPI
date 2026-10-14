@@ -27,7 +27,7 @@ translator/
 | Identify direction | Pair package `init.go` | Registration arguments are authoritative |
 | Shared transformations | `common/` | Separate guidance for helper contracts |
 | Claude to Interactions | `interactions/claude/` | Request, response and compat conversion |
-| Interactions architecture | `interactions/import_boundary_test.go` | Scans four non-Gemini route trees; regex still pins `/v7/` |
+| Interactions architecture | `interactions/import_boundary_test.go` | Scans four non-Gemini route trees for Gemini translator imports at any module major version |
 | Context-aware requests | `claude/openai/responses/init.go`, `antigravity/openai/responses/init.go` | `RegisterRequestEnvelope`; plain request slot is nil |
 | Unsendable parts | `common/parts.go` | Shared drop/refusal policy for request converters |
 | Large payload costs | `request_benchmark_test.go`, `response_benchmark_test.go` | Root-package benchmarks |
@@ -49,7 +49,7 @@ translator/
 
 ## ANTI-PATTERNS
 - Apply [the root translator change policy](../../AGENTS.md) before modifying this subtree.
-- Do not route non-Gemini Interactions conversions through Gemini translators. The import-boundary test's regex matches only `/v7/` paths, so it cannot catch v8 imports; verify by hand.
+- Do not route non-Gemini Interactions conversions through Gemini translators; `interactions/import_boundary_test.go` rejects those imports.
 - Do not silently drop parts that empty a user turn; record them with `common.UserTurnDrops` so the request is refused.
 - Do not assume equal source/destination formats mean no work; self-format converters normalize requests and terminal events.
 - Do not treat registration reference counts as the full runtime call graph; dispatch is indirect.
