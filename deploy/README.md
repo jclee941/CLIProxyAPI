@@ -1,6 +1,6 @@
 # Deployment
 
-Sidecars and the GitOps convergence loop for this CLIProxyAPI fork.
+The GitOps convergence loop for this CLIProxyAPI fork, plus ancillary packages the current host does not deploy:
 
 - [telegram-log-forwarder](telegram-log-forwarder/README.md) — forwards new `error-*.log` entries to Telegram.
 - [telegram-usage-bot](telegram-usage-bot/README.md) — Telegram bot that reports CLIProxyAPI usage.
@@ -10,8 +10,8 @@ Sidecars and the GitOps convergence loop for this CLIProxyAPI fork.
 The fork's `master` branch is the single source of truth for what runs on the host.
 
 1. The [`core-build`](../.github/workflows/core-build.yml) workflow tests `master` whenever a push changes anything the core tests read, and builds the CPA core and publishes it on the `cpa-core` release when the core itself changed; see [CPA core](#cpa-core).
-2. The host converger [`pull-deploy.sh`](pull-deploy.sh) is run on the host after `master` moves; see [Running a deploy](#running-a-deploy). It fetches the fork branch into a dedicated deploy clone and rebuilds every compose project when the branch moved.
-3. When `GITOPS_CPA_MANIFEST` is set, each run then applies [`cpa-converge.py`](cpa-converge.py) to the CPA core and native plugins; see [CPA native plugins](#cpa-native-plugins).
+2. The host converger [`pull-deploy.sh`](pull-deploy.sh) is run on the host after `master` moves; see [Running a deploy](#running-a-deploy). It fetches the fork branch into a dedicated deploy clone.
+3. Each run then applies [`cpa-converge.py`](cpa-converge.py) with [`cpa-plugins.json`](cpa-plugins.json) to the CPA core and native plugins; see [CPA native plugins](#cpa-native-plugins).
 
 [`upstream-release-sync`](../.github/workflows/upstream-release-sync.yml) checks hourly for a new `router-for-me/CLIProxyAPI` release. It merges the release into `master` only when the merge is clean and `go test ./...` passes on `golang:1.26-bookworm`, then dispatches `core-build`. A conflict or a red test leaves `master` unchanged and sends one Telegram alert per release through the repository secrets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Run it by hand to retry a release, or with `test_alert` to check the alert channel. Deploying stays an explicit `pull-deploy.sh` run.
 
@@ -29,16 +29,12 @@ Since 2026-10-06, CPA runs on the Synology DS423+ at 192.168.50.215 (DSM Contain
 
 The NAS Cloudflare tunnel routes `cliproxy.jclee.me` and `cliproxy2.jclee.me` itself; no reverse proxy sits in front of CPA. Requests for `/`, `/management.html`, `/health`, `/status`, `/setup`, `/models`, `/usage-service/*`, `/v0/management/*` and `/v0/resource/plugins/*` go to Manager Plus on `:18317`, and everything else goes to the core on `:8317`. A Cloudflare URL rewrite rule serves `/openapi.json` from `/v0/resource/plugins/gemini-web/openapi.json`.
 
-The DSM kernel has no CFS quota, so compose files there must not set `cpus:`. The converger defaults below name the old host's paths. On the NAS, `sudo` asks for a password, so run the converger as `jclee` (a member of the `docker` group):
+The DSM kernel has no CFS quota, so compose files there must not set `cpus:`. On the NAS, `sudo` asks for a password, so run the converger as `jclee` (a member of the `docker` group). A non-interactive ssh shell lacks `/usr/local/bin`, where `docker` lives, so put it on `PATH`. The converger defaults are this host's paths:
 
 ```bash
 B=/volume1/docker/cliproxy
-GITOPS_DEPLOY_DIR=$B/deploy GITOPS_CPA_MANIFEST=deploy/cpa-plugins.json GITOPS_COMPOSE_FILES=" " \
-CPA_PLUGIN_DIR=$B/runtime/plugins CPA_CORE_BINARY=$B/runtime/CLIProxyAPI CPA_CORE_ENV=$B/runtime/secrets/core.env \
-$B/deploy/deploy/pull-deploy.sh >> $B/pull-deploy.log 2>&1
+PATH=/usr/local/bin:$PATH GITOPS_DEPLOY_DIR=$B/deploy $B/deploy/deploy/pull-deploy.sh >> $B/pull-deploy.log 2>&1
 ```
-
-Set `GITOPS_COMPOSE_FILES` to a single space. An empty value falls back to the default list, and the Telegram sidecars are not deployed on the NAS.
 
 ## CPA native plugins
 
@@ -58,24 +54,24 @@ Configuration, all optional:
 
 | Variable | Default |
 | --- | --- |
-| `CPA_PLUGIN_DIR` | `/opt/dashboard/plugins` |
+| `CPA_PLUGIN_DIR` | `/volume1/docker/cliproxy/runtime/plugins` |
 | `CPA_CONTAINER` | `cliproxyapi` |
 | `CPA_API` | `http://127.0.0.1:18318` |
-| `CPA_CORE_ENV` | `/etc/cliproxy/gemini-web/core.env` (read for `MANAGEMENT_PASSWORD`) |
-| `CPA_CORE_BINARY` | `/opt/dashboard/gemini-web/CLIProxyAPI` |
+| `CPA_CORE_ENV` | `/volume1/docker/cliproxy/runtime/secrets/core.env` (read for `MANAGEMENT_PASSWORD`) |
+| `CPA_CORE_BINARY` | `/volume1/docker/cliproxy/runtime/CLIProxyAPI` |
 | `CPA_DRY_RUN` | unset; `1` prints the plan and changes nothing |
 
 Check a host before enabling it:
 
 ```bash
-cd /opt/cliproxy && CPA_DRY_RUN=1 python3 deploy/cpa-converge.py deploy/cpa-plugins.json
+cd /volume1/docker/cliproxy/deploy && PATH=/usr/local/bin:$PATH CPA_DRY_RUN=1 python3 deploy/cpa-converge.py deploy/cpa-plugins.json
 ```
 
 Tests: `cd deploy && python3 -m unittest cpa_converge_test`.
 
 ## CPA core
 
-The container bind-mounts the core executable from `/opt/dashboard/gemini-web/CLIProxyAPI`. `master` decides its version too, but the executable is too large to commit, so [`core-build`](../.github/workflows/core-build.yml) builds it and `cpa-converge.py` installs the build.
+The container bind-mounts the core executable from `/volume1/docker/cliproxy/runtime/CLIProxyAPI`. `master` decides its version too, but the executable is too large to commit, so [`core-build`](../.github/workflows/core-build.yml) builds it and `cpa-converge.py` installs the build.
 
 The `core` entry of [`cpa-plugins.json`](cpa-plugins.json) names the core paths, the release the builds are published on, and the asset prefix. The core commit is the last first-parent `master` commit that touched those paths; the workflow and the converger resolve it with the same `git log` query. The paths leave out docs (`*.md`), tests (`*_test.go`) and `testdata`, which do not change the executable, so a commit that changes only those keeps the current core and restarts nothing.
 
@@ -86,16 +82,9 @@ The `core` entry of [`cpa-plugins.json`](cpa-plugins.json) names the core paths,
 ## One-time host setup
 
 ```bash
-git clone --branch master https://github.com/jclee941/CLIProxyAPI.git /srv/cliproxy
-cd /srv/cliproxy
-chmod +x deploy/pull-deploy.sh
-
-cp deploy/telegram-log-forwarder/.env.example deploy/telegram-log-forwarder/.env
-cp deploy/telegram-usage-bot/.env.example deploy/telegram-usage-bot/.env
-chmod 600 deploy/telegram-log-forwarder/.env deploy/telegram-usage-bot/.env
+git clone --branch master https://github.com/jclee941/CLIProxyAPI.git /volume1/docker/cliproxy/deploy
+chmod +x /volume1/docker/cliproxy/deploy/deploy/pull-deploy.sh
 ```
-
-Fill in the secrets in each `.env`. Both files are git-ignored, so the converger's clean-tree check ignores them and they survive every `git reset --hard`.
 
 The deploy clone is reset with `git reset --hard` on every update. Use it only for deployment; never edit code inside it. The converger aborts if `git status --porcelain` is non-empty.
 
@@ -104,7 +93,8 @@ The deploy clone is reset with `git reset --hard` on every update. Use it only f
 There is no cron entry; deploys are explicit. After `master` moves, and after `core-build` has published any core change, run the converger on the host:
 
 ```bash
-GITOPS_DEPLOY_DIR=/srv/cliproxy GITOPS_CPA_MANIFEST=deploy/cpa-plugins.json /srv/cliproxy/deploy/pull-deploy.sh >> /srv/cliproxy/pull-deploy.log 2>&1
+B=/volume1/docker/cliproxy
+PATH=/usr/local/bin:$PATH GITOPS_DEPLOY_DIR=$B/deploy $B/deploy/deploy/pull-deploy.sh >> $B/pull-deploy.log 2>&1
 ```
 
 A run that finds an Omni turn in flight leaves its restart to the next run. Overlapping runs are safe: the script takes a non-blocking `flock` on a lock file next to the deploy directory and skips the run if another one is active.
@@ -116,8 +106,7 @@ A run that finds an Omni turn in flight leaves its restart to the next run. Over
 | `GITOPS_DEPLOY_DIR` | *(required)* | Dedicated deploy clone |
 | `GITOPS_REMOTE` | `https://github.com/jclee941/CLIProxyAPI.git` | Git remote to fetch |
 | `GITOPS_BRANCH` | `master` | Branch to converge on |
-| `GITOPS_COMPOSE_FILES` | `docker-compose.yml deploy/telegram-usage-bot/docker-compose.yml` | Space-separated compose files, applied in order |
 | `GITOPS_LOCK_FILE` | `<deploy dir>.pull-deploy.lock` | Lock file path |
-| `GITOPS_CPA_MANIFEST` | *(unset)* | CPA manifest relative to the deploy clone, e.g. `deploy/cpa-plugins.json`; enables `cpa-converge.py` on every run |
+| `GITOPS_CPA_MANIFEST` | `deploy/cpa-plugins.json` | CPA manifest relative to the deploy clone, applied by `cpa-converge.py` on every run |
 
 `pull-deploy.log` is not rotated by the script. Add a `logrotate` entry if it grows.

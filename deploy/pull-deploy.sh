@@ -1,20 +1,18 @@
 #!/bin/sh
 # GitOps converger for the CLIProxyAPI fork.
 #
-# Run by cron on the deployment host. It pulls the configured branch into a
-# dedicated deploy clone and rebuilds every compose project when the branch
-# moved. It is a no-op when the clone already matches the remote.
+# Run explicitly on the deployment host (see deploy/README.md). It pulls the
+# configured branch into a dedicated deploy clone, then converges the CPA core
+# and native plugins with deploy/cpa-converge.py on every run.
 #
 # Environment:
 #   GITOPS_DEPLOY_DIR      Required. Dedicated clone used ONLY for deployment.
 #                          Never point this at a developer working tree.
 #   GITOPS_REMOTE          Git remote URL. Default: fork origin.
 #   GITOPS_BRANCH          Branch to converge on. Default: master.
-#   GITOPS_COMPOSE_FILES   Space-separated compose files, relative to the
-#                          deploy dir, applied in order.
 #   GITOPS_LOCK_FILE       Lock file path. Default: sibling of the deploy dir.
-#   GITOPS_CPA_MANIFEST    Optional. CPA plugin manifest, relative to the deploy
-#                          dir, converged by deploy/cpa-converge.py every tick.
+#   GITOPS_CPA_MANIFEST    CPA manifest, relative to the deploy dir.
+#                          Default: deploy/cpa-plugins.json.
 
 set -eu
 
@@ -31,13 +29,11 @@ fail() {
     exit 1
 }
 
-# CPA's native plugins are not compose services. They converge through their
-# own reconciler on every tick, because a swap that has to wait for an idle
-# host outlives the tick that first saw it.
+# The CPA core and native plugins converge through their own reconciler on
+# every run, because a swap that has to wait for an idle host outlives the run
+# that first saw it.
 converge_cpa() {
-    if [ -n "${GITOPS_CPA_MANIFEST:-}" ]; then
-        python3 deploy/cpa-converge.py "$GITOPS_CPA_MANIFEST"
-    fi
+    python3 deploy/cpa-converge.py "$cpa_manifest"
 }
 
 deploy_dir="${GITOPS_DEPLOY_DIR:-}"
@@ -47,10 +43,10 @@ fi
 
 remote="${GITOPS_REMOTE:-https://github.com/jclee941/CLIProxyAPI.git}"
 branch="${GITOPS_BRANCH:-master}"
-compose_files="${GITOPS_COMPOSE_FILES:-docker-compose.yml deploy/telegram-usage-bot/docker-compose.yml}"
+cpa_manifest="${GITOPS_CPA_MANIFEST:-deploy/cpa-plugins.json}"
 lock_file="${GITOPS_LOCK_FILE:-${deploy_dir%/}.pull-deploy.lock}"
 
-# Re-exec under a non-blocking lock so overlapping cron ticks cannot collide.
+# Re-exec under a non-blocking lock so overlapping runs cannot collide.
 # The lock lives outside the deploy clone to keep the clone clean.
 if [ -z "${GITOPS_LOCK_HELD:-}" ]; then
     GITOPS_LOCK_HELD=1
@@ -98,17 +94,6 @@ if [ "$fresh_clone" -eq 0 ]; then
 else
     log "initial deployment at $target_head"
 fi
-
-# Word splitting is intentional: GITOPS_COMPOSE_FILES is space-separated.
-# shellcheck disable=SC2086
-for compose_file in $compose_files; do
-    if [ ! -f "$compose_file" ]; then
-        log "skipping missing compose file $compose_file"
-        continue
-    fi
-    log "applying $compose_file"
-    docker compose -f "$compose_file" up -d --build
-done
 
 converge_cpa
 log "converged at $target_head"
