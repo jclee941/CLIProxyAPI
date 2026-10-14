@@ -13,7 +13,7 @@ The fork's `master` branch is the single source of truth for what runs on the ho
 2. The host converger [`pull-deploy.sh`](pull-deploy.sh) is run on the host after `master` moves; see [Running a deploy](#running-a-deploy). It fetches the fork branch into a dedicated deploy clone and rebuilds every compose project when the branch moved.
 3. When `GITOPS_CPA_MANIFEST` is set, each run then applies [`cpa-converge.py`](cpa-converge.py) to the CPA core and native plugins; see [CPA native plugins](#cpa-native-plugins).
 
-The fork does not follow `router-for-me/CLIProxyAPI` automatically; upstream changes reach `master` only when merged by hand.
+[`upstream-release-sync`](../.github/workflows/upstream-release-sync.yml) checks hourly for a new `router-for-me/CLIProxyAPI` release. It merges the release into `master` only when the merge is clean and `go test ./...` passes on `golang:1.26-bookworm`, then dispatches `core-build`. A conflict or a red test leaves `master` unchanged and sends one Telegram alert per release through the repository secrets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Run it by hand to retry a release, or with `test_alert` to check the alert channel. Deploying stays an explicit `pull-deploy.sh` run.
 
 Nothing pushes to the host. The host pulls. To roll back, move `master` in the fork and run `pull-deploy.sh` again.
 

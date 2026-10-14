@@ -1,0 +1,153 @@
+name: upstream-release-sync
+
+# Merges each new router-for-me/CLIProxyAPI release into master once the merged
+# tree passes the core tests on the host's Debian base, then dispatches
+# core-build to publish the core. A conflict or a red test leaves master
+# untouched and sends one Telegram alert per release. Deploying stays an
+# explicit pull-deploy.sh run on the host.
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: Send a test Telegram alert and stop
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: upstream-release-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: router-for-me/CLIProxyAPI
+  TARGET_BRANCH: master
+
+jobs:
+  sync:
+    # Forks only; upstream publishes these releases.
+    if: github.event.repository.fork == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: master
+          fetch-depth: 0
+
+      # The release is fetched by URL instead of adding a remote: with an
+      # upstream remote configured, un-scoped gh commands resolve to upstream.
+      - name: Find the latest upstream release
+        id: release
+        if: inputs.test_alert != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release view --repo "$UPSTREAM_REPO" --json tagName --jq .tagName)"
+          git fetch --quiet --no-tags "https://github.com/${UPSTREAM_REPO}.git" "refs/tags/${tag}"
+          commit="$(git rev-parse 'FETCH_HEAD^{commit}')"
+          merged=false
+          if git merge-base --is-ancestor "$commit" HEAD; then
+            merged=true
+            echo "${tag} (${commit:0:8}) is already merged into ${TARGET_BRANCH}."
+          fi
+          {
+            echo "tag=${tag}"
+            echo "commit=${commit}"
+            echo "merged=${merged}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check whether this release already failed
+        id: reported
+        if: steps.release.outputs.merged == 'false'
+        uses: actions/cache/restore@v4
+        with:
+          path: .upstream-sync-reported
+          key: upstream-sync-reported-${{ steps.release.outputs.tag }}
+          lookup-only: true
+
+      - name: Merge the release
+        id: merge
+        if: steps.release.outputs.merged == 'false' && (steps.reported.outputs.cache-hit != 'true' || github.event_name == 'workflow_dispatch')
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          COMMIT: ${{ steps.release.outputs.commit }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git merge --no-ff -m "Merge upstream ${UPSTREAM_REPO} ${TAG} into ${TARGET_BRANCH}" "$COMMIT"; then
+            exit 0
+          fi
+          {
+            echo 'conflicts<<CONFLICTS_EOF'
+            git diff --name-only --diff-filter=U
+            echo 'CONFLICTS_EOF'
+          } >> "$GITHUB_OUTPUT"
+          git merge --abort
+          echo "Merging ${TAG} conflicts with ${TARGET_BRANCH}; ${TARGET_BRANCH} is unchanged." >&2
+          exit 1
+
+      - name: Test the merge on Debian bookworm
+        id: test
+        if: steps.merge.outcome == 'success'
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/src" -w /src \
+            -e CGO_ENABLED=1 -e GOOS=linux -e GOFLAGS=-buildvcs=false \
+            golang:1.26-bookworm \
+            go test ./...
+
+      - name: Push and build the core
+        if: steps.test.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git push origin "HEAD:${TARGET_BRANCH}"
+          # A push made with GITHUB_TOKEN starts no workflow, so core-build is dispatched.
+          gh workflow run core-build.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_BRANCH"
+
+      - name: Remember the failed release
+        if: failure() && (steps.merge.outcome == 'failure' || steps.test.outcome == 'failure')
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: echo "$TAG" > .upstream-sync-reported
+
+      - name: Save the failed release marker
+        if: failure() && (steps.merge.outcome == 'failure' || steps.test.outcome == 'failure')
+        uses: actions/cache/save@v4
+        with:
+          path: .upstream-sync-reported
+          key: upstream-sync-reported-${{ steps.release.outputs.tag }}
+
+      - name: Alert Telegram
+        if: inputs.test_alert == true || (failure() && (steps.merge.outcome == 'failure' || steps.test.outcome == 'failure'))
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TEST_ALERT: ${{ inputs.test_alert }}
+          TAG: ${{ steps.release.outputs.tag }}
+          MERGE_OUTCOME: ${{ steps.merge.outcome }}
+          CONFLICTS: ${{ steps.merge.outputs.conflicts }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$TEST_ALERT" = "true" ]; then
+            text="upstream-release-sync test alert: this channel receives upstream merge failures."
+          elif [ "$MERGE_OUTCOME" = "failure" ]; then
+            text="upstream-release-sync: ${TAG} conflicts with ${TARGET_BRANCH}, which is unchanged. Conflicting files:
+          ${CONFLICTS}"
+          else
+            text="upstream-release-sync: ${TAG} merges cleanly but go test ./... fails, so ${TARGET_BRANCH} is unchanged."
+          fi
+          curl --fail-with-body -sS -o /dev/null -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}
+          ${RUN_URL}"

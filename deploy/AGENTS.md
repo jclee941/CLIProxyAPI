@@ -33,7 +33,7 @@ Deployment convergence and native plugin artifacts; score 13 from subtree size, 
 - Follow `../AGENTS.md` for the supported CPA topology and retired-package policy.
 - Current host: Synology NAS `192.168.50.215`, base `/volume1/docker/cliproxy`; `.114` runbooks are historical.
 - Run convergence as `jclee`; use the NAS environment block in `README.md`, not the script's old-host defaults.
-- The fork's `master` branch selects deployed artifacts; upstream is merged explicitly.
+- The fork's `master` branch selects deployed artifacts; upstream releases reach it through `upstream-release-sync` (clean merge and green tests only) or an explicit merge.
 - The dedicated deploy clone may contain untracked operator files; tracked modifications abort `pull-deploy.sh`.
 - Plugin `.so` artifacts are deployed from the clone; core binaries come from the `cpa-core` release with verified checksums.
 - Dashboards replace atomically; restart plugins and core swaps share an idle-gated stop/start window.
