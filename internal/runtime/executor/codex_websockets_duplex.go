@@ -220,6 +220,7 @@ func (e *CodexWebsocketsExecutor) streamCodexDuplex(
 			helps.RecordAPIWebsocketRequest(streamCtx, e.cfg, helps.UpstreamRequestLog{
 				URL: initial.wsURL, Method: "WEBSOCKET", Body: payload, Provider: e.Identifier(), AuthID: auth.ID,
 			})
+			sess.markTurnStarted(conn)
 			if errWrite := writeCodexWebsocketMessage(sess, conn, payload); errWrite != nil {
 				fail(mapCodexWebsocketWriteError(sess, conn, errWrite))
 				return false

@@ -74,8 +74,12 @@ type codexWebsocketSession struct {
 	activeCh     chan codexWebsocketRead
 	activeDone   <-chan struct{}
 	activeCancel context.CancelFunc
-	terminalConn *websocket.Conn
-	terminalErr  error
+	// activeTerminal is set by the reader before it delivers a terminal event
+	// and cleared when the next turn starts. Interrupts treat such a turn as
+	// finished even while the consumer has not yet cleared the active channel.
+	activeTerminal bool
+	terminalConn   *websocket.Conn
+	terminalErr    error
 
 	responseStateConn   *websocket.Conn
 	terminalResponseIDs map[string]struct{}
@@ -117,6 +121,7 @@ func (s *codexWebsocketSession) setActiveLocked(conn *websocket.Conn, ch chan co
 	}
 	s.activeConn = conn
 	s.activeCh = ch
+	s.activeTerminal = false
 	if conn != nil && ch != nil {
 		activeCtx, activeCancel := context.WithCancel(context.Background())
 		s.activeDone = activeCtx.Done()
@@ -138,6 +143,19 @@ func (s *codexWebsocketSession) activate(conn *websocket.Conn) chan codexWebsock
 	}
 	s.setActiveLocked(conn, ch)
 	return ch
+}
+
+// markTurnStarted reopens the interrupt window for a new request written on a
+// retained active channel, as duplex follow-up creates do.
+func (s *codexWebsocketSession) markTurnStarted(conn *websocket.Conn) {
+	if s == nil || conn == nil {
+		return
+	}
+	s.activeMu.Lock()
+	if s.activeConn == conn {
+		s.activeTerminal = false
+	}
+	s.activeMu.Unlock()
 }
 
 func (s *codexWebsocketSession) resetTerminalError(conn *websocket.Conn) {
@@ -792,9 +810,16 @@ func (e *CodexWebsocketsExecutor) readUpstreamLoop(sess *codexWebsocketSession, 
 			// Record terminal IDs before delivery: downstream may still be
 			// processing this turn after its active read channel is cleared.
 			responseID := gjson.GetBytes(payload, "response.id")
-			if isTerminalEvent(eventType) && eventType != "error" && responseID.Type == gjson.String && responseID.String() != "" {
+			if eventType == "response.created" {
+				// Upstream started a new response on this conn, whatever path wrote
+				// the request (create, append, or steer): it is interruptible again.
+				sess.markTurnStarted(conn)
+			} else if isTerminalEvent(eventType) && eventType != "error" {
 				sess.activeMu.Lock()
-				if sess.responseStateConn == conn {
+				if sess.activeConn == conn {
+					sess.activeTerminal = true
+				}
+				if sess.responseStateConn == conn && responseID.Type == gjson.String && responseID.String() != "" {
 					sess.terminalResponseIDs[responseID.String()] = struct{}{}
 				}
 				sess.activeMu.Unlock()

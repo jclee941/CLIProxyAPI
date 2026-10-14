@@ -200,3 +200,154 @@ func TestInterruptExecutionSessionAfterTerminal(t *testing.T) {
 		})
 	}
 }
+
+// The reader marks a turn terminal before it delivers the terminal event, so an
+// interrupt sent after a client observes completion is not forwarded upstream
+// even while the consumer still holds the active channel.
+func TestInterruptExecutionSessionRejectsUnknownAfterTerminalBeforeClear(t *testing.T) {
+	forwarded := make(chan string, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, errUpgrade := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if errUpgrade != nil {
+			t.Errorf("upgrade: %v", errUpgrade)
+			return
+		}
+		defer func() {
+			if errClose := conn.Close(); errClose != nil {
+				t.Errorf("close upstream: %v", errClose)
+			}
+		}()
+		for _, payload := range []string{
+			`{"type":"response.created","response":{"id":"r1"}}`,
+			`{"type":"response.completed","response":{"id":"r1","output":[]}}`,
+		} {
+			if errWrite := conn.WriteMessage(websocket.TextMessage, []byte(payload)); errWrite != nil {
+				t.Errorf("write: %v", errWrite)
+				return
+			}
+		}
+		_, payload, errRead := conn.ReadMessage()
+		if errRead != nil {
+			return
+		}
+		forwarded <- string(payload)
+		_, _, _ = conn.ReadMessage()
+	}))
+	defer upstream.Close()
+	client, _, errDial := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(upstream.URL, "http"), nil)
+	if errDial != nil {
+		t.Fatal(errDial)
+	}
+	exec := NewCodexWebsocketsExecutor(nil)
+	exec.store = &codexWebsocketSessionStore{sessions: make(map[string]*codexWebsocketSession)}
+	const sessionID = "terminal-before-clear"
+	defer exec.CloseExecutionSession(sessionID)
+	sess := exec.getOrCreateSession(sessionID)
+	sess.conn = client
+	sess.connCloser = newWebsocketConnectionCloser(client)
+	sess.configureConn(client)
+	readCh := sess.activate(client)
+	go exec.readUpstreamLoop(sess, client)
+	for i := 0; i < 2; i++ {
+		select {
+		case event := <-readCh:
+			if event.err != nil {
+				t.Fatal(event.err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("upstream event timed out")
+		}
+	}
+	// The terminal event was delivered, but the active channel is not cleared.
+	unknown := []byte(`{"type":"response.interrupt","response_id":"unknown"}`)
+	if errUnknown := exec.InterruptExecutionSession(context.Background(), sessionID, unknown); !errors.Is(errUnknown, cliproxyexecutor.ErrNoActiveUpstreamWebsocket) {
+		t.Fatalf("unknown interrupt after terminal = %v, want ErrNoActiveUpstreamWebsocket", errUnknown)
+	}
+	// A new turn reopens the window, and only its interrupt reaches upstream.
+	sess.activate(client)
+	active := `{"type":"response.interrupt","response_id":"r2"}`
+	if errActive := exec.InterruptExecutionSession(context.Background(), sessionID, []byte(active)); errActive != nil {
+		t.Fatal(errActive)
+	}
+	select {
+	case got := <-forwarded:
+		if got != active {
+			t.Fatalf("forwarded interrupt = %s, want %s", got, active)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("active interrupt was not forwarded")
+	}
+}
+
+// A new upstream response on the same conn reopens the interrupt window, even
+// when no create/append write marked the turn as started (for example a steer).
+func TestInterruptExecutionSessionForwardsAfterNewResponseCreated(t *testing.T) {
+	forwarded := make(chan string, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, errUpgrade := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if errUpgrade != nil {
+			t.Errorf("upgrade: %v", errUpgrade)
+			return
+		}
+		defer func() {
+			if errClose := conn.Close(); errClose != nil {
+				t.Errorf("close upstream: %v", errClose)
+			}
+		}()
+		for _, payload := range []string{
+			`{"type":"response.created","response":{"id":"r1"}}`,
+			`{"type":"response.completed","response":{"id":"r1","output":[]}}`,
+			`{"type":"response.created","response":{"id":"r2"}}`,
+		} {
+			if errWrite := conn.WriteMessage(websocket.TextMessage, []byte(payload)); errWrite != nil {
+				t.Errorf("write: %v", errWrite)
+				return
+			}
+		}
+		_, payload, errRead := conn.ReadMessage()
+		if errRead != nil {
+			return
+		}
+		forwarded <- string(payload)
+		_, _, _ = conn.ReadMessage()
+	}))
+	defer upstream.Close()
+	client, _, errDial := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(upstream.URL, "http"), nil)
+	if errDial != nil {
+		t.Fatal(errDial)
+	}
+	exec := NewCodexWebsocketsExecutor(nil)
+	exec.store = &codexWebsocketSessionStore{sessions: make(map[string]*codexWebsocketSession)}
+	const sessionID = "created-after-terminal"
+	defer exec.CloseExecutionSession(sessionID)
+	sess := exec.getOrCreateSession(sessionID)
+	sess.conn = client
+	sess.connCloser = newWebsocketConnectionCloser(client)
+	sess.configureConn(client)
+	readCh := sess.activate(client)
+	go exec.readUpstreamLoop(sess, client)
+	// The reader updates the turn state before delivering each event, so once all
+	// three events are read, both the terminal and the new created were processed.
+	for i := 0; i < 3; i++ {
+		select {
+		case event := <-readCh:
+			if event.err != nil {
+				t.Fatal(event.err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("upstream event timed out")
+		}
+	}
+	active := `{"type":"response.interrupt","response_id":"r2"}`
+	if errActive := exec.InterruptExecutionSession(context.Background(), sessionID, []byte(active)); errActive != nil {
+		t.Fatalf("interrupt after new response.created = %v, want forwarded", errActive)
+	}
+	select {
+	case got := <-forwarded:
+		if got != active {
+			t.Fatalf("forwarded interrupt = %s, want %s", got, active)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("interrupt was not forwarded")
+	}
+}

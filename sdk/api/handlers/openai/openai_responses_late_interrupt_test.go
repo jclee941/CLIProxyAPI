@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	runtimeexecutor "github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
@@ -186,6 +187,81 @@ func TestResponsesLateInterruptDoesNotPoisonNextCreate(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("interrupt timeline was not finalized")
+	}
+}
+
+// The local HTTP interrupt window must close before the client can observe a
+// terminal event. The data channel stays open, so the forwarder is still looping
+// when the client reacts to response.completed.
+func TestResponsesLocalInterruptClosesBeforeTerminalEvent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	local := newResponsesLocalInterrupt()
+	data := make(chan []byte, 2)
+	errs := make(chan *interfaces.ErrorMessage)
+	data <- []byte(`{"type":"response.created","response":{"id":"r-http"}}`)
+	data <- []byte(`{"type":"response.completed","response":{"id":"r-http","status":"completed","output":[]}}`)
+	forwardResult := make(chan error, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, errUpgrade := responsesWebsocketUpgrader.Upgrade(w, r, nil)
+		if errUpgrade != nil {
+			forwardResult <- errUpgrade
+			return
+		}
+		defer func() {
+			if errClose := conn.Close(); errClose != nil {
+				t.Errorf("close server conn: %v", errClose)
+			}
+		}()
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = r
+		_, _, _, errMsg, errForward := (*OpenAIResponsesAPIHandler)(nil).forwardResponsesWebsocket(
+			ctx,
+			newResponsesWebsocketWriter(conn),
+			func(...interface{}) {},
+			data,
+			errs,
+			newInMemoryWebsocketTimelineLog(),
+			"session-local-interrupt",
+			responsesWebsocketForwardOptions{localInterrupt: local},
+		)
+		if errMsg != nil {
+			errForward = errMsg.Error
+		}
+		forwardResult <- errForward
+	}))
+	defer server.Close()
+	client, _, errDial := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if errDial != nil {
+		t.Fatal(errDial)
+	}
+	defer func() {
+		if errClose := client.Close(); errClose != nil {
+			t.Errorf("close client: %v", errClose)
+		}
+	}()
+	if errDeadline := client.SetReadDeadline(time.Now().Add(5 * time.Second)); errDeadline != nil {
+		t.Fatal(errDeadline)
+	}
+	for _, event := range []string{"response.created", "response.completed"} {
+		_, payload, errRead := client.ReadMessage()
+		if errRead != nil {
+			t.Fatal(errRead)
+		}
+		if got := gjson.GetBytes(payload, "type").String(); got != event {
+			t.Fatalf("event = %s, want %s", got, event)
+		}
+	}
+	if local.deliver([]byte(`{"type":"response.interrupt","response_id":"r-http"}`)) {
+		t.Fatal("local interrupt accepted after the terminal event reached the client")
+	}
+	close(data)
+	select {
+	case errForward := <-forwardResult:
+		if errForward != nil {
+			t.Fatalf("forward: %v", errForward)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("forwarder did not finish after the data channel closed")
 	}
 }
 

@@ -229,7 +229,9 @@ func (e *CodexWebsocketsExecutor) InterruptExecutionSession(ctx context.Context,
 	sess.activeMu.Lock()
 	_, alreadyTerminal := sess.terminalResponseIDs[gjson.GetBytes(payload, "response_id").String()]
 	alreadyTerminal = alreadyTerminal && sess.responseStateConn == conn
-	active := sess.activeConn == conn && sess.activeCh != nil
+	// A turn whose terminal event was already read is finished even if its
+	// consumer has not cleared the active channel yet.
+	active := sess.activeConn == conn && sess.activeCh != nil && !sess.activeTerminal
 	var disconnectErr error
 	if sess.terminalConn == conn {
 		disconnectErr = sess.terminalErr

@@ -163,6 +163,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 				if gjson.GetBytes(payloads[i], "type").String() == "response.created" {
 					responseStarted = true
 					completed = false
+					opts.localInterrupt.begin()
 					outputItemsByIndex = make(map[int64][]byte)
 					outputItemsFallback = nil
 					pendingToolCallIDs = make(map[string]struct{})
@@ -196,6 +197,10 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 					// response.incomplete ends the turn too. Codex uses it, with
 					// reason "interrupted", to acknowledge response.interrupt. Closing
 					// the client socket here would block the follow-up request.
+					// Close the local interrupt window before the client can observe the
+					// terminal event: a later interrupt targets a finished turn and must
+					// be rejected, not acknowledged as a local HTTP interrupt.
+					opts.localInterrupt.end()
 					completed = true
 					completedOutput = responseCompletedOutputFromPayload(payloads[i], outputItemsByIndex, outputItemsFallback)
 					completedResponseID = responseCompletedIDFromPayload(payloads[i])
