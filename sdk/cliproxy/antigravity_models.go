@@ -99,6 +99,28 @@ func trackUnlistedAntigravityModels(previous map[string]struct{}, unlisted map[s
 	return effective, tracked
 }
 
+// logUnlistedAntigravityModels names each model a successful catalog left out with its miss
+// count, split into the ones still registered and the ones already dropped.
+func logUnlistedAntigravityModels(authID string, unlisted map[string]antigravityUnlistedModel, registered map[string]struct{}) {
+	kept, dropped := make([]string, 0, len(unlisted)), make([]string, 0, len(unlisted))
+	for id, state := range unlisted {
+		entry := fmt.Sprintf("%s(%d)", id, state.misses)
+		if _, ok := registered[id]; ok {
+			kept = append(kept, entry)
+		} else {
+			dropped = append(dropped, entry)
+		}
+	}
+	slices.Sort(kept)
+	slices.Sort(dropped)
+	log.WithFields(log.Fields{
+		"auth":       authID,
+		"kept":       kept,
+		"dropped":    dropped,
+		"recheck_in": antigravityUnlistedModelRecheck.String(),
+	}).Info("antigravity model catalog left out models")
+}
+
 // Keep attempt history beyond nextRetry; deleting it at retry time would turn
 // exponential backoff back into a fixed interval. Inactive histories expire with
 // the same retention horizon as inactive successful catalogs.
@@ -465,6 +487,7 @@ func (s *Service) fetchAntigravityModelCapabilityHintsForAuth(ctx context.Contex
 			expiresAt := now.Add(antigravityCapabilityCacheTTL)
 			if len(current.unlisted) > 0 {
 				expiresAt = now.Add(antigravityUnlistedModelRecheck)
+				logUnlistedAntigravityModels(auth.ID, current.unlisted, hints.ModelIDs)
 			}
 			current.hints, current.expiresAt, current.lastUsed = hints.clone(), expiresAt, now
 			antigravityCapabilityCache[cacheKey] = current

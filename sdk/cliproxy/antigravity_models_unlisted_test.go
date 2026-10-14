@@ -116,6 +116,22 @@ func TestAntigravityModelBrieflyUnlistedStaysRegisteredAndIsRecheckedSoon(t *tes
 	}
 }
 
+func TestAntigravityModelUnlistedRightAfterRestartStaysRegistered(t *testing.T) {
+	h := newUnlistedCatalogHarness(t)
+	if _, ok := h.svc.persistedAntigravityHintsForAuth(h.auth, antigravityModelBaseURLs(h.auth)[0]); !ok {
+		t.Fatal("a successful catalog is persisted on the auth")
+	}
+	resetAntigravityCapabilityCache()
+	GlobalModelRegistry().UnregisterClient(h.auth.ID)
+	h.list(h.kept)
+	h.svc.registerModelsForAuth(t.Context(), h.auth)
+	h.svc.WaitAntigravityProbes()
+	if !h.registered(h.flapping) {
+		t.Fatal("the first catalog after a restart removed a model the persisted catalog listed")
+	}
+	h.requireRecheckWithinMinutes("after the first catalog of a restart")
+}
+
 func TestAntigravityEmptyCatalogStillRevokesButIsRecheckedSoon(t *testing.T) {
 	h := newUnlistedCatalogHarness(t)
 	h.list()
