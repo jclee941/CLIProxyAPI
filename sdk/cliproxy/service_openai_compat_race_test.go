@@ -174,6 +174,15 @@ func TestPutOpenAICompatConcurrentWithAuthFieldsPatch_Issue6559(t *testing.T) {
 
 	// Ensure the final persisted configuration is reloaded through the watcher pipeline
 	// and verify both the patched auth prefix and final openai-compatibility model are registered.
+	// The watcher skips content it has already applied, so give the final file a new
+	// hash; the reload then re-registers every auth from its final state.
+	finalYAML, errReadFinal := os.ReadFile(configPath)
+	if errReadFinal != nil {
+		t.Fatalf("read final config: %v", errReadFinal)
+	}
+	if errWriteFinal := os.WriteFile(configPath, append(finalYAML, '\n'), 0o600); errWriteFinal != nil {
+		t.Fatalf("rewrite final config: %v", errWriteFinal)
+	}
 	service.reloadConfigFromWatcher()
 	service.registerConfigAPIKeyAuths(ctx, service.currentConfig())
 
