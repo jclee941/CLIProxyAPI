@@ -301,7 +301,7 @@ func (session *webSession) submitVideo(ctx context.Context, prompt string, accou
 	if err != nil {
 		return nil, failure(400, "web_request_invalid")
 	}
-	return session.postGeneration(ctx, string(fields), account, model, language)
+	return session.postGeneration(ctx, string(fields), account, model, language, conversationID)
 }
 
 func (session *webSession) downloadVideo(ctx context.Context, url string) (int, []byte, error) {

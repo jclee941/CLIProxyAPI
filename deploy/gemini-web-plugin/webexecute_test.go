@@ -19,6 +19,29 @@ var nativeGenerationBody struct {
 	body string
 }
 
+// generationTurnID reads the turn id a generation body carries in slot 59.
+func generationTurnID(t *testing.T, body string) string {
+	t.Helper()
+	form, err := url.ParseQuery(body)
+	if err != nil {
+		t.Errorf("generation body: %v", err)
+		return ""
+	}
+	var envelope []any
+	if json.Unmarshal([]byte(form.Get("f.req")), &envelope) != nil || len(envelope) < 2 {
+		t.Errorf("generation envelope: %s", form.Get("f.req"))
+		return ""
+	}
+	inner, _ := envelope[1].(string)
+	var fields []any
+	if json.Unmarshal([]byte(inner), &fields) != nil || len(fields) < 60 {
+		t.Errorf("generation fields: %s", inner)
+		return ""
+	}
+	turn, _ := fields[59].(string)
+	return turn
+}
+
 func nativeLastGeneration(t *testing.T) string {
 	t.Helper()
 	nativeGenerationBody.mu.Lock()
@@ -46,7 +69,8 @@ func nativeWebServer(t *testing.T, reply string) *httptest.Server {
 				t.Error(err)
 			}
 		case strings.HasSuffix(request.URL.Path, "/StreamGenerate"):
-			if raw, readErr := io.ReadAll(request.Body); readErr == nil {
+			raw, readErr := io.ReadAll(request.Body)
+			if readErr == nil {
 				nativeGenerationBody.mu.Lock()
 				nativeGenerationBody.body = string(raw)
 				nativeGenerationBody.mu.Unlock()
@@ -55,8 +79,14 @@ func nativeWebServer(t *testing.T, reply string) *httptest.Server {
 			if !strings.Contains(selection, "cap-flash") {
 				t.Errorf("selection header did not carry the capability: %s", selection)
 			}
+			if !strings.HasSuffix(selection, `,["build"]]`) {
+				t.Errorf("selection header did not end with the session's build label: %s", selection)
+			}
 			if request.Header.Get("x-goog-ext-73010990-jspb") != "[0,0,0]" {
 				t.Errorf("generation header missing: %v", request.Header)
+			}
+			if turn := generationTurnID(t, string(raw)); request.Header.Get("x-goog-ext-525005358-jspb") != webTurnHeader(turn) || turn == "" {
+				t.Errorf("turn header %q does not name the body's turn %q", request.Header.Get("x-goog-ext-525005358-jspb"), turn)
 			}
 			if _, err := writer.Write([]byte(")]}'\n" + generationFrame(t, reply) + "\n")); err != nil {
 				t.Error(err)

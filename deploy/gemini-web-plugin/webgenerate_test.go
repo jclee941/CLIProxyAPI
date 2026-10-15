@@ -31,21 +31,34 @@ func TestWebGenerationFieldsPinTheProtocolSlots(t *testing.T) {
 	if fields[59] != "conversation-id" {
 		t.Fatalf("slot 59 = %#v", fields[59])
 	}
-	if fields[45] != 1 {
-		t.Fatalf("slot 45 = %#v", fields[45])
+	// An ordinary text turn is not a temporary chat, as the web app sends it.
+	if fields[45] != nil {
+		t.Fatalf("slot 45 (temporary chat) = %#v, want unset", fields[45])
+	}
+	for slot, want := range map[int]int{49: 0, 91: 0, 96: 0, 98: 1} {
+		if fields[slot] != want {
+			t.Fatalf("slot %d = %#v, want %d as the web app sends it", slot, fields[slot], want)
+		}
 	}
 }
 
 // The selection header is the only channel that names the capability, so its
 // positions matter as much as the body's.
 func TestWebSelectionHeaderCarriesCapabilityAndMode(t *testing.T) {
-	encoded := webSelectionHeader(capability{CapabilityID: "cap-42", DisplayName: "3.8 Flash", Mode: 3}, 2)
+	encoded := webSelectionHeader(capability{CapabilityID: "cap-42", DisplayName: "3.8 Flash", Mode: 3}, 2, "", "")
 	var header []any
 	if err := json.Unmarshal([]byte(encoded), &header); err != nil {
 		t.Fatalf("decode header: %v", err)
 	}
 	if len(header) != 15 {
 		t.Fatalf("header length = %d, want 15", len(header))
+	}
+	var extended []any
+	if err := json.Unmarshal([]byte(webSelectionHeader(capability{CapabilityID: "cap-42", Mode: 3}, 2, "INSTANCE", "boq_build")), &extended); err != nil {
+		t.Fatalf("decode extended header: %v", err)
+	}
+	if len(extended) != 18 || extended[15] != nil || extended[16] != "INSTANCE" || jsonField(extended[17], 0) != "boq_build" {
+		t.Fatalf("instance and build after the mode = %#v", extended)
 	}
 	if header[4] != "cap-42" {
 		t.Fatalf("capability id at 4 = %#v", header[4])

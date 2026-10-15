@@ -26,7 +26,10 @@ const webCapacityFlag = 8
 
 // webGenerationFields lays out the positional request body. Each index is a
 // protocol slot whose meaning is carried by position alone, so the indexes are
-// reproduced exactly rather than named.
+// reproduced exactly rather than named. The layout follows a text turn the web
+// app sent on 2026-10-15. Slot 45 is its temporary chat flag (protocol field
+// 46), which an ordinary turn leaves unset; it had been sent on every text turn
+// since the port, which kept those chats out of history and away from tools.
 func webGenerationFields(prompt string, mode, thinking int, conversationID string, attachments []webAttachment) []any {
 	fields := make([]any, 102)
 	fields[0] = []any{prompt, 0, nil, webAttachmentSlot(attachments), nil, nil, 0}
@@ -41,22 +44,29 @@ func webGenerationFields(prompt string, mode, thinking int, conversationID strin
 	fields[27] = 1
 	fields[30] = []any{4}
 	fields[41] = []any{1}
-	fields[45] = 1
+	fields[49] = 0
 	fields[53] = 0
 	fields[59] = conversationID
 	fields[61] = []any{}
 	fields[68] = 1
 	fields[79] = mode
+	fields[91] = 0
+	fields[96] = 0
+	fields[98] = 1
 	return fields
 }
 
 // webSelectionHeader carries the model selection. This is the only place the
 // capability id and mode reach the server; the request body repeats the mode but
 // never names a model.
-func webSelectionHeader(model capability, capacity int) string {
+func webSelectionHeader(model capability, capacity int, instance, build string) string {
 	header := []any{1, nil, nil, nil, model.CapabilityID, nil, nil, 0, []any{4, 5, 6, 8}, nil, nil, capacity, nil, nil, model.Mode}
 	if capacity == 3 {
 		header[8] = []any{4, 5, 6, 8, 16, 4, 5, 6, 8, 16}
+	}
+	// The web app follows the mode with its client instance and build label.
+	if instance != "" && build != "" {
+		header = append(header, nil, instance, []any{build})
 	}
 	encoded, err := json.Marshal(header)
 	if err != nil {
@@ -90,7 +100,7 @@ func (session *webSession) generateText(ctx context.Context, prompt string, acco
 	if err != nil {
 		return "", failure(400, "web_request_invalid")
 	}
-	raw, err := session.postGeneration(ctx, string(fields), account, model, webLanguageDefault)
+	raw, err := session.postGeneration(ctx, string(fields), account, model, webLanguageDefault, conversationID)
 	if err != nil {
 		return "", err
 	}
@@ -100,7 +110,7 @@ func (session *webSession) generateText(ctx context.Context, prompt string, acco
 // postGeneration sends one generation turn. Text and video differ only in the
 // field array and the interface language, so the envelope and the selection
 // header are shared.
-func (session *webSession) postGeneration(ctx context.Context, fields string, account webAccount, model capability, language string) ([]byte, error) {
+func (session *webSession) postGeneration(ctx context.Context, fields string, account webAccount, model capability, language, turn string) ([]byte, error) {
 	envelope, err := json.Marshal([]any{nil, fields})
 	if err != nil {
 		return nil, failure(400, "web_request_invalid")
@@ -124,8 +134,9 @@ func (session *webSession) postGeneration(ctx context.Context, fields string, ac
 		session.diag.wire, session.diag.capacity = session.videoWire, capacity
 	}
 	overrides := http.Header{
-		"x-goog-ext-525001261-jspb": {webSelectionHeader(model, capacity)},
+		"x-goog-ext-525001261-jspb": {webSelectionHeader(model, capacity, session.instance, session.build)},
 		"x-goog-ext-73010990-jspb":  {"[0,0,0]"},
+		"x-goog-ext-525005358-jspb": {webTurnHeader(turn)},
 	}
 	return session.do(ctx, session.prefix+webGeneratePath+"?"+query.Encode(), []byte(body), overrides)
 }
@@ -181,5 +192,15 @@ func webConversationID() (string, error) {
 	}
 	raw[6] = raw[6]&0x0f | 0x40
 	raw[8] = raw[8]&0x3f | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16]), nil
+	return fmt.Sprintf("%X-%X-%X-%X-%X", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16]), nil
+}
+
+// webTurnHeader names the turn the request submits, as the web app does next to
+// the turn id it puts in slot 59.
+func webTurnHeader(turn string) string {
+	encoded, err := json.Marshal([]any{turn, 1})
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
 }

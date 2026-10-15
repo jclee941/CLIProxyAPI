@@ -35,7 +35,7 @@ func TestVideoWireConversationKeepsItsVariantThroughExtensionsAndEdits(t *testin
 				t.Fatal("fixture did not exercise first, extension and edit")
 			}
 			for i := 1; i < len(fixture.fields); i++ {
-				if fixture.selections[i] != fixture.selections[0] || string(jsonFixture(t, fixture.fields[i][30])) != string(jsonFixture(t, fixture.fields[0][30])) {
+				if selectionVariant(t, fixture.selections[i]) != selectionVariant(t, fixture.selections[0]) || string(jsonFixture(t, fixture.fields[i][30])) != string(jsonFixture(t, fixture.fields[0][30])) {
 					t.Fatal("conversation changed wire variant")
 				}
 			}
@@ -72,10 +72,27 @@ func TestVideoWireDoesNotChangeTextContinuations(t *testing.T) {
 	// Then its selection header and body slot retain the legacy values.
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
-	if got := fixture.selections[0]; got != `[1,null,null,null,"cap-flash",null,null,0,[4,5,6,8],null,null,1,null,null,1]` {
+	if got := selectionVariant(t, fixture.selections[0]); got != `[1,null,null,null,"cap-flash",null,null,0,[4,5,6,8],null,null,1,null,null,1]` {
 		t.Fatalf("text selection changed: %s", got)
 	}
 	if got := string(jsonFixture(t, fixture.fields[0][30])); got != "[4]" {
 		t.Fatalf("text slot changed: %s", got)
 	}
+}
+
+// selectionVariant is the part of a selection header a wire variant chooses, the
+// positions up to the mode. The client instance and build after it belong to
+// the session that sent the turn, as they change with each page load of the web
+// app.
+func selectionVariant(t *testing.T, header string) string {
+	t.Helper()
+	var positions []json.RawMessage
+	if err := json.Unmarshal([]byte(header), &positions); err != nil || len(positions) < 15 {
+		t.Fatalf("selection header %q: %v", header, err)
+	}
+	variant, err := json.Marshal(positions[:15])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(variant)
 }

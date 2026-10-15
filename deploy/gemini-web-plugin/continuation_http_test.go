@@ -95,6 +95,13 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 			fixture.fields = append(fixture.fields, fields)
 			fixture.languages = append(fixture.languages, request.URL.Query().Get("hl"))
 			fixture.selections = append(fixture.selections, request.Header.Get("x-goog-ext-525001261-jspb"))
+			turn := ""
+			if len(fields) > 59 {
+				turn, _ = fields[59].(string)
+			}
+			if turn == "" || request.Header.Get("x-goog-ext-525005358-jspb") != webTurnHeader(turn) {
+				t.Errorf("turn header %q does not name the body's turn %q", request.Header.Get("x-goog-ext-525005358-jspb"), turn)
+			}
 			n := len(fixture.fields)
 			answer := "answer"
 			if fixture.answer != "" {

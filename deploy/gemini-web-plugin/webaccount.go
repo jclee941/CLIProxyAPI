@@ -114,13 +114,20 @@ type webSession struct {
 	diag *videoTurnDiag
 	// videoWire is set only by video paths; text and image keep legacy headers.
 	videoWire videoWireMode
+	// instance is the client instance id the selection header carries, one per
+	// session as the web app keeps one per page load.
+	instance string
 }
 
 func newWebSession(client *http.Client, credential webCredential, origin string) *webSession {
 	if origin == "" {
 		origin = webOrigin
 	}
-	session := &webSession{client: client, origin: origin, cookie: credential.Cookie, requestID: 100000, uploadOrigin: webUploadOrigin}
+	instance, err := webConversationID()
+	if err != nil {
+		instance = ""
+	}
+	session := &webSession{client: client, origin: origin, cookie: credential.Cookie, requestID: 100000, uploadOrigin: webUploadOrigin, instance: instance}
 	session.flowCookies = maps.Clone(credential.FlowCookies)
 	for _, pair := range strings.Split(credential.Cookie, ";") {
 		name, value, found := strings.Cut(strings.TrimSpace(pair), "=")
