@@ -53,6 +53,8 @@ type continuationWebFixture struct {
 	duringModels func()
 	// deletes are the conversation deletions the plugin sent, as request bodies.
 	deletes []string
+	// turnReads are the replies read one at a time with GetConversationTurn.
+	turnReads []string
 }
 
 func continuationWeb(t *testing.T, service *service, fixture *continuationWebFixture) *httptest.Server {
@@ -159,6 +161,32 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 					budget = []any{false}
 				}
 				writeFixture(t, writer, rpcEnvelope(t, webGxuBudgetRPC, budget))
+				return
+			case webConversationTurnRPC:
+				if err := request.ParseForm(); err != nil {
+					t.Error(err)
+					return
+				}
+				var envelope []any
+				if err := json.Unmarshal([]byte(request.Form.Get("f.req")), &envelope); err != nil {
+					t.Error(err)
+					return
+				}
+				encoded, _ := jsonField(envelope, 0, 0, 1).(string)
+				var args []any
+				if err := json.Unmarshal([]byte(encoded), &args); err != nil {
+					t.Error(err)
+					return
+				}
+				reply, _ := jsonField(args, 1).(string)
+				fixture.turnReads = append(fixture.turnReads, reply)
+				for index, candidate := range fixture.candidates {
+					if fmt.Sprintf("r_%d", index+1) == reply {
+						writeFixture(t, writer, rpcEnvelope(t, webConversationTurnRPC, []any{slots(4, map[int]any{0: []any{nil, reply}, 3: []any{[]any{candidate}}})}))
+						return
+					}
+				}
+				t.Errorf("turn read for an unknown reply %q", reply)
 				return
 			case webDeleteConversationRPC:
 				raw, err := io.ReadAll(request.Body)

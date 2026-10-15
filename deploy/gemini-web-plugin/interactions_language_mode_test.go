@@ -286,4 +286,8 @@ func TestTemporaryChatIsOptInAndCarriedByContinuations(t *testing.T) {
 	if refused.OK || refused.Error == nil || !strings.Contains(refused.Error.Message, "omni_temporary_chat_inherited") {
 		t.Fatalf("a continuation of an ordinary chat asking for a temporary one = %+v", refused)
 	}
+	// A temporary chat cannot be listed, so its turns are read one at a time.
+	if got := strings.Join(fixture.turnReads, ","); got != "r_2,r_3" {
+		t.Fatalf("turns read alone = %q, want the two temporary turns r_2,r_3", got)
+	}
 }

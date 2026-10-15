@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -110,6 +111,23 @@ func continuationFrame(turn continuationTurn, raw []byte) (continuationTurn, err
 // reply the candidate id is revised as the video moves from placeholder to ready,
 // exactly as generateVideo observes, so the stored id is preferred but its absence
 // is not a mismatch: the current candidate of the matched reply is the same turn.
+// webConversationTurnRPC reads one turn of a conversation. A temporary chat
+// refuses the list read, ListConversationTurns, so its turn is read alone.
+const webConversationTurnRPC = "EqPOKe"
+
+// readTurns returns a turn's conversation in the list layout
+// continuationCandidate reads.
+func (session *webSession) readTurns(ctx context.Context, turn continuationTurn) (any, error) {
+	if !turn.TemporaryChat {
+		return session.rpc(ctx, webVideoTurnsRPC, []any{turn.Conversation, 32, nil, 1, []any{1}, []any{4}, nil, 1})
+	}
+	one, err := session.rpc(ctx, webConversationTurnRPC, []any{turn.Conversation, turn.Reply})
+	if err != nil {
+		return nil, err
+	}
+	return []any{[]any{jsonField(one, 0)}}, nil
+}
+
 func continuationCandidate(turn continuationTurn, body any) (any, error) {
 	entries, ok := jsonField(body, 0).([]any)
 	if !ok {
