@@ -101,7 +101,16 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 			if len(fields) > 59 {
 				turn, _ = fields[59].(string)
 			}
-			if turn == "" || request.Header.Get("x-goog-ext-525005358-jspb") != webTurnHeader(turn) {
+			// A video turn (feature mode 11 in slot 49) keeps its earlier shape: a
+			// lowercase turn id, no turn header, and a selection header ending at
+			// the mode. A text turn names its turn as the web app does.
+			if len(fields) > 49 && fields[49] == float64(11) {
+				var positions []json.RawMessage
+				if turn == "" || turn != strings.ToLower(turn) || request.Header.Get("x-goog-ext-525005358-jspb") != "" ||
+					json.Unmarshal([]byte(request.Header.Get("x-goog-ext-525001261-jspb")), &positions) != nil || len(positions) != 15 {
+					t.Errorf("video turn %q left its earlier shape: turn header %q, selection %s", turn, request.Header.Get("x-goog-ext-525005358-jspb"), request.Header.Get("x-goog-ext-525001261-jspb"))
+				}
+			} else if turn == "" || request.Header.Get("x-goog-ext-525005358-jspb") != webTurnHeader(turn) {
 				t.Errorf("turn header %q does not name the body's turn %q", request.Header.Get("x-goog-ext-525005358-jspb"), turn)
 			}
 			n := len(fixture.fields)

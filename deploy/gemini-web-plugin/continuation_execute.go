@@ -169,7 +169,13 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		if err := session.bootstrap(ctx); err != nil {
 			return nil, err
 		}
-		nonce, err := webConversationID()
+		// A video turn keeps its earlier request shape: a lowercase turn id and no
+		// turn header (see postGeneration).
+		newTurnID := webConversationID
+		if turn.Model == omniModel {
+			newTurnID = webVideoTurnID
+		}
+		nonce, err := newTurnID()
 		if err != nil {
 			return nil, err
 		}
@@ -242,7 +248,11 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			execution.turns[execution.key] = turn
 			return service.saveContinuations(execution.local, execution.turns)
 		}
-		_, submitErr := session.postGeneration(ctx, string(encoded), account, model, language, nonce, 0)
+		named := nonce
+		if turn.Model == omniModel {
+			named = ""
+		}
+		_, submitErr := session.postGeneration(ctx, string(encoded), account, model, language, named, 0)
 		session.generationFrame = nil
 		if submitErr != nil {
 			view.State, view.Error = "pending", safeCredentialCode(submitErr)

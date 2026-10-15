@@ -132,9 +132,15 @@ func TestVideoWireRequestBytes(t *testing.T) {
 					t.Error(err)
 					return
 				}
+				if id, _ := fields[59].(string); id == "" || id != strings.ToLower(id) {
+					t.Errorf("video turn id %q is not lowercase", id)
+				}
 				fields[59] = "request-id" // Only the per-request random nonce is normalized.
 				body = string(jsonFixture(t, fields))
 				header = r.Header.Get("x-goog-ext-525001261-jspb")
+				if turn := r.Header.Get("x-goog-ext-525005358-jspb"); turn != "" {
+					t.Errorf("video turn sent the text turn header %q", turn)
+				}
 				if r.Header.Get("x-goog-ext-73010990-jspb") != "[0,0,0]" || r.Header.Get("x-goog-ext-73010989-jspb") != "[0]" {
 					t.Error("unchanged extension headers were lost")
 				}
@@ -143,6 +149,9 @@ func TestVideoWireRequestBytes(t *testing.T) {
 			defer server.Close()
 			session := newWebSession(server.Client(), webCredential{}, server.URL)
 			session.xsrf, session.videoWire = "fixture", test.mode
+			// A loaded page gives the session a build label; a video turn still
+			// leaves it and the client instance out of the selection header.
+			session.build = "build"
 			session.diag = newVideoTurnDiag("fixture", "first", webAccount{}, capability{}, webFramingPortrait, 2, "en")
 			// When a video submission goes through the real request encoder.
 			_, err := session.submitVideo(t.Context(), "a wave", webAccount{CapacityFlags: test.flags}, capability{CapabilityID: "cap-flash", Mode: 1}, webFramingPortrait, 2, "en", nil)

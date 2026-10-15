@@ -161,10 +161,21 @@ func (session *webSession) postGeneration(ctx context.Context, fields string, ac
 	if session.diag != nil {
 		session.diag.wire, session.diag.capacity = session.videoWire, capacity
 	}
+	// A text turn names its turn in the 525005358 header and follows the
+	// selection header's mode with the client instance and build label, as the
+	// web app does. A video turn passes no turn and sends neither: once it did on
+	// 2026-10-15, its generic error answers ("Sorry, something went wrong") rose
+	// from 7% to 28% of turns, so it keeps the shape it ran on before.
+	instance, build := session.instance, session.build
+	if turn == "" {
+		instance, build = "", ""
+	}
 	overrides := http.Header{
-		"x-goog-ext-525001261-jspb": {webSelectionHeader(model, capacity, thinkingLevel, session.instance, session.build)},
+		"x-goog-ext-525001261-jspb": {webSelectionHeader(model, capacity, thinkingLevel, instance, build)},
 		"x-goog-ext-73010990-jspb":  {"[0,0,0]"},
-		"x-goog-ext-525005358-jspb": {webTurnHeader(turn)},
+	}
+	if turn != "" {
+		overrides["x-goog-ext-525005358-jspb"] = []string{webTurnHeader(turn)}
 	}
 	return session.do(ctx, session.prefix+webGeneratePath+"?"+query.Encode(), []byte(body), overrides)
 }
@@ -226,6 +237,13 @@ func webConversationID() (string, error) {
 	raw[6] = raw[6]&0x0f | 0x40
 	raw[8] = raw[8]&0x3f | 0x80
 	return fmt.Sprintf("%X-%X-%X-%X-%X", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16]), nil
+}
+
+// webVideoTurnID is the slot 59 identifier of a video turn: lowercase, as video
+// turns sent it before text turns took the web app's uppercase form.
+func webVideoTurnID() (string, error) {
+	id, err := webConversationID()
+	return strings.ToLower(id), err
 }
 
 // webTurnHeader names the turn the request submits, as the web app does next to

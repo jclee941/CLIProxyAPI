@@ -81,9 +81,7 @@ func TestVideoWireDoesNotChangeTextContinuations(t *testing.T) {
 }
 
 // selectionVariant is the part of a selection header a wire variant chooses, the
-// positions up to the mode. The client instance and build after it belong to
-// the session that sent the turn, as they change with each page load of the web
-// app.
+// positions up to the mode, which is all a video turn's header carries.
 func selectionVariant(t *testing.T, header string) string {
 	t.Helper()
 	var positions []json.RawMessage
