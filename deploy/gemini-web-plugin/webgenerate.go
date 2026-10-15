@@ -19,8 +19,12 @@ import (
 
 const webGeneratePath = "/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
 
-// webThinkingDefault is the depth the flash capability is driven with.
-const webThinkingDefault = 4
+// webThinkingDefault is what slot 17 carries on a text turn: 0, as the web app
+// and every video turn send it. The 4 sent until 2026-10-15 is MEDIUM in the
+// web app's thinking enum, which 3.1 Pro answered on every account with a
+// generic error or a stream that never came; the thinking level a caller asks
+// for travels in slot 80 and the selection header.
+const webThinkingDefault = 0
 
 // webCapacityFlag marks an account allowed the higher generation capacity.
 const webCapacityFlag = 8

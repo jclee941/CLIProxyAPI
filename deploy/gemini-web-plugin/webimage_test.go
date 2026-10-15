@@ -28,6 +28,8 @@ type imageWebFixture struct {
 	selections   []string
 	downloads    []string
 	deletes      []string
+	// thinking is slot 17 of each turn, as JSON.
+	thinking []string
 }
 
 // imageWebServer stands in for the web product on an image turn: the bootstrap
@@ -83,6 +85,8 @@ func imageWebServer(t *testing.T, fixture *imageWebFixture) *httptest.Server {
 			fixture.mu.Lock()
 			fixture.prompts = append(fixture.prompts, prompt)
 			fixture.selections = append(fixture.selections, request.Header.Get("x-goog-ext-525001261-jspb"))
+			thinking, _ := json.Marshal(jsonField(fields, 17))
+			fixture.thinking = append(fixture.thinking, string(thinking))
 			noImage, sparse := fixture.noImage, fixture.sparse
 			fixture.mu.Unlock()
 			frame := imageFrame(t, origin, sparse)
@@ -261,6 +265,20 @@ func TestGeneratedChatsAreDeletedOnlyWhenConfigured(t *testing.T) {
 		if keptDeletes != 0 || len(deletes) != 1 || !strings.Contains(deletes[0], "c_img") {
 			t.Fatalf("%s: deletes without the setting %d, with it %q", model, keptDeletes, deletes)
 		}
+	}
+}
+
+// A text turn sends slot 17 as the web app does; 3.1 Pro refused every turn
+// that carried the old MEDIUM there.
+func TestTextTurnSendsTheWebAppsThinkingSlot(t *testing.T) {
+	fixture := &imageWebFixture{}
+	if result := imageCall(t, fixture, "gemini-app-3.8-flash"); !result.OK {
+		t.Fatalf("text turn failed: %+v", result.Error)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if !slices.Equal(fixture.thinking, []string{"[[0]]"}) {
+		t.Fatalf("slot 17 = %q, want the web app's [[0]]", fixture.thinking)
 	}
 }
 
