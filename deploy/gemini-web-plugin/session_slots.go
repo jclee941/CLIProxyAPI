@@ -32,17 +32,18 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 		}
 		servable[local.Target.ID] = local.Target.TokenRef
 	}
+	video := model == omniModel || model == interactionOmniModel
 	eligible := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
 		if _, ok := servable[candidate.ID]; !ok || candidate.Provider != provider {
 			continue
 		}
-		if !service.quotaAvailable(candidate.ID) {
+		// The video limits the product names hold back videos, not other turns.
+		if video && !service.quotaAvailable(candidate.ID) || !video && !service.windowsAvailable(candidate.ID) {
 			continue
 		}
 		eligible = append(eligible, candidate.ID)
 	}
-	video := model == omniModel || model == interactionOmniModel
 	// A video room stays on the account that opens it, so it only opens where the
 	// whole room is paid for; with no such account there is no room to open.
 	if video {

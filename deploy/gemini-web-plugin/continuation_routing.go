@@ -27,6 +27,17 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 	if custom {
 		return interactionRejection(failure(400, "use_official_interactions_surface"))
 	}
+	// A research continuation goes to the account holding its conversation.
+	if request.Model == webResearchModel && request.SourceFormat == "interactions" {
+		response := requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader}}
+		var research struct {
+			Previous string `json:"previous_interaction_id"`
+		}
+		if json.Unmarshal(request.Body, &research) == nil && research.Previous != "" {
+			response.Headers = http.Header{continuationHeader: {research.Previous}}
+		}
+		return response
+	}
 	if request.Model != interactionOmniModel && request.RequestedModel != interactionOmniModel {
 		response := interceptRequest(raw)
 		if request.Headers.Get(continuationHeader) != "" {
@@ -151,11 +162,19 @@ func (service *service) pickContinuation(raw []byte) (picked continuationPick, e
 	}
 	token := request.Options.Headers.Get(continuationHeader)
 	if token == "" {
-		candidates := slices.DeleteFunc(slices.Clone(request.Candidates), func(candidate struct{ ID, Provider string }) bool {
-			return !service.belowFirstEntryCeilings(candidate.ID)
-		})
+		video := request.Model == interactionOmniModel || request.Model == omniModel
+		candidates := request.Candidates
+		// The ceilings keep headroom for the rooms Omni opens. A text, image,
+		// music or research turn opens none; held to them, all of those landed on
+		// the one account below them on 2026-10-15, and each one sent while it
+		// rendered a video answered session_busy.
+		if video {
+			candidates = slices.DeleteFunc(slices.Clone(request.Candidates), func(candidate struct{ ID, Provider string }) bool {
+				return !service.belowFirstEntryCeilings(candidate.ID)
+			})
+		}
 		pick := service.pickServableAccount(request.Model, candidates)
-		if !pick.Handled && (request.Model == interactionOmniModel || request.Model == omniModel) {
+		if !pick.Handled && video {
 			return continuationPick{}, failure(409, "account_unavailable")
 		}
 		return pick, nil
@@ -190,7 +209,7 @@ func (service *service) pickContinuation(raw []byte) (picked continuationPick, e
 		}
 		owner := local.Target.ID
 		for _, candidate := range request.Candidates {
-			if candidate.ID == owner && candidate.Provider == provider && (retrieval || service.ownerServes(local)) {
+			if candidate.ID == owner && candidate.Provider == provider && (retrieval || turn.Model == webResearchModel || service.ownerServes(local)) {
 				if !retrieval && (request.Model == omniModel || request.Model == interactionOmniModel) {
 					service.reserveSlot(owner)
 				}
@@ -199,7 +218,7 @@ func (service *service) pickContinuation(raw []byte) (picked continuationPick, e
 		}
 		// A retrieval has to land on the owner, the only store holding its result.
 		// A create moves to another account only with a finished video to carry.
-		if retrieval || turn.State != "complete" || !turn.ResultStored {
+		if retrieval || turn.Model == webResearchModel || turn.State != "complete" || !turn.ResultStored {
 			return continuationPick{}, failure(409, "continuation_account_unavailable")
 		}
 		others := slices.DeleteFunc(slices.Clone(request.Candidates), func(candidate struct{ ID, Provider string }) bool {

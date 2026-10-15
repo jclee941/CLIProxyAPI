@@ -64,6 +64,9 @@ func (service *service) retrieveInteraction(ctx context.Context, request executo
 		return nil, err
 	}
 	turn, found := turns[continuationKey(body.ID)]
+	if found && turn.CallerScope == request.Metadata.CallerScope && turn.Model == webResearchModel {
+		return service.retrieveResearch(ctx, request, record, local, body.ID, turn)
+	}
 	if !found || turn.CallerScope != request.Metadata.CallerScope || turn.Model != omniModel {
 		return nil, failure(404, "interaction_not_found")
 	}

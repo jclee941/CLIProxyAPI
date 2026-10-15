@@ -104,6 +104,16 @@ func TestWebReplyTextTakesTheLastRefinement(t *testing.T) {
 	}
 }
 
+// Code the web app ran comes back fenced with its renderer's info string; the
+// reply keeps the language and drops the suffix.
+func TestWebReplyTextKeepsRunCodeAsPlainFences(t *testing.T) {
+	ran := "```python?code_reference&code_event_index=1\nprint(17 * 23)\n```\n\n```text?code_stdout&code_event_index=1\n391\n```\n\n17 times 23 is 391."
+	text, err := webReplyText([]byte(")]}'\n" + generationFrame(t, ran) + "\n"))
+	if err != nil || text != "```python\nprint(17 * 23)\n```\n\n```text\n391\n```\n\n17 times 23 is 391." {
+		t.Fatalf("text = %q, err = %v", text, err)
+	}
+}
+
 func TestWebReplyTextRejectsRepliesWithoutContent(t *testing.T) {
 	if _, err := webReplyText([]byte(")]}'\n\n")); err == nil {
 		t.Fatal("an empty stream was accepted")

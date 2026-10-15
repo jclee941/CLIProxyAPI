@@ -191,6 +191,9 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 	if !service.settings().NativeContinuation {
 		return nil, failure(400, "native_continuation_disabled")
 	}
+	if request.Model == webResearchModel && request.SourceFormat == "interactions" && request.Alt == "" {
+		return service.executeResearch(ctx, request)
+	}
 	if request.Model != interactionOmniModel || request.SourceFormat != "interactions" || request.Alt != "" && request.Alt != interactionRetrieveAlt {
 		return nil, failure(400, "unsupported_interaction_route")
 	}

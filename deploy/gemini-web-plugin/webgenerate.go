@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -204,8 +205,13 @@ func webReplyText(raw []byte) (string, error) {
 	if text == "" {
 		return "", failure(502, "web_response_invalid")
 	}
-	return text, nil
+	return webCodeFence.ReplaceAllString(text, "```$1"), nil
 }
+
+// webCodeFence is the info string the web app gives the code it ran and that
+// code's output ("python?code_reference&code_event_index=1", "text?code_stdout
+// &..."); its renderer reads the suffix, which a markdown reader shows as text.
+var webCodeFence = regexp.MustCompile("```(\\w*)\\?code_[a-z_]+&code_event_index=\\d+")
 
 // webConversationID is the per-turn identifier the protocol expects in slot 59.
 func webConversationID() (string, error) {

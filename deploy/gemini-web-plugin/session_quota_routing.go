@@ -280,16 +280,20 @@ func (service *service) noteVideoRefusal(id string, err error) {
 // cap holds until the budget says videos are back.
 func (service *service) quotaAvailable(id string) bool {
 	service.quota.mu.RLock()
+	snapshot := service.quota.entries[id]
+	service.quota.mu.RUnlock()
+	now := service.now().Unix()
+	return now >= snapshot.limitedUntil && now >= snapshot.videoCapUntil && service.windowsAvailable(id)
+}
+
+// windowsAvailable is quotaAvailable without the video limits, for a turn that
+// makes no video: only a spent window holds it back.
+func (service *service) windowsAvailable(id string) bool {
+	service.quota.mu.RLock()
 	snapshot, found := service.quota.entries[id]
 	service.quota.mu.RUnlock()
 	now := service.now().Unix()
-	if !found {
-		return true
-	}
-	if now < snapshot.limitedUntil || now < snapshot.videoCapUntil {
-		return false
-	}
-	return !snapshot.exhausted || snapshot.resetAt > 0 && now >= snapshot.resetAt
+	return !found || !snapshot.exhausted || snapshot.resetAt > 0 && now >= snapshot.resetAt
 }
 
 func (service *service) refreshQuota(ctx context.Context, record storageRecord, token sessionToken) {

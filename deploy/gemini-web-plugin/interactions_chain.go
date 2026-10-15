@@ -87,7 +87,7 @@ func (service *service) holdsInteraction(account, key, caller string) bool {
 		return false
 	}
 	turn, found := turns[key]
-	return found && turn.CallerScope == caller && turn.State == "complete" && turn.ResultStored
+	return found && turn.CallerScope == caller && turn.Model != webResearchModel && turn.State == "complete" && turn.ResultStored
 }
 
 // chainedSource reads the video a previous interaction produced so it can be

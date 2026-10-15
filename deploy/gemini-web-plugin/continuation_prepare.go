@@ -13,6 +13,10 @@ func (service *service) prepareContinuation(execution continuationExecution) (in
 	}
 	parent := ""
 	if execution.control.Token != "" {
+		// A research conversation is continued by the research agent only.
+		if execution.turn.Model == webResearchModel {
+			return nil, failure(409, "continuation_model_mismatch")
+		}
 		address, refused, err := refusedFirstTurnAddress(execution.turn)
 		if err != nil {
 			return nil, err
@@ -43,7 +47,8 @@ func (service *service) prepareContinuation(execution continuationExecution) (in
 		if turn.Sequence > sequence {
 			sequence = turn.Sequence
 		}
-		if key != execution.key && turn.Sequence < oldest {
+		// A research still running keeps its receipt until its report is read.
+		if key != execution.key && turn.State != "researching" && turn.Sequence < oldest {
 			oldestKey, oldest = key, turn.Sequence
 		}
 	}

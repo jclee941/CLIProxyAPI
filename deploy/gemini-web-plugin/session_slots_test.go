@@ -352,6 +352,40 @@ func quotaUsage(fraction float64, resetAt float64) *usageView {
 	return &usageView{Metrics: []usageMetric{{UsageFraction: &fraction, ResetUnixSeconds: &resetAt, WindowKind: "5h", Unit: "provider_compute_unit"}}}
 }
 
+// A text, image, music or research turn opens no room, so neither the room
+// ceilings nor the video limits keep it off an idle account.
+func TestSchedulerSendsTurnsWithoutVideoPastTheRoomCeilingsToAnIdleAccount(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("second")})
+	service.observeQuota(local.Target.ID, quotaUsage(0.10, 0))
+	capped := true
+	nearlyFull := quotaUsage(0.86, 0)
+	nearlyFull.VideoCapped = &capped
+	service.observeQuota(other.ID, nearlyFull)
+	busy, err := service.acquireCredential(local.Target.TokenRef, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.guard.Unlock()
+	pick := func(model string) continuationPick {
+		picked, err := service.pickContinuation(jsonFixture(t, map[string]any{"Provider": provider, "Model": model, "Candidates": slotCandidates(local.Target.ID, other.ID)}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return picked
+	}
+
+	for _, model := range []string{"gemini-app-3.8-flash", webResearchModel} {
+		if turn := pick(model); turn.AuthID != other.ID {
+			t.Fatalf("%s waited on the busy account below the ceilings: %+v", model, turn)
+		}
+	}
+	if room := pick(interactionOmniModel); room.AuthID != local.Target.ID {
+		t.Fatalf("a video room opened past the ceilings: %+v", room)
+	}
+}
+
 func TestSchedulerSkipsAnExhaustedAccount_untilItsWindowResets(t *testing.T) {
 	service, local := continuationFixture(t)
 	other := recordFixture(t, "b")

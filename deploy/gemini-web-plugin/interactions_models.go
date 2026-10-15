@@ -14,6 +14,7 @@ func (service *service) interactionModels(account accountModels) []modelInfo {
 		models = append(models, webTextModelInfos(account)...)
 		models = append(models, webImageModelInfos(account)...)
 		models = append(models, webMusicModelInfos(account)...)
+		models = append(models, webResearchModelInfos(account)...)
 	}
 	return models
 }
