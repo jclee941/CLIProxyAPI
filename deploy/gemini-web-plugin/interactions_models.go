@@ -12,8 +12,8 @@ func (service *service) interactionModels(account accountModels) []modelInfo {
 	if account.Available {
 		models = append(models, modelInfo{ID: interactionOmniModel, Object: "model", OwnedBy: provider, Type: provider, Name: interactionOmniModel, DisplayName: "Gemini Omni 1.1 Flash", Description: "Official Interactions request/response shape for inline text-to-video and stored follow-up turns", SupportedGenerationMethods: []string{"interactions"}, SupportedInputModalities: []string{"text"}, SupportedOutputModalities: []string{"video"}})
 		models = append(models, webTextModelInfos(account)...)
-		models = append(models, webImageModelInfos(account)...)
-		models = append(models, webImagesRouteModelInfos(account)...)
+		// Image models are not published: the web app's image downloads failed live
+		// on 2026-10-15 and the operator dropped image generation.
 		models = append(models, webMusicModelInfos(account)...)
 		models = append(models, webResearchModelInfos(account)...)
 	}

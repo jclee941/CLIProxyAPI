@@ -19,7 +19,9 @@ type researchWebFixture struct {
 	ready bool
 	// question makes the agent answer the opening turn with a question back.
 	question bool
-	reads    int
+	// unreadable answers the opening turn with neither text nor a plan.
+	unreadable bool
+	reads      int
 }
 
 func researchWeb(t *testing.T, service *service, fixture *researchWebFixture) {
@@ -49,6 +51,8 @@ func researchWeb(t *testing.T, service *service, fixture *researchWebFixture) {
 			case research && prompt == webResearchStart:
 				candidate[1] = []any{"I'm on it. The report will be ready in a few minutes."}
 				candidate[30] = []any{researchDocument("")}
+			case research && fixture.unreadable && n == 1:
+				candidate[12] = slots(71, map[int]any{70: []any{"card"}})
 			case research && fixture.question && n == 1:
 				candidate[1] = []any{"Which region should the research cover?"}
 			case research:
@@ -255,6 +259,19 @@ func TestResearchQuestionBackIsAnsweredAndThePlanStarted(t *testing.T) {
 	turns := fixture.sent()
 	if started.Status != "in_progress" || len(turns) != 3 || jsonField(turns[1], 0, 0) != "Europe" || jsonField(turns[2], 0, 0) != webResearchStart {
 		t.Fatalf("answered %+v after %v", started, turns)
+	}
+}
+
+// An answer this parser cannot read names where its content went, without the
+// content, so the next wire change can be located from one failure.
+func TestResearchUnreadableAnswerReportsItsLayout(t *testing.T) {
+	service, local := continuationFixture(t)
+	researchWeb(t, service, &researchWebFixture{unreadable: true})
+
+	result := researchCall(t, service, local, `{"model":"gemini-deep-research","input":"How is battery recycling changing?","background":true}`)
+
+	if result.OK || result.Error == nil || !strings.Contains(result.Error.Message, "research_reply_unreadable") || !strings.Contains(result.Error.Message, "r=70") || strings.Contains(result.Error.Message, "card") {
+		t.Fatalf("unreadable answer = %+v", result.Error)
 	}
 }
 

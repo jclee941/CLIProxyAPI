@@ -390,6 +390,49 @@ func researchHandles(turn continuationTurn, raw []byte) (continuationTurn, error
 	return turn, nil
 }
 
+// researchShape lays out a research reply without any of its content: the
+// candidate slots that carry something and the rich content fields, so an
+// answer this parser cannot read says where it went.
+func researchShape(raw []byte) string {
+	bodies, err := webResponseFrames(raw)
+	if err != nil {
+		return safeCredentialCode(err)
+	}
+	var shapes []string
+	for _, body := range bodies {
+		candidate, ok := jsonField(body, 4, 0).([]any)
+		if !ok {
+			shapes = append(shapes, "b="+researchSlots(body))
+			continue
+		}
+		shapes = append(shapes, "c="+researchSlots(candidate)+" r="+researchSlots(jsonField(candidate, 12)))
+	}
+	return strings.Join(shapes, " ")
+}
+
+func researchSlots(value any) string {
+	values, ok := value.([]any)
+	if !ok {
+		return fmt.Sprintf("%T", value)
+	}
+	var slots []string
+	for index, slot := range values {
+		switch typed := slot.(type) {
+		case nil:
+		case map[string]any:
+			keys := make([]string, 0, len(typed))
+			for key := range typed {
+				keys = append(keys, key)
+			}
+			slices.Sort(keys)
+			slots = append(slots, fmt.Sprintf("%d{%s}", index, strings.Join(keys, ",")))
+		default:
+			slots = append(slots, strconv.Itoa(index))
+		}
+	}
+	return strings.Join(slots, ",")
+}
+
 func researchMetadata(encoded string) ([]any, error) {
 	if encoded == "" {
 		return nil, nil
@@ -557,7 +600,7 @@ func (run researchRun) ask(ctx context.Context, prompt string, attachments []web
 	}
 	answer := researchAnswer(text, plan)
 	if answer == "" {
-		return nil, failure(502, "web_response_invalid")
+		return nil, &publicError{Code: "research_reply_unreadable", Message: "research_reply_unreadable: " + researchShape(raw), HTTPStatus: 502}
 	}
 	result := researchResult{Text: answer}
 	if plan != nil {

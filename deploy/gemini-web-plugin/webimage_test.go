@@ -175,21 +175,26 @@ func imageParts(t *testing.T, result envelope) []imagePart {
 	return body.Candidates[0].Content.Parts
 }
 
-func TestImageModelsArePublishedForTheModesAnAccountHas(t *testing.T) {
+// Image generation is not published; the per-mode image list stays as it was
+// for when it is offered again.
+func TestImageModelsAreNotPublished(t *testing.T) {
 	service := newService(nil)
-	ids := func(account accountModels) []string {
+	ids := func(models []modelInfo) []string {
 		var ids []string
-		for _, model := range service.interactionModels(account) {
+		for _, model := range models {
 			ids = append(ids, model.ID)
 		}
 		return ids
 	}
-	full := ids(accountModels{Available: true, Models: []capability{{DisplayName: "3.5 Flash-Lite"}, {DisplayName: "3.8 Flash"}, {DisplayName: "3.1 Pro"}}})
-	if !slices.Equal(full, []string{interactionOmniModel, "gemini-app-3.5-flash-lite", "gemini-app-3.8-flash", "gemini-app-3.1-pro", "gemini-nano-banana-2", "gemini-nano-banana-pro", "gemini-nano-banana-2-image", "gemini-nano-banana-pro-image", webMusicModel, webResearchModel}) {
-		t.Fatalf("models = %v", full)
+	full := accountModels{Available: true, Models: []capability{{DisplayName: "3.5 Flash-Lite"}, {DisplayName: "3.8 Flash"}, {DisplayName: "3.1 Pro"}}}
+	if published := ids(service.interactionModels(full)); !slices.Equal(published, []string{interactionOmniModel, "gemini-app-3.5-flash-lite", "gemini-app-3.8-flash", "gemini-app-3.1-pro", webMusicModel, webResearchModel}) {
+		t.Fatalf("published = %v", published)
 	}
-	if lite := ids(accountModels{Available: true, Models: []capability{{DisplayName: "3.5 Flash-Lite"}}}); !slices.Equal(lite, []string{interactionOmniModel, "gemini-app-3.5-flash-lite"}) {
-		t.Fatalf("Flash-Lite is not the Flash mode, models = %v", lite)
+	if images := ids(webImageModelInfos(full)); !slices.Equal(images, []string{"gemini-nano-banana-2", "gemini-nano-banana-pro"}) {
+		t.Fatalf("image models for the modes = %v", images)
+	}
+	if lite := ids(webImageModelInfos(accountModels{Available: true, Models: []capability{{DisplayName: "3.5 Flash-Lite"}}})); len(lite) != 0 {
+		t.Fatalf("Flash-Lite is not the Flash mode, image models = %v", lite)
 	}
 }
 
