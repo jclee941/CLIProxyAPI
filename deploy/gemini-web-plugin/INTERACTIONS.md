@@ -104,7 +104,8 @@ No `extra_body`, custom SDK, management generation route, Veo operation, or
 | `generation_config.language` | Gateway extension: `en` (default) or `ko`; the interface language the video turn is sent to the web product with (slot 1 of the request and its `hl` query). Text generation and the account RPCs always use `en`. Another value returns `omni_invalid_language` |
 | `generation_config.video_mode` | Gateway extension: an integer capability mode the serving account advertises (`1` = 3.8 Flash, `3` = 3.1 Pro, `6` = 3.5 Flash-Lite, `8` = 4 Argon on the current accounts). Absent, the gateway's default mode is used where the serving account advertises it, and the account's standard mode `1` otherwise. A mode the account does not advertise returns 400 `omni_video_mode_unavailable` and nothing is sent; it never falls back to another model. A value below 1 or not an integer returns `omni_invalid_video_mode` |
 | `store:true` or omitted | Keep the bounded local interaction receipt history |
-| `store:false` | Remove the completed receipt; later stateful editing with its ID fails before submission |
+| `store:false` | Remove the completed receipt; later stateful editing with its ID fails before submission, and GET answers 404 `interaction_not_found`. The turn's Gemini web conversation is deleted after delivery. Measured 2026-10-15 |
+| `generation_config.temporary_chat` | Refused with 400 `omni_temporary_chat_unobservable`: the web app cannot read a temporary chat's video back |
 | `response_format.type` | `video` or omitted |
 | `response_format.aspect_ratio` | `16:9` or `9:16`; omitted is framed `9:16`. Both measured 2026-09-21: portrait 720x1280 in 72.4s, landscape 1280x720 |
 | `response_format.delivery` | `inline` or omitted |

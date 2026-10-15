@@ -336,9 +336,10 @@ func webCitations(groups any) []webResearchSource {
 }
 
 // markdown is the report as the web app shows it, with the sources its
-// citation markers point to listed under it.
+// citation markers point to listed under it. The charts the app draws are not
+// part of it, so their placeholder links are dropped.
 func (report webResearchReport) markdown() string {
-	text := strings.TrimSpace(report.Body)
+	text := webImageText(report.Body)
 	if report.Title != "" && !strings.HasPrefix(text, "#") {
 		text = "# " + report.Title + "\n\n" + text
 	}

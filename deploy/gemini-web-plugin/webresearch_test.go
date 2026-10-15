@@ -166,6 +166,16 @@ func (fixture *researchWebFixture) sent() [][]any {
 	return slices.Clone(fixture.turns)
 }
 
+// A live report wrote http://googleusercontent.com/visual_element_0 where the
+// web app draws a chart; the chart is not returned, so the link is dropped.
+func TestResearchReportDropsChartPlaceholders(t *testing.T) {
+	report := webResearchReport{Body: "# Batteries\n\nIntro [cite: 1].\n\nhttp://googleusercontent.com/visual_element_0\n\n## Rules\n\nMore.", Sources: []webResearchSource{{Number: 1, Title: "Source", URL: "https://example.com/a"}}}
+	text := report.markdown()
+	if strings.Contains(text, "googleusercontent") || !strings.Contains(text, "Intro [cite: 1].\n\n## Rules\n\nMore.") || !strings.HasSuffix(text, "## Sources\n\n1. [Source](https://example.com/a)") {
+		t.Fatalf("report = %q", text)
+	}
+}
+
 // Research runs in the account's Argon mode, so only an account with it
 // publishes the model, and every research turn names that mode.
 func TestResearchRunsInTheArgonMode(t *testing.T) {

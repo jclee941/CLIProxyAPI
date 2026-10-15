@@ -111,8 +111,10 @@ func webParseImageReply(raw []byte) (webImageReply, error) {
 	return reply, nil
 }
 
-// webImageArtifacts are the placeholder links a reply writes where its media go.
-var webImageArtifacts = regexp.MustCompile(`https?://googleusercontent\.com/(?:\w+/)+\d+\n*`)
+// webImageArtifacts are the placeholder links a reply writes where its media go,
+// such as image_generation_content/0, or visual_element_0 where a Deep Research
+// report draws a chart.
+var webImageArtifacts = regexp.MustCompile(`https?://googleusercontent\.com/(?:(?:\w+/)+\d+|[a-z_]+_\d+)\n*`)
 
 func webImageText(text string) string {
 	return strings.TrimSpace(webImageArtifacts.ReplaceAllString(text, ""))

@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Gemini and Google Flow Media API",
-    "version": "2026-10-12",
+    "version": "2026-10-15",
     "summary": "Generate media and manage Google Flow projects, uploads, scenes, characters, voices, agent sessions, and tools.",
-    "description": "Authenticate with an API key as a Bearer token, in the x-goog-api-key header, or in the key query parameter. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait, where the official default is 16:9. A new video goes to an account below 80% of its five-hour usage and 90% of its weekly usage with enough video allowance left; when none qualifies, creation fails with 409 account_unavailable until usage resets. A continuation runs in its original conversation while that account can serve; otherwise another account continues from the stored video and returns a new id to continue from.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. The other official resolutions (360p, 1080p, 4k), explicit duration controls, and tasks other than extend are rejected. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data. Each serving account keeps its 16 newest stored interactions; an older id can no longer be retrieved or continued.\n\nErrors answer {\"error\": {\"code\", \"message\"}}: code is the identifier, such as account_unavailable, and message repeats it, behind a gemini_web_omni: prefix for a failure raised during a turn, continuing after ': ' with the product's reply when a turn was answered without a video. Failures the gateway raises before a request reaches this service answer the gateway's own object with message and type: a non-boolean stream, or every account held back by the gateway itself. A missing or unknown API key answers 401 with error as a string.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error.\n\nFlow projects and media live under /v1/flow/projects, at the origin root rather than under /v1beta, so those paths override the server. They need the same API key as every other route. All API keys share the one Flow account the operator configured, so every key sees the same projects and media; nothing is split per key. Responses never include cookies or account credentials. A media url is a signed link that fetches the file without credentials: treat it like a secret. DELETE on a media item moves it to the Flow trash (it archives it), and POST :restore brings it back. Errors from these routes answer {\"error\": {\"code\", \"message\"}} with string values.\n\nThe /v1/flow API uses the single configured Flow account shared by authenticated CPA API keys. Agent and tool-builder responses are buffered until completion. Generated tool UI source executes in a browser. Google likeness registration requires the account holder to complete the returned verification link. Flow Omni does not currently advertise native video extension; Veo can extend compatible Omni output.\n\nFlow generation runs through POST /models/{model}:generateContent with a Flow model: one request runs exactly one generation with the model and options you set and returns the media with its mediaId. An agent session turn (POST /v1/flow/projects/{project}/sessions/{session}:chat) instead lets Google's Flow agent choose and run its own generation steps and returns them after the turn ends. Tools are browser apps on Flow's flow-sdk: the API builds, reads and manages them but does not run them. Their generate.image, generate.video and generate.text calls correspond to generateContent and text:generate, and their save and upload calls to the upload and media routes. Reference Flow characters with generationConfig.flow.referenceEntities. Each video extension returns only the new clip that continues the source; extend the returned mediaId again to go further, and join the clips yourself. A non-streaming request that outlasts the server's keep-alive interval has already answered HTTP 200 when a late failure occurs; the failure then arrives as the error object in the body.",
+    "description": "Authenticate with an API key as a Bearer token, in the x-goog-api-key header, or in the key query parameter. Create, retrieve, and extend gemini-omni-1.1-flash videos. New videos default to 9:16 portrait, where the official default is 16:9. A new video goes to an account below 80% of its five-hour usage and 90% of its weekly usage with enough video allowance left; when none qualifies, creation fails with 409 account_unavailable until usage resets. A continuation runs in its original conversation while that account can serve; otherwise another account continues from the stored video and returns a new id to continue from.\n\nPOST /interactions with model gemini-deep-research runs the Gemini app's Deep Research agent and returns a report with its sources; see InteractionCreate.agent_config. POST /models/gemini-lyria-3.5:generateContent makes a music track. The Gemini app text models gemini-app-3.5-flash-lite, gemini-app-3.8-flash and gemini-app-4-argon answer standard generateContent and OpenAI Chat requests, with generationConfig.thinkingConfig.thinkingLevel low, medium or high; they are not described further here. Images come from the Flow image models; the Gemini app's own image generation is not offered.\n\nExplicit 720p is accepted for fresh text/image generation only. Omit resolution for video inputs and previous_interaction_id: those requests inherit their source resolution. The other official resolutions (360p, 1080p, 4k), explicit duration controls, and tasks other than extend are rejected. Extension length is not guaranteed.\n\nUse background=true with store=true to receive an interaction id before completion. URI delivery returns files/{id} on creation or SSE; subsequent GET returns inline video data. Each serving account keeps its 16 newest stored interactions; an older id can no longer be retrieved or continued.\n\nErrors answer {\"error\": {\"code\", \"message\"}}: code is the identifier, such as account_unavailable, and message repeats it, behind a gemini_web_omni: prefix for a failure raised during a turn, continuing after ': ' with the product's reply when a turn was answered without a video. Failures the gateway raises before a request reaches this service answer the gateway's own object with message and type: a non-boolean stream, or every account held back by the gateway itself. A missing or unknown API key answers 401 with error as a string.\n\nFiles support resumable uploads up to 100 MiB, with chunks up to 16 MiB and 256 KiB nonfinal granularity. Upload sessions expire after 24 hours. The session URL authorizes only that upload; keep it private. Generated files can be downloaded; uploaded inputs cannot. Uploads, deletion, and URI output require operator-configured writable storage. Unavailable storage returns a named 503 error.\n\nFlow projects and media live under /v1/flow/projects, at the origin root rather than under /v1beta, so those paths override the server. They need the same API key as every other route. All API keys share the one Flow account the operator configured, so every key sees the same projects and media; nothing is split per key. Responses never include cookies or account credentials. A media url is a signed link that fetches the file without credentials: treat it like a secret. DELETE on a media item moves it to the Flow trash (it archives it), and POST :restore brings it back. Errors from these routes answer {\"error\": {\"code\", \"message\"}} with string values.\n\nThe /v1/flow API uses the single configured Flow account shared by authenticated CPA API keys. Agent and tool-builder responses are buffered until completion. Generated tool UI source executes in a browser. Google likeness registration requires the account holder to complete the returned verification link. Flow Omni does not currently advertise native video extension; Veo can extend compatible Omni output.\n\nFlow generation runs through POST /models/{model}:generateContent with a Flow model: one request runs exactly one generation with the model and options you set and returns the media with its mediaId. An agent session turn (POST /v1/flow/projects/{project}/sessions/{session}:chat) instead lets Google's Flow agent choose and run its own generation steps and returns them after the turn ends. Tools are browser apps on Flow's flow-sdk: the API builds, reads and manages them but does not run them. Their generate.image, generate.video and generate.text calls correspond to generateContent and text:generate, and their save and upload calls to the upload and media routes. Reference Flow characters with generationConfig.flow.referenceEntities. Each video extension returns only the new clip that continues the source; extend the returned mediaId again to go further, and join the clips yourself. A non-streaming request that outlasts the server's keep-alive interval has already answered HTTP 200 when a late failure occurs; the failure then arrives as the error object in the body.",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
@@ -33,6 +33,64 @@
     }
   ],
   "paths": {
+    "/models/gemini-lyria-3.5:generateContent": {
+      "post": {
+        "operationId": "generateMusic",
+        "summary": "Make a music track with the Gemini app.",
+        "description": "Runs one music turn in the Gemini web app and returns the finished track: the app's text when it wrote any, the track as audio/mpeg inlineData and its cover video as video/mp4 inlineData. Each request is a new conversation. A turn the app answered without a track fails with 422 no_music_generated, the message continuing after ': ' with the app's reply.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MusicGenerateRequest"
+              },
+              "examples": {
+                "track": {
+                  "summary": "Instrumental track",
+                  "value": {
+                    "contents": [
+                      {
+                        "role": "user",
+                        "parts": [
+                          {
+                            "text": "A calm lo-fi piano track for studying, no vocals."
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The finished track and its cover video.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicGenerateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "music_prompt_required: the contents carry no text."
+          },
+          "401": {
+            "description": "Caller authentication was rejected."
+          },
+          "422": {
+            "description": "no_music_generated: the app answered without a track."
+          },
+          "502": {
+            "description": "The track or its cover video could not be fetched (audio_download_failed, video_download_failed)."
+          }
+        }
+      }
+    },
     "/models/{model}:generateContent": {
       "post": {
         "operationId": "generateFlowMedia",
@@ -7971,8 +8029,11 @@
         "properties": {
           "model": {
             "type": "string",
-            "const": "gemini-omni-1.1-flash",
-            "description": "Target model. Only gemini-omni-1.1-flash is served by this endpoint."
+            "enum": [
+              "gemini-omni-1.1-flash",
+              "gemini-deep-research"
+            ],
+            "description": "gemini-omni-1.1-flash makes and extends videos. gemini-deep-research runs the Gemini app's Deep Research agent: it requires background=true, refuses store=false and stream=true, and accepts only model, input, previous_interaction_id, store, background, stream and agent_config; any other field answers 400 unsupported_research_request."
           },
           "input": {
             "description": "Prompt text, list of direct input parts, or an official SDK user_input wrapper.",
@@ -8001,7 +8062,7 @@
           },
           "previous_interaction_id": {
             "type": "string",
-            "description": "Id of a completed, stored interaction created with the same API key. Its conversation continues on the account that holds it while that account can serve; otherwise another account continues from its stored video, and the returned id belongs there. Sending another interaction from the same id replaces the turn an earlier one added to that conversation, as the Gemini app's prompt edit does, so a failed or refused turn can be retried with the same id without the failed attempt staying in the conversation. A first turn that ended without a video is retried the same way: name it, or the newest failed attempt at it, without task=extend, and the new turn edits that first message in the same conversation."
+            "description": "Id of a completed, stored interaction created with the same API key. Its conversation continues on the account that holds it while that account can serve; otherwise another account continues from its stored video, and the returned id belongs there. Sending another interaction from the same id replaces the turn an earlier one added to that conversation, as the Gemini app's prompt edit does, so a failed or refused turn can be retried with the same id without the failed attempt staying in the conversation. A first turn that ended without a video is retried the same way: name it, or the newest failed attempt at it, without task=extend, and the new turn edits that first message in the same conversation. For gemini-deep-research, name a plan to start it, or a completed report to ask a follow-up question in the same research conversation."
           },
           "generation_config": {
             "$ref": "#/components/schemas/GenerationConfig"
@@ -8012,17 +8073,49 @@
           "store": {
             "type": "boolean",
             "default": true,
-            "description": "Retain the turn for later retrieval and extension. Each serving account keeps its 16 newest stored interactions. Background requests require store=true."
+            "description": "Retain the turn for later retrieval and extension. Each serving account keeps its 16 newest stored interactions. Background requests require store=true. With store=false the turn is answered in the response and not kept: its id answers 404 interaction_not_found, and its Gemini web conversation is deleted once the video is delivered. gemini-deep-research refuses store=false (research_requires_store)."
           },
           "background": {
             "type": "boolean",
             "default": false,
-            "description": "Asynchronous execution flag. When true, returns immediately with status=in_progress and the interaction id. Requires store=true."
+            "description": "Asynchronous execution flag. When true, returns immediately with status=in_progress and the interaction id. Requires store=true. gemini-deep-research requires background=true (research_requires_background)."
           },
           "stream": {
             "type": "boolean",
             "default": false,
-            "description": "Stream server-sent events for turn progress."
+            "description": "Stream server-sent events for turn progress. gemini-deep-research refuses stream=true (research_stream_unsupported)."
+          },
+          "agent_config": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "gemini-deep-research only; other values answer 400 research_agent_config_invalid. The create returns once the agent has written its research plan. By default the plan starts on its own and the create answers status=in_progress: GET the id until it is completed and holds the report. With collaborative_planning=true the create completes with the plan as text instead; create again with previous_interaction_id set to the plan's id to start it (the plan's own start action is sent, whatever the input says), then GET the new id for the report. A completed report takes follow-up questions through previous_interaction_id; each answer completes in the response.",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "deep-research"
+              },
+              "collaborative_planning": {
+                "type": "boolean",
+                "default": false,
+                "description": "Return the research plan for approval before researching."
+              },
+              "thinking_summaries": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "none"
+                ],
+                "description": "Accepted and ignored: research is not streamed."
+              },
+              "visualization": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "off"
+                ],
+                "description": "Accepted and ignored: reports are text, and charts the agent draws are left out."
+              }
+            }
           }
         }
       },
@@ -8190,7 +8283,10 @@
           },
           "model": {
             "type": "string",
-            "const": "gemini-omni-1.1-flash"
+            "enum": [
+              "gemini-omni-1.1-flash",
+              "gemini-deep-research"
+            ]
           },
           "account": {
             "type": "string",
@@ -8222,11 +8318,11 @@
               "in_progress",
               "failed"
             ],
-            "description": "in_progress: still rendering; retrieve the id later. completed: the video is in steps. failed: error says why the turn ended."
+            "description": "in_progress: still rendering or researching; retrieve the id later. completed: steps hold the video, or the research plan, report or answer. failed: error says why the turn ended."
           },
           "steps": {
             "type": "array",
-            "description": "One model_output step holding the video once completed, empty otherwise. user_input and thought steps are not returned.",
+            "description": "One model_output step once completed, empty otherwise: the video, or for gemini-deep-research one text part. user_input and thought steps are not returned.",
             "items": {
               "$ref": "#/components/schemas/Step"
             }
@@ -8259,7 +8355,8 @@
           "type": {
             "type": "string",
             "enum": [
-              "video"
+              "video",
+              "text"
             ]
           },
           "mime_type": {
@@ -8276,6 +8373,10 @@
           "uri": {
             "type": "string",
             "description": "Resource identifier (files/{id}) delivered when response_format.delivery=uri is set."
+          },
+          "text": {
+            "type": "string",
+            "description": "gemini-deep-research output in Markdown: the plan, the report, whose [cite: N] markers are listed under a closing Sources heading, or the answer to a follow-up question."
           }
         }
       },
@@ -10525,6 +10626,105 @@
         "required": [
           "projectId"
         ]
+      },
+      "MusicGenerateRequest": {
+        "type": "object",
+        "required": [
+          "contents"
+        ],
+        "properties": {
+          "contents": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Gemini contents; the text of the user parts is the music request.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "examples": [
+                    "user"
+                  ]
+                },
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "text": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "MusicGenerateResponse": {
+        "type": "object",
+        "properties": {
+          "modelVersion": {
+            "type": "string",
+            "const": "gemini-lyria-3.5"
+          },
+          "candidates": {
+            "type": "array",
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer"
+                },
+                "finishReason": {
+                  "type": "string",
+                  "examples": [
+                    "STOP"
+                  ]
+                },
+                "content": {
+                  "type": "object",
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "const": "model"
+                    },
+                    "parts": {
+                      "type": "array",
+                      "description": "The app's text when it wrote any, then the track and its cover video.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "inlineData": {
+                            "type": "object",
+                            "properties": {
+                              "mimeType": {
+                                "type": "string",
+                                "enum": [
+                                  "audio/mpeg",
+                                  "video/mp4"
+                                ]
+                              },
+                              "data": {
+                                "type": "string",
+                                "contentEncoding": "base64"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   }
