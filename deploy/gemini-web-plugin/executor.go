@@ -30,7 +30,8 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 		return nil, failure(400, "unsupported_execution_format")
 	}
 	image, isImage := webImageModelFor(request.Model)
-	if !webTextModel(request.Model) && request.Model != omniModel && !isImage {
+	isMusic := request.Model == webMusicModel
+	if !webTextModel(request.Model) && request.Model != omniModel && !isImage && !isMusic {
 		return nil, failure(400, "unsupported_model")
 	}
 	stream := request.Stream || method == "executor.execute_stream"
@@ -112,6 +113,13 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 			}
 			lease.set(credentialState{state: maintenanceReady})
 		}
+	}
+	if isMusic {
+		body, errNative := service.nativeMusic(ctx, record, token, request.Payload)
+		if errNative != nil {
+			return nil, executionFailure(request.Model, errNative)
+		}
+		return webExecutionResult(body, stream), nil
 	}
 	if isImage {
 		body, errNative := service.nativeImage(ctx, record, token, image, request.Payload)

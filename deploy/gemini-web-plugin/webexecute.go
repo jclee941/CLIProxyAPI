@@ -123,7 +123,14 @@ func (service *service) nativeText(ctx context.Context, record storageRecord, to
 	if err != nil {
 		return nil, err
 	}
-	text, err := session.generateText(ctx, prompt, account, model, attachments, level)
+	raw, err := session.sendTurn(ctx, prompt, account, model, attachments, level)
+	if err != nil {
+		return nil, err
+	}
+	if service.settings().DeleteChats {
+		defer service.deleteChat(ctx, session, webReplyConversation(raw))
+	}
+	text, err := webReplyText(raw)
 	if err != nil {
 		return nil, err
 	}

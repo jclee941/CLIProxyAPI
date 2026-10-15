@@ -33,9 +33,9 @@ func webImageModelFor(id string) (webImageModel, bool) {
 	return webImageModel{}, false
 }
 
-// webImageCapability finds an account mode by the family in the name the account
-// advertises, so "3.8 Flash" serves Flash and "3.5 Flash-Lite" does not.
-func webImageCapability(capabilities []capability, family string) (capability, bool) {
+// webFamilyCapability finds an account mode by the family in the name the
+// account advertises, so "3.8 Flash" serves Flash and "3.5 Flash-Lite" does not.
+func webFamilyCapability(capabilities []capability, family string) (capability, bool) {
 	for _, entry := range capabilities {
 		if fields := strings.Fields(entry.DisplayName); len(fields) > 1 && strings.Join(fields[1:], " ") == family {
 			return entry, true
@@ -47,7 +47,7 @@ func webImageCapability(capabilities []capability, family string) (capability, b
 func webImageModelInfos(account accountModels) []modelInfo {
 	models := []modelInfo{}
 	for _, image := range webImageModels {
-		if _, ok := webImageCapability(account.Models, image.Family); ok {
+		if _, ok := webFamilyCapability(account.Models, image.Family); ok {
 			models = append(models, modelInfo{ID: image.ID, Object: "model", OwnedBy: provider, Type: provider, Name: image.ID, DisplayName: image.DisplayName, Description: "Image generation and editing through the Gemini web app in its " + image.Family + " mode", SupportedGenerationMethods: []string{"generateContent"}, SupportedInputModalities: []string{"text", "image"}, SupportedOutputModalities: []string{"text", "image"}})
 		}
 	}
@@ -111,7 +111,7 @@ func webParseImageReply(raw []byte) (webImageReply, error) {
 	return reply, nil
 }
 
-// webImageArtifacts are the placeholder links a reply writes where its images go.
+// webImageArtifacts are the placeholder links a reply writes where its media go.
 var webImageArtifacts = regexp.MustCompile(`https?://googleusercontent\.com/(?:\w+/)+\d+\n*`)
 
 func webImageText(text string) string {
@@ -209,40 +209,68 @@ func webLargestPreview(url string) string {
 	return url + "=s2048-rj"
 }
 
-func (service *service) nativeImage(ctx context.Context, record storageRecord, token sessionToken, image webImageModel, payload []byte) ([]byte, error) {
+// webMediaTurn runs one turn of a media model in the account mode named by
+// family, with the prompt worded by ask. It returns the session whenever one
+// was opened, so the caller persists its cookies also when the turn failed.
+func (service *service) webMediaTurn(ctx context.Context, record storageRecord, token sessionToken, family, kind string, ask func(string) string, payload []byte) (*webSession, []byte, error) {
 	credential, err := decodeWebCredential(token)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	prompt, media, err := webContentsToPrompt(payload)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if strings.TrimSpace(prompt) == "" {
-		return nil, failure(400, "image_prompt_required")
+		return nil, nil, failure(400, kind+"_prompt_required")
 	}
 	session := service.newSession(credential)
 	service.trackJar(record.TokenRef, session)
-	defer service.persistJar(record.TokenRef, session)
 	account, err := session.webCapabilities(ctx)
 	if err != nil {
-		return nil, err
+		return session, nil, err
 	}
-	model, ok := webImageCapability(account.Capabilities, image.Family)
+	model, ok := webFamilyCapability(account.Capabilities, family)
 	if !ok {
-		return nil, failure(404, "account_model_unavailable")
+		return session, nil, failure(404, "account_model_unavailable")
 	}
 	sources, err := service.mediaSources(ctx, media, "")
 	if err != nil {
-		return nil, err
+		return session, nil, err
 	}
 	attachments, err := session.uploadSources(ctx, sources)
 	if err != nil {
-		return nil, err
+		return session, nil, err
 	}
-	raw, err := session.sendTurn(ctx, webImagePrompt(prompt), account, model, attachments, 0)
+	raw, err := session.sendTurn(ctx, ask(prompt), account, model, attachments, 0)
+	return session, raw, err
+}
+
+func webMediaPart(mimeType string, data []byte) map[string]any {
+	return map[string]any{"inlineData": map[string]string{"mimeType": mimeType, "data": base64.StdEncoding.EncodeToString(data)}}
+}
+
+func webMediaResponse(model string, parts []any) ([]byte, error) {
+	encoded, err := json.Marshal(map[string]any{
+		"modelVersion": model,
+		"candidates":   []any{map[string]any{"index": 0, "finishReason": "STOP", "content": map[string]any{"role": "model", "parts": parts}}},
+	})
+	if err != nil {
+		return nil, failure(500, "web_response_invalid")
+	}
+	return encoded, nil
+}
+
+func (service *service) nativeImage(ctx context.Context, record storageRecord, token sessionToken, image webImageModel, payload []byte) ([]byte, error) {
+	session, raw, err := service.webMediaTurn(ctx, record, token, image.Family, "image", webImagePrompt, payload)
+	if session != nil {
+		defer service.persistJar(record.TokenRef, session)
+	}
 	if err != nil {
 		return nil, err
+	}
+	if service.settings().DeleteChats {
+		defer service.deleteChat(ctx, session, webReplyConversation(raw))
 	}
 	reply, err := webParseImageReply(raw)
 	if err != nil {
@@ -263,14 +291,7 @@ func (service *service) nativeImage(ctx context.Context, record storageRecord, t
 		if generated.OriginalFailure != nil {
 			service.report(map[string]any{"provider": provider, "state": "image_preview", "reason": generated.OriginalFailure.Error()}, "gemini-web: original image unavailable, the preview was sent")
 		}
-		parts = append(parts, map[string]any{"inlineData": map[string]string{"mimeType": generated.MIMEType, "data": base64.StdEncoding.EncodeToString(generated.Data)}})
+		parts = append(parts, webMediaPart(generated.MIMEType, generated.Data))
 	}
-	encoded, err := json.Marshal(map[string]any{
-		"modelVersion": image.ID,
-		"candidates":   []any{map[string]any{"index": 0, "finishReason": "STOP", "content": map[string]any{"role": "model", "parts": parts}}},
-	})
-	if err != nil {
-		return nil, failure(500, "web_response_invalid")
-	}
-	return encoded, nil
+	return webMediaResponse(image.ID, parts)
 }

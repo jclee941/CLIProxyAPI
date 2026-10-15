@@ -193,6 +193,26 @@ func TestInteractionsStoreFalsePreventsFollowup(t *testing.T) {
 	if len(fixture.fields) != 1 {
 		t.Fatal("failed previous ID caused submission")
 	}
+	// And the web conversation it opened is gone with it.
+	if len(fixture.deletes) != 1 || !strings.Contains(fixture.deletes[0], "c_chat") {
+		t.Fatalf("conversation deletions = %q", fixture.deletes)
+	}
+}
+
+// A stored turn still lives in the conversation a store=false continuation
+// used, so the conversation stays.
+func TestInteractionsStoreFalseKeepsAConversationAStoredTurnUses(t *testing.T) {
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{video: true}
+	continuationWeb(t, service, fixture)
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+	first := interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`))
+	interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"next","previous_interaction_id":"`+first+`","store":false}`))
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.fields) != 2 || len(fixture.deletes) != 0 {
+		t.Fatalf("submissions %d, conversation deletions %q", len(fixture.fields), fixture.deletes)
+	}
 }
 func TestInteractionsRejectUnsupportedOptionsBeforeNetwork(t *testing.T) {
 	service, local := continuationFixture(t)

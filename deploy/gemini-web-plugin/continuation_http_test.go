@@ -51,6 +51,8 @@ type continuationWebFixture struct {
 	budget       []any
 	beforeSubmit func()
 	duringModels func()
+	// deletes are the conversation deletions the plugin sent, as request bodies.
+	deletes []string
 }
 
 func continuationWeb(t *testing.T, service *service, fixture *continuationWebFixture) *httptest.Server {
@@ -157,6 +159,14 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 					budget = []any{false}
 				}
 				writeFixture(t, writer, rpcEnvelope(t, webGxuBudgetRPC, budget))
+				return
+			case webDeleteConversationRPC:
+				raw, err := io.ReadAll(request.Body)
+				if err != nil {
+					t.Error(err)
+				}
+				fixture.deletes = append(fixture.deletes, string(raw))
+				writeFixture(t, writer, rpcEnvelope(t, webDeleteConversationRPC, []any{}))
 				return
 			case webVideoTurnsRPC:
 			default:

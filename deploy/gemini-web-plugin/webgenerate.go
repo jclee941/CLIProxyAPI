@@ -92,14 +92,19 @@ func webCapacity(flags []int) int {
 	return 1
 }
 
-// generateText runs one turn against the selected capability and returns the
-// reply text.
-func (session *webSession) generateText(ctx context.Context, prompt string, account webAccount, model capability, attachments []webAttachment, thinkingLevel int) (string, error) {
-	raw, err := session.sendTurn(ctx, prompt, account, model, attachments, thinkingLevel)
+// webReplyConversation reads the conversation a reply names, "c_..." in slot 1
+// of its body.
+func webReplyConversation(raw []byte) string {
+	bodies, err := webResponseFrames(raw)
 	if err != nil {
-		return "", err
+		return ""
 	}
-	return webReplyText(raw)
+	for _, body := range bodies {
+		if conversation, ok := jsonField(body, 1, 0).(string); ok && conversation != "" {
+			return conversation
+		}
+	}
+	return ""
 }
 
 // sendTurn submits one turn that opens a conversation and returns the reply

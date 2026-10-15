@@ -322,7 +322,7 @@ func (service *service) finishInteraction(ctx context.Context, native executorRe
 		}
 	}
 	if store != nil && !*store && receipt.View.State == "complete" {
-		if err := service.discardInteraction(native, token); err != nil {
+		if err := service.discardInteraction(ctx, native, token); err != nil {
 			return nil, err
 		}
 	}
@@ -396,7 +396,7 @@ func (service *service) renderInteraction(account string, result continuationRes
 	return continuationResult{Payload: payload, Headers: http.Header{"Content-Type": {"application/json"}}}, nil
 }
 
-func (service *service) discardInteraction(request executorRequest, token string) error {
+func (service *service) discardInteraction(ctx context.Context, request executorRequest, token string) error {
 	record, err := service.parseStorage(request.StorageJSON, false)
 	if err != nil {
 		return err
@@ -417,6 +417,26 @@ func (service *service) discardInteraction(request executorRequest, token string
 	if err != nil {
 		return err
 	}
-	delete(turns, continuationKey(token))
-	return service.saveContinuations(local, turns)
+	key := continuationKey(token)
+	conversation := turns[key].Conversation
+	delete(turns, key)
+	if err := service.saveContinuations(local, turns); err != nil {
+		return err
+	}
+	// An interaction the caller did not store leaves nothing to continue, so its
+	// web conversation goes as well - unless a stored turn still lives in it.
+	for _, turn := range turns {
+		if turn.Conversation == conversation {
+			return nil
+		}
+	}
+	credential, err := decodeWebCredential(sessionToken{local.Token})
+	if err != nil {
+		return err
+	}
+	session := service.newSession(credential)
+	service.trackJar(record.TokenRef, session)
+	defer service.persistJar(record.TokenRef, session)
+	service.deleteChat(ctx, session, conversation)
+	return nil
 }

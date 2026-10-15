@@ -23,9 +23,11 @@ type imageWebFixture struct {
 	denyOriginal bool
 	noImage      bool
 	sparse       bool
+	deleteChats  bool
 	prompts      []string
 	selections   []string
 	downloads    []string
+	deletes      []string
 }
 
 // imageWebServer stands in for the web product on an image turn: the bootstrap
@@ -56,6 +58,15 @@ func imageWebServer(t *testing.T, fixture *imageWebFixture) *httptest.Server {
 				return
 			}
 			writeFixture(t, writer, rpcEnvelope(t, webDownloadImageRPC, []any{origin + "/original/one"}))
+		case strings.HasSuffix(request.URL.Path, "/batchexecute") && nativeRPCID(request) == webDeleteConversationRPC:
+			raw, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Error(err)
+			}
+			fixture.mu.Lock()
+			fixture.deletes = append(fixture.deletes, string(raw))
+			fixture.mu.Unlock()
+			writeFixture(t, writer, rpcEnvelope(t, webDeleteConversationRPC, []any{}))
 		case strings.HasSuffix(request.URL.Path, "/StreamGenerate"):
 			raw, err := io.ReadAll(request.Body)
 			if err != nil {
@@ -126,6 +137,7 @@ func imageCall(t *testing.T, fixture *imageWebFixture, model string) envelope {
 	server := imageWebServer(t, fixture)
 	service, record := nativeService(t, server)
 	service.client = server.Client()
+	service.config.DeleteChats = fixture.deleteChats
 	return invoke(t, service, "executor.execute", executorRequest{
 		AuthID: record.ID, AuthProvider: provider, Model: model,
 		Format: "gemini", SourceFormat: "gemini", StorageJSON: jsonFixture(t, record),
@@ -173,7 +185,7 @@ func TestImageModelsArePublishedForTheModesAnAccountHas(t *testing.T) {
 		return ids
 	}
 	full := ids(accountModels{Available: true, Models: []capability{{DisplayName: "3.5 Flash-Lite"}, {DisplayName: "3.8 Flash"}, {DisplayName: "3.1 Pro"}}})
-	if !slices.Equal(full, []string{interactionOmniModel, "gemini-app-3.5-flash-lite", "gemini-app-3.8-flash", "gemini-app-3.1-pro", "gemini-nano-banana-2", "gemini-nano-banana-pro"}) {
+	if !slices.Equal(full, []string{interactionOmniModel, "gemini-app-3.5-flash-lite", "gemini-app-3.8-flash", "gemini-app-3.1-pro", "gemini-nano-banana-2", "gemini-nano-banana-pro", webMusicModel}) {
 		t.Fatalf("models = %v", full)
 	}
 	if lite := ids(accountModels{Available: true, Models: []capability{{DisplayName: "3.5 Flash-Lite"}}}); !slices.Equal(lite, []string{interactionOmniModel, "gemini-app-3.5-flash-lite"}) {
@@ -220,6 +232,30 @@ func TestImageTurnFallsBackToTheLargestPreview(t *testing.T) {
 	var selection []any
 	if len(fixture.selections) != 1 || json.Unmarshal([]byte(fixture.selections[0]), &selection) != nil || jsonField(selection, 4) != "cap-flash" {
 		t.Fatalf("the turn did not run in the Flash mode: %v", fixture.selections)
+	}
+}
+
+// An operator who keeps generated chats out of the account history has the
+// conversation a text or image turn opened deleted once it answered.
+func TestGeneratedChatsAreDeletedOnlyWhenConfigured(t *testing.T) {
+	for _, model := range []string{"gemini-nano-banana-2", "gemini-app-3.8-flash"} {
+		kept := &imageWebFixture{}
+		if result := imageCall(t, kept, model); !result.OK {
+			t.Fatalf("%s: %+v", model, result.Error)
+		}
+		deleted := &imageWebFixture{deleteChats: true}
+		if result := imageCall(t, deleted, model); !result.OK {
+			t.Fatalf("%s with deletion: %+v", model, result.Error)
+		}
+		kept.mu.Lock()
+		keptDeletes := len(kept.deletes)
+		kept.mu.Unlock()
+		deleted.mu.Lock()
+		deletes := slices.Clone(deleted.deletes)
+		deleted.mu.Unlock()
+		if keptDeletes != 0 || len(deletes) != 1 || !strings.Contains(deletes[0], "c_img") {
+			t.Fatalf("%s: deletes without the setting %d, with it %q", model, keptDeletes, deletes)
+		}
 	}
 }
 

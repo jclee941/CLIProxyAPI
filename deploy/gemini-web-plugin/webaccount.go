@@ -338,6 +338,31 @@ func bootstrapValue(pattern *regexp.Regexp, page string) (string, bool) {
 }
 
 func (session *webSession) rpc(ctx context.Context, rpcID string, args any) (any, error) {
+	raw, err := session.rpcCall(ctx, rpcID, args)
+	if err != nil {
+		return nil, err
+	}
+	return decodeRPCFrames(raw, rpcID)
+}
+
+// rpcAck sends an RPC whose answer carries nothing to read, such as a delete,
+// and reports only whether the product refused it.
+func (session *webSession) rpcAck(ctx context.Context, rpcID string, args any) error {
+	raw, err := session.rpcCall(ctx, rpcID, args)
+	if err != nil {
+		return err
+	}
+	frames, err := rpcFrames(raw, rpcID)
+	if err != nil {
+		return err
+	}
+	if len(frames) == 0 {
+		return failure(502, "web_response_invalid")
+	}
+	return nil
+}
+
+func (session *webSession) rpcCall(ctx context.Context, rpcID string, args any) ([]byte, error) {
 	if session.xsrf == "" {
 		if err := session.bootstrap(ctx); err != nil {
 			return nil, err
@@ -364,19 +389,35 @@ func (session *webSession) rpc(ctx context.Context, rpcID string, args any) (any
 	}
 	session.requestID += 100000
 	body := url.Values{"f.req": {string(envelope)}, "at": {session.xsrf}}.Encode()
-	raw, err := session.do(ctx, session.prefix+"/_/BardChatUi/data/batchexecute?"+query.Encode(), []byte(body), nil)
+	return session.do(ctx, session.prefix+"/_/BardChatUi/data/batchexecute?"+query.Encode(), []byte(body), nil)
+}
+
+// decodeRPCFrames reads the one payload an RPC answers with.
+func decodeRPCFrames(raw []byte, rpcID string) (any, error) {
+	frames, err := rpcFrames(raw, rpcID)
 	if err != nil {
 		return nil, err
 	}
-	return decodeRPCFrames(raw, rpcID)
+	if len(frames) != 1 {
+		return nil, failure(502, "web_response_invalid")
+	}
+	encoded, ok := jsonField(frames[0], 2).(string)
+	if !ok {
+		return nil, failure(502, "web_response_invalid")
+	}
+	var decoded any
+	if json.Unmarshal([]byte(encoded), &decoded) != nil {
+		return nil, failure(502, "web_response_invalid")
+	}
+	return decoded, nil
 }
 
-// decodeRPCFrames unwraps the batchexecute envelope: an anti-JSON-hijacking
-// prefix, then repeating length-and-payload pairs where the length counts UTF-16
-// code units rather than bytes.
-func decodeRPCFrames(raw []byte, rpcID string) (any, error) {
+// rpcFrames unwraps the batchexecute envelope - an anti-JSON-hijacking prefix,
+// then repeating length-and-payload pairs where the length counts UTF-16 code
+// units rather than bytes - and returns the frames that answer rpcID.
+func rpcFrames(raw []byte, rpcID string) ([]any, error) {
 	remaining := strings.TrimLeft(strings.TrimPrefix(string(raw), ")]}'"), " \t\r\n")
-	var results []string
+	var matched []any
 	for remaining != "" {
 		sizeLine, rest, found := strings.Cut(remaining, "\n")
 		if !found {
@@ -402,21 +443,10 @@ func decodeRPCFrames(raw []byte, rpcID string) (any, error) {
 			if jsonField(frame, 5, 0) != nil {
 				return nil, failure(403, "web_rpc_denied")
 			}
-			encoded, ok := jsonField(frame, 2).(string)
-			if !ok {
-				return nil, failure(502, "web_response_invalid")
-			}
-			results = append(results, encoded)
+			matched = append(matched, frame)
 		}
 	}
-	if len(results) != 1 {
-		return nil, failure(502, "web_response_invalid")
-	}
-	var decoded any
-	if json.Unmarshal([]byte(results[0]), &decoded) != nil {
-		return nil, failure(502, "web_response_invalid")
-	}
-	return decoded, nil
+	return matched, nil
 }
 
 // jsonField walks positional indexes, which is how every value in this protocol

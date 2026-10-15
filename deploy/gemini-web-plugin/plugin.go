@@ -33,7 +33,10 @@ type pluginConfig struct {
 	// VideoMode is the capability mode a video turn runs on when its request
 	// names none; zero keeps the account's standard mode, and so does an
 	// account that does not advertise the configured one.
-	VideoMode               int      `yaml:"video_mode,omitempty"`
+	VideoMode int `yaml:"video_mode,omitempty"`
+	// DeleteChats deletes the web conversation a text, image or music turn opens
+	// once it has answered, keeping generated chats out of the account history.
+	DeleteChats             bool     `yaml:"delete_chats,omitempty"`
 	SessionExchangeAccounts []string `yaml:"session_exchange_accounts,omitempty"`
 	// Drive credentials live here as well as in the environment because the
 	// configuration is mounted and hot reloaded, while the environment can only
@@ -179,6 +182,8 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	current.VideoWireMode = config.VideoWireMode
 	modeChanged := current.VideoMode != config.VideoMode
 	current.VideoMode = config.VideoMode
+	deleteChanged := current.DeleteChats != config.DeleteChats
+	current.DeleteChats = config.DeleteChats
 	current.SessionExchangeAccounts = config.SessionExchangeAccounts
 	unchanged := reflect.DeepEqual(current, config) && (config.SessionDir == "" || service.sessions != nil && service.sessionKeyHash == sha256.Sum256([]byte(os.Getenv("GEMINI_WEB_SESSION_KEY"))))
 	if unchanged {
@@ -187,6 +192,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 		// been selected.
 		service.config.VideoWireMode = config.VideoWireMode
 		service.config.VideoMode = config.VideoMode
+		service.config.DeleteChats = config.DeleteChats
 		service.config.SessionExchangeAccounts = config.SessionExchangeAccounts
 	} else {
 		if err := service.lifecycle.reconfigure(func() error {
@@ -222,8 +228,15 @@ func (service *service) register(raw []byte) (interface{}, error) {
 			"reason":   "mode=" + strconv.Itoa(config.VideoMode),
 		}, "gemini-web: default video mode applied")
 	}
+	if deleteChanged {
+		service.report(map[string]any{
+			"provider": provider,
+			"state":    "delete_chats",
+			"reason":   "enabled=" + strconv.FormatBool(config.DeleteChats),
+		}, "gemini-web: generated chat deletion applied")
+	}
 	registration := json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"},{"Name":"session_dir","Type":"string","Description":"Dedicated 0700 encrypted application-session directory; single process owner"},{"Name":"manager_origin","Type":"string","Description":"Exact HTTPS management portal origin"},{"Name":"browser_extension_id","Type":"string","Description":"Registered 32-character browser companion extension ID"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini"],"management_api":true,"frontend_http":true,"request_interceptor":true,"quota_provider":true}}`)
-	registration = bytes.Replace(registration, []byte(`"ConfigFields":[`), []byte(`"ConfigFields":[{"Name":"video_wire_mode","Type":"enum","EnumValues":["legacy","web","alternate"],"Description":"Omni account-tier wire profile; legacy by default, alternate stays fixed per conversation"},{"Name":"video_mode","Type":"integer","Description":"Default video capability mode when a request names none; 0 keeps each account's standard mode, which is also used where the mode is not advertised"},`), 1)
+	registration = bytes.Replace(registration, []byte(`"ConfigFields":[`), []byte(`"ConfigFields":[{"Name":"video_wire_mode","Type":"enum","EnumValues":["legacy","web","alternate"],"Description":"Omni account-tier wire profile; legacy by default, alternate stays fixed per conversation"},{"Name":"video_mode","Type":"integer","Description":"Default video capability mode when a request names none; 0 keeps each account's standard mode, which is also used where the mode is not advertised"},{"Name":"delete_chats","Type":"boolean","Description":"Delete the web conversation a text, image or music turn opens once it has answered"},`), 1)
 	if config.NativeContinuation {
 		registration = bytes.Replace(registration, []byte(`"request_interceptor":true`), []byte(`"request_interceptor":true,"scheduler":true`), 1)
 		registration = bytes.ReplaceAll(registration, []byte(`["gemini"]`), []byte(`["gemini","interactions"]`))
