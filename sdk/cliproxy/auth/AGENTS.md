@@ -1,7 +1,7 @@
 # AUTH CONDUCTOR KNOWLEDGE BASE
 
 ## OVERVIEW
-Credential execution, scheduling, cooldown, refresh, and Home selection; score 12, a distinct runtime domain spanning 168 Go files.
+Credential execution, scheduling, cooldown, refresh, and Home selection; score 14, a distinct runtime domain spanning 169 Go files imported by 432 files.
 
 Parent lifecycle: [service guide](../AGENTS.md); distributed credential ownership follows the [repository policy](../../../AGENTS.md).
 

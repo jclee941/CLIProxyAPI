@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-10-14
-**Commit:** 04688312
+**Generated:** 2026-10-15
+**Commit:** e0b94fa7
 **Branch:** master
 
 ## OVERVIEW
@@ -10,10 +10,10 @@ Go 1.26+ proxy providing OpenAI/Gemini/Claude/Codex compatible APIs, OAuth, roun
 
 ## STRUCTURE
 ```text
-cmd/AGENTS.md             # Executables, startup modes, catalog utilities
+cmd/AGENTS.md             # Executable dispatch, catalog tools, retained Telegram commands
 internal/AGENTS.md        # Internal package map and smaller domains
-sdk/AGENTS.md             # Public facades and integration contracts
-sdk/cliproxy/AGENTS.md    # Embedded service and runtime conductor
+sdk/AGENTS.md             # Public facades, transport observation, extension contracts
+sdk/cliproxy/AGENTS.md     # Embedded lifecycle, config commit/apply, credential sync
 deploy/AGENTS.md          # Active deployment authority and ancillary packages
 examples/plugin/AGENTS.md # Polyglot native ABI examples; nested modules
 test/                     # Cross-package protocol/thinking tests
@@ -25,7 +25,7 @@ Paths below lead to domain guidance; follow their child guides rather than dupli
 | Task | Guidance | Notes |
 |------|----------|-------|
 | Repository/domain indexes | `AGENTS.md`, `internal/AGENTS.md`, `sdk/AGENTS.md` | Root policy; internal packages; public embedding facades |
-| CLI/startup | `cmd/AGENTS.md`, `internal/cmd/AGENTS.md` | Server, login, discovery dispatch |
+| CLI/startup | `cmd/AGENTS.md`, `internal/cmd/AGENTS.md` | Server, login, SIWC bind, discovery dispatch |
 | HTTP/RESP and management | `internal/api/AGENTS.md`, `internal/api/handlers/AGENTS.md`, `internal/api/middleware/AGENTS.md` | Listener, routes, management, capture |
 | Public protocol handlers | `sdk/api/handlers/AGENTS.md` | HTTP/SSE/WebSocket execution |
 | Provider runtime | `internal/runtime/executor/AGENTS.md` | Implementations, not SDK contracts |
@@ -33,11 +33,12 @@ Paths below lead to domain guidance; follow their child guides rather than dupli
 | Translation primitives/providers | `internal/translator/common/AGENTS.md`, `internal/translator/antigravity/AGENTS.md`, `internal/translator/claude/AGENTS.md`, `internal/translator/codex/AGENTS.md`, `internal/translator/gemini/AGENTS.md`, `internal/translator/openai/AGENTS.md` | Shared refusal/apply_patch policy; inspect registrations for direction |
 | Thinking/reasoning | `internal/thinking/AGENTS.md` | Canonical pipeline and appliers |
 | Authentication | `internal/auth/AGENTS.md`, `sdk/auth/AGENTS.md`, `sdk/access/AGENTS.md` | Provider implementations, login/persistence, inbound callers |
-| Provider authentication | `internal/auth/claude/AGENTS.md`, `internal/auth/codex/AGENTS.md`, `internal/auth/devin/AGENTS.md`, `internal/auth/kimi/AGENTS.md` | Device identity, PKCE, session records, domain-aware refresh |
+| Provider authentication | `internal/auth/claude/AGENTS.md`, `internal/auth/codex/AGENTS.md`, `internal/auth/devin/AGENTS.md`, `internal/auth/kimi/AGENTS.md` | Device identity, Codex PKCE/SIWC and file locking, session records, domain-aware refresh |
 | Embedded service | `sdk/cliproxy/AGENTS.md`, `sdk/cliproxy/auth/AGENTS.md` | Lifecycle and runtime credential conductor |
 | Execution/session accounting | `sdk/cliproxy/executor/AGENTS.md`, `sdk/cliproxy/executionregistry/AGENTS.md`, `sdk/cliproxy/session/AGENTS.md`, `sdk/cliproxy/usage/AGENTS.md` | Contracts, dispatch ownership, identity, usage |
 | Native plugins | `internal/pluginhost/AGENTS.md`, `internal/pluginstore/AGENTS.md`, `sdk/pluginabi/AGENTS.md`, `sdk/pluginapi/AGENTS.md` | Host/install implementation and public contracts |
 | Plugin embedding facades | `sdk/pluginhost/AGENTS.md`, `sdk/pluginstore/AGENTS.md` | Model/quota conversion; install client and network-scope cooldown identity |
+| Transport observation | `sdk/AGENTS.md`, `sdk/httptransport/decorator.go` | Decorate selected transports; preserve proxy, fingerprint, pool and protocol behavior |
 | Home integration | `internal/home/AGENTS.md`, `internal/homeplugins/AGENTS.md` | RESP/JSON control plane and artifact reconciliation |
 | Configuration and reload | `internal/config/AGENTS.md`, `internal/watcher/AGENTS.md`, `internal/store/AGENTS.md` | YAML preservation, synthesis, remote mirrors |
 | Reload details | `internal/watcher/diff/AGENTS.md`, `internal/watcher/synthesizer/AGENTS.md` | Deterministic summaries; config/file credentials to runtime records |
@@ -54,20 +55,20 @@ Paths below lead to domain guidance; follow their child guides rather than dupli
 Digest evidence retains measurement method/scope: rg counts are textual/import counts; LSP excludes declarations but includes tests and receiver references, not unique callers.
 | Symbol | Type | Location | Refs | Role |
 |--------|------|----------|------|------|
-| Config | struct | `internal/config/config.go` | 476 importing files (rg import-path count) | Cross-system configuration |
-| GetGlobalRegistry | func | `internal/registry/model_registry.go` | 775 rg textual; package imported by 221 files | Registry singleton |
-| ApplyThinking | func | `internal/thinking/apply.go` | 37 rg textual; package imported by 76 files | Canonical thinking entry |
-| GetGJSONBytesNoCopy | func | `internal/util/gjson.go` | 66 LSP refs in 17 files | Caller-owned JSON bytes |
+| Config | struct | `internal/config/config.go` | Package imported by 490 files (rg) | Cross-system configuration |
+| GetGlobalRegistry | func | `internal/registry/model_registry.go` | Package imported by 227 files (rg) | Registry singleton |
+| ApplyThinking | func | `internal/thinking/apply.go` | Package imported by 80 files (rg) | Canonical thinking entry |
+| GetGJSONBytesNoCopy | func | `internal/util/gjson.go` | Package imported by 133 files (rg) | Caller-owned JSON bytes |
 | Handler | struct | `internal/api/handlers/management/handler.go` | 413 LSP refs | Management state |
-| Host | struct | `internal/pluginhost/host.go` | 309 LSP refs | Native plugin coordination |
-| Auth | struct | `sdk/cliproxy/auth/types.go` | 4686 LSP refs | Runtime credential identity/state |
-| Service | struct | `sdk/cliproxy/service.go` | 298 LSP refs | Embedded runtime conductor |
-| Capabilities | struct | `sdk/pluginapi/types.go` | 246 LSP refs | Optional plugin features |
-| FromString | function | `sdk/translator/format.go` | 378 LSP refs | Protocol identity |
+| Host | struct | `internal/pluginhost/host.go` | 311 LSP refs | Native plugin coordination |
+| Auth | struct | `sdk/cliproxy/auth/types.go` | Package imported by 432 files (rg; excludes own package) | Runtime credential identity/state |
+| Service | struct | `sdk/cliproxy/service.go` | 323 rg -w matches in sdk/cliproxy/*.go, internal/cmd and examples | Embedded runtime conductor |
+| Capabilities | struct | `sdk/pluginapi/types.go` | 258 LSP refs | Optional plugin features |
+| FromString | function | `sdk/translator/format.go` | 380 LSP refs | Protocol identity |
 | Register | function | `internal/translator/translator/translator.go` | 30 call sites in internal/translator (rg) | Pair registration |
-| NewExecutorUsageReporter | function | `internal/runtime/executor/helps/usage_helpers.go` | 62 lines / 30 files (rg -w) | Per-attempt usage/TTFT |
-| NewCodexWebsocketsExecutor | function | `internal/runtime/executor/codex_websockets_executor.go` | 96 lines / 25 files (rg -w) | WebSocket transport behind auto executor |
-| failure | function | `deploy/gemini-web-plugin/wire.go` | 593 LSP refs | Native session/media typed errors |
+| NewExecutorUsageReporter | function | `internal/runtime/executor/helps/usage_helpers.go` | 61 LSP refs in 29 files | Per-attempt usage/TTFT |
+| NewCodexWebsocketsExecutor | function | `internal/runtime/executor/codex_websockets_executor.go` | 98 LSP refs in 26 files | WebSocket transport behind auto executor |
+| failure | function | `deploy/gemini-web-plugin/wire.go` | 577 LSP refs | Native session/media typed errors |
 | service | struct | `deploy/flow2api-plugin/plugin.go` | 127 LSP refs | Flow generation/resource dispatcher |
 
 ## CONVENTIONS
@@ -104,6 +105,7 @@ Digest evidence retains measurement method/scope: rg counts are textual/import c
 - Payload finalizers in `internal/runtime/executor/helps/payload_finalizer.go` restart each rebuilt attempt from the unconfigured body; barrier/review tests guard exactly-once rules.
 - Config v8 aliases translate only at YAML boundaries: canonical paths win by presence, equal-endpoint legacy entries never merge. Management GET normalizes views without migration; successful mutations persist v8 layout; JSON strips ICE secrets and adds auth indexes, raw YAML stays separate.
 - Credential lock order: reload barrier -> credential gate -> manager mutex; Store callbacks may read, never mutate the manager. Coalesced structural notifications require current-state reads and unsubscribe.
+- Codex SIWC credentials share the outer credential file; partition-scoped refresh patches merge under `WithFileLock` without replacing independent rotations or disk configuration.
 - Tracked HTTP delivery acknowledgement is independent of cancellation: resolve every exit; producers close output before waiting. Home distinguishes ambiguous dispatch from unaccepted work; release tickets require acknowledged cumulative sequences.
 
 ## COMMANDS

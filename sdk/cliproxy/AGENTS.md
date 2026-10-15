@@ -1,7 +1,7 @@
 # CLIPROXY SERVICE KNOWLEDGE BASE
 
 ## OVERVIEW
-Embeddable service orchestration, reloads, and model registration; score 14, a distinct lifecycle domain above six runtime packages.
+Embeddable service orchestration, reloads, and model registration; score 18 (61 files, 6 subdirectories, 323 textual `Service` references), the lifecycle domain above six runtime packages.
 
 Parent map: [SDK guide](../AGENTS.md).
 
@@ -20,6 +20,7 @@ cliproxy/
 | Task | Location | Notes |
 |------|----------|-------|
 | Construct an embedded service | `builder.go`, `types.go` | `NewBuilder`, injectable providers, hooks, watcher wrapper |
+| Supply default clients/transports | `providers.go`, `rtprovider.go` | File-token and API-key loaders; per-auth default round tripper |
 | Start or stop components | `service.go`, `service_lifecycle.go` | `Run` blocks; `Shutdown` tears down shared resources |
 | Apply configuration | `service_config.go` | In-memory commit separated from runtime application |
 | Synchronize credentials | `service_auth.go` | Update batching, registration ordering, stale snapshots |

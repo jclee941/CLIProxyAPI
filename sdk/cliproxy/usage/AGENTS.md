@@ -1,7 +1,7 @@
 # USAGE CONTRACT KNOWLEDGE BASE
 
 ## OVERVIEW
-Asynchronous usage-plugin delivery and provider-aware token breakdowns; score 9, a distinct telemetry contract domain.
+Asynchronous usage-plugin delivery and provider-aware token breakdowns; score 11, a distinct telemetry contract domain imported by 51 files.
 
 Parent lifecycle: [service guide](../AGENTS.md).
 

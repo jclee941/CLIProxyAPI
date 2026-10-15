@@ -23,6 +23,7 @@ Manifest V3 session-capture companion with explicit user consent; score 12 for i
 - Validation commands: `bun --no-env-file run check` and `bun --no-env-file test`.
 - Package with `bun --no-env-file run build`; exercise browser flows with `run qa` and `run qa:production`.
 - `build.ts` emits `dist/production/` or `dist/qa/` and an archive under `artifacts/`; QA archives carry the `-LOCAL-QA` suffix.
+- `../../cpa-plugins.json` deploys the production archive by its versioned file name; a `package.json` version bump must update that entry.
 - Session capture checks the selected tab's cookie store and document before and after reading cookies.
 - Account identity requires agreement between the three expected Google page globals.
 - A selected partition is checked explicitly; partitioned cookies are unsupported.

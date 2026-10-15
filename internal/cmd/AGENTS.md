@@ -13,6 +13,7 @@ Command implementations behind `../../cmd/server/`; score 9, a distinct startup/
 | Provider login options | `openai_login.go` |
 | Browser-based Codex login | `openai_login.go` |
 | Device-code Codex login | `openai_device_login.go` |
+| SIWC bind into an existing Codex credential | `siwc_bind.go` |
 | Other provider login wrappers | `*_login.go` |
 | Vertex JSON import | `vertex_import.go` |
 | Interactive prompt and EOF handling | `login_prompt.go` |
@@ -22,6 +23,7 @@ Command implementations behind `../../cmd/server/`; score 9, a distinct startup/
 - Login wrappers share `LoginOptions` for browser, callback-port, and prompt behavior.
 - `newAuthManager` centralizes SDK authenticator registration.
 - Background service startup returns cancellation and a completion channel.
+- `DoSIWCBind` writes the `siwc` section and `use_siwc=true` into a file resolved by `ResolveSIWCBindPath`.
 - Cloud standby is a distinct lifecycle path when deployment configuration is absent.
 - Discovery CLI interface filters override configured filters.
 - Discovery config extraction reads only the scan-related subset.

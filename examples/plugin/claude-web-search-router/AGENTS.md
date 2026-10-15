@@ -1,7 +1,7 @@
 # CLAUDE WEB SEARCH ROUTER PLUGIN
 
 ## OVERVIEW
-Go-only ModelRouter + executor plugin that serves Claude Code built-in `web_search` through antigravity, codex, xai, or in-plugin Tavily; score ~10 (21 files, own module, >30 symbols, distinct orchestration domain).
+Go-only Claude Code `web_search` router/executor across antigravity, codex, xai, and Tavily; score 13: 22 files, >70% code, module/config boundary, >30 LSP symbols, and 30 references to `routeBackend`.
 
 ## WHERE TO LOOK
 | Task | Location | Detail |
@@ -21,10 +21,10 @@ Go-only ModelRouter + executor plugin that serves Claude Code built-in `web_sear
 - Default `route` is `fallback`: antigravity -> codex -> xai -> tavily; `default_provider` bypasses orchestration.
 - Retryable host statuses are exactly 429, 503, 502 (`isRetryableHTTPStatus`); only those advance to the next backend and bump penalties.
 - Penalties are process-local and unconfigured; tests reset them with `resetBackendPenaltiesForTest`.
-- Host model calls carry `host_callback_id` from the executor request (`rpcExecutorRequest`, `hostModelExecutionRequest`).
-- Config key and plugin ID are `claude-web-search-router` (`pluginIdentifier`); library basename must match.
+- Config key and declared plugin ID are `claude-web-search-router` (`pluginIdentifier`), independent of the Makefile's language suffix.
 - Tests are flat `*_test.go` beside each concern; run `go test ./...` from `go/` (nested module, root tests skip it).
-- Build: `make -C examples/plugin bin/claude-web-search-router-go.<so|dylib|dll>`; no c/rust peers exist.
+- Linux build from repository root: `make -C examples/plugin BIN_DIR=bin bin/claude-web-search-router-go.so`; no c/rust peers exist.
+- `go/model_resolve.go` is authoritative for defaults; the Codex config-field description in `go/main.go` still names the older model.
 - `go/model_resolve.go` imports root `internal/registry` through the module `replace`; registry changes can break this example.
 
 ## ANTI-PATTERNS
@@ -32,4 +32,4 @@ Go-only ModelRouter + executor plugin that serves Claude Code built-in `web_sear
 - Do not use the Claude model as `antigravity_model`; resolve a `SupportsWebSearch` antigravity model instead.
 - Do not widen fallback triggers beyond `isRetryableHTTPStatus` without updating `hostHTTPStatusFromError` and penalty tests.
 - Do not make penalties persistent or configurable without updating the README, which documents them as in-memory with no extra config.
-- Do not rely on `temp/1.json` cited by `README.md`; it is absent from the repository.
+- Do not rely on the captured-request fixture cited by `README.md`; it is absent from the repository.

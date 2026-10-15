@@ -24,6 +24,7 @@ Management control surface under `management/`; subtree score 12, a distinct per
 | Quota probing | `management/plugin_quota.go`, `management/quota.go` | Declarative probes and auth-index reset |
 | Log pagination | `management/logs.go` | Rotation-aware, fingerprinted cursors |
 | Queue consumption | `management/usage.go` | GET destructively pops pending records |
+| Home configuration exchange | `management/config_sync.go` | `ConfigSyncVersion`, `ConfigSyncBundle` |
 
 ## CONVENTIONS
 - Handler receiver methods are grouped by operation; shared state stays in `management/handler.go`.
@@ -31,11 +32,12 @@ Management control surface under `management/`; subtree score 12, a distinct per
 - Save and clone under `h.mu`; invoke reload callbacks after releasing it.
 - Reload snapshots carry generations so older asynchronous work cannot replace newer state.
 - Credential identity includes API key, base URL, and prefix; ambiguous matches require disambiguation.
-- V8 GET normalizes a view without migrating the file; successful mutations persist the new layout.
-- V8 JSON config views add auth indexes and remove ICE secrets; raw YAML has a separate contract.
+- `saveConfigAndSnapshotLocked` captures the full runtime clone immediately after a successful save.
+- Async reload detaches caller cancellation with `context.WithoutCancel`; generations still reject stale snapshots.
 - APICall proxy order: request, credential, global, then direct; environment proxies are bypassed.
 - `management/oauth_sessions.go` publishes callback JSON through temporary siblings plus rename.
 - Token saves require a still-pending session; cancellation invalidates background waiters.
+- Release lookups share two slots across listings; a live waiter replaces a canceled leader without negative caching.
 - Run `go test ./internal/api/handlers/management` for package checks.
 
 ## ANTI-PATTERNS

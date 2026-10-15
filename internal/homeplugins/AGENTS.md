@@ -15,9 +15,11 @@ Home-directed plugin artifact reconciliation and install/load reporting; score 9
 | Report construction | `sync.go: newSyncReport`, `finishReport` | Task phase, node, timestamps, aggregate status |
 | Fake runtime and HTTP coverage | `sync_test.go` | Download, lock, delete, temporary-auth scenarios |
 | Shared egress identity | `network_scope_test.go` | Proxy cooldown sharing across clients |
+| Service integration | `../../sdk/cliproxy/home_plugins.go` | Config sync, resolved downloads, and post-load status |
 
 ## CONVENTIONS
 - All implementation currently lives in `sync.go`; exported entry points share its report machinery.
+- Service integration selects legacy sync only for `home.ErrPluginSyncUnsupported`; ordinary fetch failures stay failures.
 - Separate artifact installation results from runtime load results.
 - Aggregate individual install failures while retaining per-plugin status records.
 - `SyncResolvedWithReport` clears each item's auth immediately and defers clearing the whole batch.

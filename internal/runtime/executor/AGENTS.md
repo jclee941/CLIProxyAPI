@@ -1,7 +1,7 @@
 # EXECUTOR KNOWLEDGE BASE
 
 ## OVERVIEW
-Provider execution, native wire fidelity, replay, and stream lifecycle; score 17 (217 direct Go files, imported by 31 files outside `internal/runtime/`). Also covers the 146-Go-file `helps/` package (16 outside importers), which sits past the default depth-3 limit.
+Provider execution, native wire fidelity, replay, and stream lifecycle; score 12 (219 direct Go files, dense exports and measured LSP centrality). Also covers the 149-Go-file `helps/` package beyond the default depth-3 limit. Paths below are relative to this directory.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -14,23 +14,22 @@ Provider execution, native wire fidelity, replay, and stream lifecycle; score 17
 | Codex HTTP and terminals | `codex_executor_{execute,stream,terminal}.go` | Bootstrap failover, output reconstruction, terminal errors |
 | Codex WebSocket lifecycle | `codex_websockets_{executor,session,duplex,stream}.go` | Auto transport selection, connection ownership, queued creates |
 | Codex WebSocket liveness | `codex_websockets_connection.go`, `codex_websockets_session.go` | Idle deadline constant and both read paths; not the facade file |
-| xAI protocol adaptation | `xai_executor_{request,response,media}.go`, `xai_reasoning_replay.go` | Tool folding, search filtering, media, isolated replay |
+| xAI protocol adaptation | `xai_executor_{request,response,media,speech}.go`, `xai_reasoning_replay.go` | Tool folding, search filtering, media/speech, isolated replay |
 | xAI WebSocket IDs | `xai_websockets_executor.go` | Separate session store, downstream/upstream ID map, compacted transcript |
 | Gemini / Vertex / AI Studio | `gemini_executor.go`, `gemini_vertex_executor.go`, `aistudio_executor.go` | Interactions, service-account/API-key paths, relay |
 | Devin / Kimi / Meta | `devin_executor.go`, `helps/devin_wire.go`, `kimi_executor.go`, `kimi_thinking_replay.go`, `meta_executor*.go` | Connect-RPC framing, Claude embedding, DCA singleflight minting |
 | Credential-scoped copies | `oauth_scope_executor.go` | `ForAPIKey` value receivers copy config; shared transport/session stores stay shared |
 | OpenAI-compatible providers | `openai_compat_executor.go`, `openai_responses_signature.go`, `codex_openai_images.go` | Compatibility knobs, reasoning sanitization, Images adaptation |
 | Usage, TTFT, served model | `helps/usage_helpers.go`, `helps/{chat,claude,gemini,responses}_ttft_helpers.go`, `helps/response_model.go` | Protocol-aware usage; requested/upstream/served models; chunk-safe observation |
-| Payload-rule barrier | `helps/payload_finalizer.go`, `helps/payload_helpers.go`, `payload_barrier_test.go` | Finalizer reapplies rules to the unconfigured body on every rebuilt attempt |
-| Upstream request capture | `helps/logging_helpers.go` | `RecordAPIResponseError` is the most-referenced helper; CommercialMode skips capture |
+| Payload-rule barrier | `helps/payload_finalizer.go`, `helps/payload_helpers.go`, `payload_barrier_test.go`, `payload_review_test.go` | Cross-provider send ordering and condition-evaluation regression guards |
+| Upstream request capture | `helps/logging_helpers.go` | HTTP/WebSocket capture and error summaries; CommercialMode skips capture |
 | Home refresh and identity caches | `helps/home_refresh.go`, `helps/{session_id_cache,user_id_cache}.go` | Refresh result contract and Home-aware required cache operations |
 | Payload / transport utilities | `helps/payload_helpers.go`, `helps/codex_multi_agent_v2.go`, `helps/{proxy_helpers,transport_cache,utls_client}.go` | Payload rules, translation baselines, connection caches |
 | Package tests | `go test ./internal/runtime/executor/...` | Includes `helps`; `testdata/tool_search_disabled/` is the Claude tool-search-disabled golden |
-| Targeted race checks | `go test -race ./internal/runtime/executor -run 'TestClaudeExecutorSharedCredential|TestWebsocket|TestCodex.*Duplex'` | Shared auth, session lifecycle, duplex ordering |
+| Targeted race checks | `go test -race ./internal/runtime/executor -run 'TestClaudeExecutor.*SharedCredential|TestWebsocket|TestCodex.*Duplex'` | Shared auth including request preparation, session lifecycle, duplex ordering |
 
 ## CONVENTIONS
 - Provider receiver methods are split by capability, not separate Go packages.
-- Follow [root placement guidance](../../../AGENTS.md) when adding files; existing colocated support files are not a precedent.
 - Wire transformations favor `gjson`/`sjson` or indexed byte edits: preserve unknown fields, key order, and opaque signatures.
 - Translation pairs retain an untouched baseline and an independent working buffer; plugin hooks prevent the identical-input shortcut.
 - Claude sends converge on `doClaudeUpstreamRequest`; wire header casing is applied immediately before dispatch because canonical header lookup no longer finds those keys.
@@ -41,7 +40,6 @@ Provider execution, native wire fidelity, replay, and stream lifecycle; score 17
 - WebSocket sessions bind lifecycle and active channels to a connection, not just a session ID; stale closes must not affect replacements.
 - Error scope is behavioral and declared by `IsRequestScoped`/`IsCredentialScoped` marker methods: request-scoped failures stop locally; credential-scoped failures inform rotation/cooling.
 - Tests are white-box (`package executor`/`helps`) except four `helps_test` files that consume translator, registry, and plugin-host packages; `_legacy_oracle`, `_differential`, and `issue<N>` file names mark test role.
-- `helps/xai_version.go` bounds npm Grok CLI version lookups with a 10s timeout; it is a background utility fetch, not a precedent for upstream-call timeouts.
 - Replay logic is provider-specific. Match session, history, and call semantics before restoring hidden state; commit only complete turns.
 - xAI chat routing differs from compact/WebSocket routing: the CLI chat proxy does not implement the latter endpoints.
 - xAI aliases repeated upstream response IDs with `-xai-N`; preserve the reverse mapping for `previous_response_id`.
@@ -61,6 +59,7 @@ Provider execution, native wire fidelity, replay, and stream lifecycle; score 17
 - Do not route xAI compact or WebSocket requests through `xaiChatBaseURL`.
 
 ### Streams and replay
+- Do not synthesize successful completion on premature EOF or read errors; preserve terminal-event success when a later downstream disconnect occurs.
 - Do not infer safe Codex bootstrap buffering from missing TTFT. The closed event allowlist prevents replaying server-side tool effects.
 - Preserve both bootstrap limits: 48 budget units and 1 MiB retained bytes; SSE charges lines, WebSocket charges messages read.
 - Do not fall back to HTTP when the execution context requires upstream WebSocket replay.

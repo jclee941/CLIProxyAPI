@@ -1,7 +1,7 @@
 # COMMAND ENTRY POINTS
 
 ## OVERVIEW
-Standalone executables and startup orchestration; score 9 from file count, directory breadth, code ratio, and LSP symbol density.
+Standalone executables and startup orchestration; score 9: 36 files, seven executable directories, >70% code files, and >30 LSP symbols across the command packages.
 
 ## STRUCTURE
 - `server/`: proxy startup, command dispatch, discovery, TUI, plugin bootstrap.
@@ -27,7 +27,6 @@ Standalone executables and startup orchestration; score 9 from file count, direc
 
 ## CONVENTIONS
 - Every directory is `package main`; these are executable boundaries, not importable SDK packages.
-- Build metadata enters `server` through `-ldflags -X main.Version`, `main.Commit`, and `main.BuildDate`.
 - Discovery has an early subcommand path and legacy boolean flags; JSON discovery must keep stdout machine-readable.
 - Safe-mode decisions distinguish server, command, Home, cloud standby, and non-standalone TUI modes.
 - Fetchers write catalogs; `validate_codex_models` validates the resulting file rather than contacting a provider.
@@ -35,7 +34,7 @@ Standalone executables and startup orchestration; score 9 from file count, direc
 - Telegram commands keep one shared `test_helpers_test.go` per directory; test names follow `Test<Subject>_<behavior>_when<Condition>`.
 - Run command tests from the repository root with `go test ./cmd/...`.
 - Inspect `../deploy/AGENTS.md` before treating retained Telegram commands as deployed services.
-- Shared coding rules live in `../AGENTS.md`; startup implementation helpers live under `../internal/cmd/`.
+- Startup implementation helpers live under `../internal/cmd/`; keep executable dispatch here.
 
 ## ANTI-PATTERNS
 - Do not move discovery interception after the normal startup banner.

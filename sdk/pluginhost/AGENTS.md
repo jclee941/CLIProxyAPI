@@ -1,7 +1,7 @@
 # PUBLIC PLUGIN HOST
 
 ## OVERVIEW
-Embedding wrapper and public configuration/model conversion; score 9, distinct boundary with 30 LSP references to Host.
+Embedding wrapper and public configuration/model conversion; score 9, distinct boundary with 32 LSP references to Host.
 
 Parent map: [SDK guide](../AGENTS.md).
 

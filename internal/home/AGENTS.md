@@ -14,17 +14,17 @@ Home control-plane transport, dispatch fencing, and cumulative release delivery;
 | KV semantics | `kv_helpers.go` | Required versus best-effort operations |
 | Wire DTOs | `requests.go` | Dispatch and in-flight snapshot payloads |
 | Plugin status delivery | `plugin_status.go` | Node-scoped report queue |
-| Protocol fixtures | `testdata/*.json` | Dispatch, release, and in-flight contracts |
+| Protocol fixtures | `testdata/`, `in_flight_contract_test.go` | Dispatch, release, and in-flight contracts |
 | Transport fault coverage | `client_test.go` | Connection loss, cancellation, failover |
 
 ## CONVENTIONS
 - RESP commands carry Home-specific JSON contracts; this is not a generic Redis client.
-- A post-send transport failure can be ambiguous, not safely retryable on the same lifetime.
 - Abort fences dispatch and detaches connections; a new lifetime reprobes deployment capabilities.
 - Current-client removal uses compare-and-swap when ownership matters.
 - KV Required helpers return errors and Home-mode state; BestEffort helpers intentionally degrade.
 - Release frames carry cumulative sequence numbers per credential/model group.
-- A release ticket completes only when its sequence is acknowledged, not when locally queued.
+- `SetSender` replaces the transport for subsequent release attempts without discarding pending groups.
+- Release retry timing follows the current limiter config; wake signals do not bypass active backoff.
 - Prefer `RunConfigSubscriberLifetime` where subscriber errors must reach lifecycle management.
 - `StartConfigSubscriber` is the compatibility wrapper for callers not consuming lifetime errors.
 - Run `go test -race ./internal/home` for transport and release-delivery checks.

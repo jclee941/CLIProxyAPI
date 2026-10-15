@@ -1,7 +1,7 @@
 # SHARED TRANSLATOR HELPERS
 
 ## OVERVIEW
-Protocol-specific primitives shared by converter pairs; score 15, with 38 Go files (18 non-test), imported by 85 translator files plus `internal/runtime/executor` helpers.
+Protocol-specific primitives shared by converter pairs; score 15, with 38 Go files (18 non-test), its import path appears in 86 files under `internal/translator` plus 16 outside it, mostly `internal/runtime/executor` and `helps/` (rg -l).
 
 Converter architecture and registry contracts: [parent guide](../AGENTS.md).
 

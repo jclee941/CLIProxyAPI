@@ -1,7 +1,7 @@
 # MODEL REGISTRY
 
 ## OVERVIEW
-Live model availability, capability projections, and embedded/remote catalogs; score 14 (26 Go files, 82 exports, 221 importing files), the central routing metadata domain.
+Live model availability, capability projections, and embedded/remote catalogs; score 14 (27 Go files, 82 exports, 227 importing files by rg import path), the central routing metadata domain.
 
 ## WHERE TO LOOK
 | Task | File |
@@ -29,6 +29,7 @@ Live model availability, capability projections, and embedded/remote catalogs; s
 - Hooks run asynchronously outside the registry's critical path.
 - Embedded catalogs load in `init()` via `go:embed`; `ModelsRefreshInterval` (3h) is the one shared cadence.
 - `CatalogSources` overrides each catalog independently; relative paths and unsupported URL schemes are rejected.
+- Codex catalog validation does not require `gpt-5.5`; template selection in `../client/codex/models/models.go` prefers it, else the first entry.
 - `SetLocalModelCatalogs` sets the pre-start default; `UpdateModelCatalogSources` before start or after shutdown starts no readers.
 
 ## ANTI-PATTERNS
@@ -36,7 +37,6 @@ Live model availability, capability projections, and embedded/remote catalogs; s
 - Do not hand callers internal maps/slices or retain stale capability snapshots after re-registration.
 - Do not confuse a client registration epoch with the global availability generation.
 - Do not replace a valid catalog with a malformed download.
-- Do not remove the required `gpt-5.5` fallback template from Codex catalog validation.
 - Hook implementations must remain non-blocking despite asynchronous dispatch.
 
 Run `go test ./internal/registry` for clone, projection, quota, and catalog regressions.

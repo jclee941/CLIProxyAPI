@@ -1,7 +1,7 @@
 # SESSION IDENTITY KNOWLEDGE BASE
 
 ## OVERVIEW
-Multi-harness identity extraction, deterministic session derivation, and Merkle prefix affinity; score 9, distinct parsing domain with 37 LSP references to MerklePrefixMatcher.
+Multi-harness identity extraction, deterministic session derivation, and Merkle prefix affinity; score 11, distinct parsing domain with 42 textual references to MerklePrefixMatcher.
 
 Parent lifecycle: [service guide](../AGENTS.md).
 

@@ -1,7 +1,7 @@
 # ANTIGRAVITY TRANSLATORS
 
 ## OVERVIEW
-Antigravity request envelopes, response unwrapping and signature replay; score 9, a distinct domain with 38 Go files.
+Antigravity request envelopes, response unwrapping and signature replay; score 9, a distinct domain with 39 Go files.
 
 Registration and shared wire contracts: [parent guide](../AGENTS.md).
 
@@ -17,6 +17,7 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 | Chat completion | `openai/chat-completions/` | Deferred finish reason and tool names |
 | Responses envelope | `openai/responses/init.go` | Additional SDK request-envelope registration |
 | Dedicated search requests | `openai/responses/antigravity_openai-responses_request.go` | Capability isolation and search-only envelope |
+| Client tool_search | `openai/responses/antigravity_openai-responses_tool_search_test.go` | Inherited Gemini history rewrite |
 | Regression coverage | Pair-local `*_test.go` | Signature, grounding and no-op cases |
 | Domain tests | `go test ./internal/translator/antigravity/...` | Repository-root command |
 

@@ -1,7 +1,7 @@
 # NATIVE PLUGIN WIRE ABI
 
 ## OVERVIEW
-Stable native-plugin RPC names, JSON envelopes, and version gates; score 9, distinct cross-process compatibility boundary.
+Stable native-plugin RPC names, JSON envelopes, and version gates; conservative score 6, retained in UPDATE mode for the cross-process compatibility boundary.
 
 Parent map: [SDK guide](../AGENTS.md); payload interfaces live in [pluginapi](../pluginapi/AGENTS.md).
 

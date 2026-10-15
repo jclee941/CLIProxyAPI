@@ -31,6 +31,7 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 - Responses tool declarations are indexed once per request and restored to namespace/custom identities on output.
 - Long names preserve the local tool-name tail under the 64-character cap; collisions receive distinct aliases.
 - Interactions Responses conversion has separate Antigravity and Devin model-specific branches.
+- Interactions-to-Responses streams prefix fallback item IDs with a per-stream UUID (`ItemIDPrefix`), so IDs never collide across streams.
 - Chat self-format requests reuse matching-model bytes and remember [DONE] across stream calls.
 - Claude-client streams defer message_delta until the trailing usage chunk.
 - Shell output envelopes stay JSON text, including truncation metadata.

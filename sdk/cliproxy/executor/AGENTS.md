@@ -1,7 +1,7 @@
 # EXECUTION CONTRACT KNOWLEDGE BASE
 
 ## OVERVIEW
-Shared request/response types, transport context, and lifecycle contracts; score 9 from dense exported contracts and cross-package references.
+Shared request/response types, transport context, and lifecycle contracts; score 11 from dense exported contracts and 351 importing files.
 
 Parent lifecycle: [service guide](../AGENTS.md).
 

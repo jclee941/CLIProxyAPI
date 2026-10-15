@@ -8,7 +8,7 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 - `web/`: Gemini and Flow portal sources; follow `web/AGENTS.md`.
 - `browser-extension/`: consented session handoff; follow `browser-extension/AGENTS.md`.
 - `smoke/`: C loader and interceptor ABI checks.
-- `ops/`: operator maintenance tooling and fixtures.
+- `ops/`: operator-started maintenance runner (`maintain.py`, unscheduled systemd oneshot) and its stdlib tests.
 
 ## WHERE TO LOOK
 | Task | Location | Detail |
@@ -16,7 +16,7 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 | ABI/RPC entry | `abi.go`, `plugin.go`, `wire.go` | C ABI 1, registration schema 6 |
 | Local persistence | `session_store.go`, `session_runtime.go` | Encrypted records, ownership, revisions |
 | Login and reconciliation | `login.go`, `login_commit.go` | Consent flow and host projection |
-| Credential concurrency | `credential_leases.go`, `session_lifecycle.go` | Maintenance fences and draining |
+| Credential concurrency | `credential_leases.go`, `session_lifecycle.go` | Maintenance fences, draining, pending-writer slot waits |
 | Flow session broker | `session_exchange.go`, `session_exchange_cancel.go` | Cookie ownership, scoped uploads, explicit cancellation |
 | Account selection | `session_slots.go`, `session_quota_routing.go` | Slot rotation and quota admission |
 | Native upstream protocol | `webaccount.go`, `webgenerate.go`, `webvideo.go` | WIZ frames, JSPB slots, Veo replies |
@@ -38,6 +38,7 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 - Detached interaction execution can survive downstream disconnect; retrieval and cursor replay read the durable outcome.
 - Native account discovery, quota snapshots, and scheduler admission are distinct responsibilities.
 - Flow borrows requests through the broker; this plugin alone attaches cookies and persists their rotations.
+- A turn waiting for its account waits as a pending writer: new shared Flow holds are refused until the turn owns the slot.
 - Broker targets and forwarded upload headers are explicit allowlists; cancellation identifies a specific exchange.
 - The native web transport is the only path; `native_generation` is a legacy key accepted only as `true`. `native_continuation` gates continuation registration and dispatch; preserve the configured format/capability pairing.
 - `video_wire_mode` accepts `legacy`, `web`, or `alternate`; continuation inherits its turn's variant unless an explicit mode overrides it.
@@ -53,4 +54,6 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 - Do not let upload headers or caller-provided URLs redirect private Drive capabilities.
 - Do not translate Omni failures out of the stop-policy prefix/status contract the host matches.
 - Do not weaken host schema checks to load a compatibility build.
+- Do not reintroduce TryLock polling for slot waits; overlapping shared Flow holds starve the waiting turn.
+- Do not add retries, redirects, environment proxies, or request timeouts to the `ops/` maintenance request.
 - Do not return cookie jars to Flow or accept caller-supplied broker authorization/account-selector headers.

@@ -19,6 +19,7 @@ Parent map: [SDK guide](../AGENTS.md); wire version gates live in [pluginabi](..
 
 ## CONVENTIONS
 - Capability flags advertise optional interfaces; keep advertised behavior aligned with host adapters.
+- Executors declare at least one input and output format; empty ExecutorModelScope defaults to both static and OAuth models.
 - ModelRouteResponse distinguishes self, executor, and provider targets.
 - Host model execution carries entry/exit protocol, optional pinned auth, and proxy override explicitly.
 - StreamChunkHeaderInitIndex is the header-init sentinel, separate from payload indices >= 0.

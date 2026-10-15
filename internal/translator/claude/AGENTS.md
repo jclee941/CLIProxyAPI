@@ -11,7 +11,7 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 | Gemini input | `gemini/claude_gemini_request.go` | FIFO tool IDs and MIME-sensitive media |
 | Gemini output | `gemini/claude_gemini_response.go` | SSE accumulation and ordered parts |
 | Interactions bridge | `interactions/` | Interactions client to Claude; role grouping, step events, error results |
-| Chat input | `openai/chat-completions/claude_openai_request.go` | Cache controls, instructions, tool choice |
+| Chat input | `openai/chat-completions/claude_openai_request.go` | Cache controls, instructions, tool choice, registry default max_tokens |
 | Chat output | `openai/chat-completions/claude_openai_response.go` | Cached usage and trailing usage chunk |
 | Responses input | `openai/responses/claude_openai-responses_request.go` | Tool pairing repair and model-specific prefill stripping |
 | Responses output | `openai/responses/claude_openai-responses_response.go` | Output indices, reasoning and terminal status |
@@ -34,8 +34,8 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 - Search replay uses sanitized `srvtoolu_` IDs and genuine encrypted content.
 - Responses requests use the envelope converter; `upstream.claude.tool-search` is pinned per request with `WithClientToolSearch`.
 - With tool_search off, declarations stay generic tools and `tool_search_call`/`tool_search_output` stay unmapped; goldens pin this.
-- Discovered tools are declared on later requests; one prompt-cache miss after each discovery is expected.
-- Default Responses max tokens respect the registry completion limit.
+- Native tool_search declares the constant deferred tool `tool_search_deferred_anchor` from the first request; discoveries append after it, so the tools[] prefix and prompt cache survive.
+- Default Chat and Responses max_tokens follow the registry completion limit; Fable keeps its lower omitted-field ceiling.
 
 ## ANTI-PATTERNS
 - Do not merge, trim or demote Responses system inputs to ordinary user text.
@@ -46,5 +46,5 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 - Never expose redacted_thinking as Chat Completions reasoning_content.
 - Do not fabricate encrypted search results; unreplayable entries and citations are dropped.
 - Read tool_search state with `ClientToolSearchEnabledFor(ctx)`, not the global; a reload mid-request must not split decisions.
-- Do not put cache_control on deferred tool_search tools.
+- Do not put cache_control on deferred tool_search tools or the deferred anchor, and do not reorder declared tools ahead of it.
 - Keep thinking format conversion separate from model-capability validation by ApplyThinking.

@@ -1,7 +1,7 @@
 # PROVIDER LOGIN AND TOKEN STORAGE
 
 ## OVERVIEW
-Provider login orchestration, refresh-lead registration, and filesystem credential persistence; score 12, distinct login lifecycle domain with 24 Go files.
+Provider login orchestration, refresh-lead registration, and filesystem credential persistence; score 9, distinct login lifecycle domain with 25 Go files.
 
 Parent map: [SDK guide](../AGENTS.md); runtime credential selection belongs to [the conductor](../cliproxy/auth/AGENTS.md).
 
@@ -13,6 +13,7 @@ Parent map: [SDK guide](../AGENTS.md); runtime credential selection belongs to [
 | Browser/device Codex login | `codex.go`, `codex_device.go` | Separate browser and device-code paths. |
 | Headless/project discovery | `antigravity.go`, `devin.go` | Provider-specific flows and injected prompts. |
 | Credential save/list/delete | `filestore.go` | FileTokenStore and plugin parser adapters. |
+| Preserve concurrent Codex refreshes | `filestore.go`, `filestore_codex_refresh_test.go` | Credential-aware persistence precedes generic storage writers. |
 | Replace process-wide store | `store_registry.go` | RegisterTokenStore/GetTokenStore. |
 | Register refresh timing | `refresh_registry.go` | init-time lead callbacks for provider identifiers. |
 | Check persistence invariants | `filestore*_test.go`, `manager_test.go` | Disabled files, metadata, proxy persistence, migration. |
@@ -25,7 +26,9 @@ Parent map: [SDK guide](../AGENTS.md); runtime credential selection belongs to [
 - Login saves with coreauth.WithAuthCreationIntent; routine runtime updates do not.
 - Legacy Claude credentials are removed only after a nonempty canonical save path succeeds.
 - FileTokenStore normalizes credential metadata and validates auth weight before writing.
-- Storage-backed records use their TokenStorage writer; metadata-only records use JSON persistence.
+- Save first delegates Codex records to coreauth.PersistCodexAuthFile; only unhandled records use generic storage/JSON writers.
+- Codex refresh patches preserve disk configuration and independently updated outer/SIWC credentials, including same-timestamp rotations.
+- Non-Codex storage-backed records use their TokenStorage writer; metadata-only records use JSON persistence.
 - Metadata-only writes avoid rewriting semantically unchanged JSON.
 - Successful saves stamp path, source, and file-backend attributes onto the record.
 - Directory configuration and file writes use separate locks; snapshot baseDir rather than reading it unlocked.
@@ -38,6 +41,7 @@ Parent map: [SDK guide](../AGENTS.md); runtime credential selection belongs to [
 ## ANTI-PATTERNS
 - Do not recreate a removed disabled credential during routine Save; deliberate login/migration creation must carry intent.
 - Do not discard preserved metadata when refreshing an existing login.
+- Do not bypass Codex credential-aware persistence with a stale whole-record write.
 - Do not remove legacy Claude credentials before canonical persistence is confirmed.
 - Do not interpret a handled empty plugin parse as permission to run the built-in parser.
 - Do not confuse refresh-lead registration with implementation of token refresh itself.

@@ -9,6 +9,7 @@ Parent map: [SDK guide](../../AGENTS.md); endpoint registration lives in `intern
 | Task | Location | Detail |
 |------|----------|--------|
 | Context, cancellation, keep-alives | `handlers.go`, `handlers_context.go` | BaseAPIHandler and request-scoped routing/auth metadata. |
+| Preserve HTTP observation context | `handlers.go`, `handlers_decorator_test.go` | GetContextWithCancel inherits the inbound request's transport decorator. |
 | Non-streaming execution | `handlers_execution.go` | Auth manager dispatch, plugin executor dispatch, lifecycle completion. |
 | Streaming bootstrap/retry | `handlers_stream.go` | First-payload validation, retry budget, cloned header snapshots. |
 | Plugin hooks and routing | `handlers_interceptors.go`, `handlers_routing.go` | Before/after auth, response/chunk interception, model routing. |
@@ -31,6 +32,7 @@ Parent map: [SDK guide](../../AGENTS.md); endpoint registration lives in `intern
 - Nested plugin model execution skips the caller's router/interceptors, not every plugin.
 - Nested execution invalidates outer prepared routes that could point back to the caller.
 - Preserve original requested-model metadata separately from the normalized execution model.
+- GetContextWithCancel preserves explicit parent decorators or suppression; otherwise it inherits the request decorator.
 - Internal model calls receive filtered upstream headers even when public passthrough is configured.
 - Video retrieval/content requests reuse the creator auth/model binding; TTL defaults to 3 hours and accepts a positive `VideoResultAuthCacheTTL` duration.
 - Gemini interaction creation requires exactly one of model or agent; retrieval uses interaction.get, not create replay.

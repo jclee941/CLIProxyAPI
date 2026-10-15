@@ -1,7 +1,7 @@
 # SIGNATURE AND REPLAY CACHES
 
 ## OVERVIEW
-Provider-specific replay state with local and Home KV backends; score 11 (302 symbols, 75 exports, 31 importing files), a distinct state-consistency domain.
+Provider-specific replay state with local and Home KV backends; score 11 (302 symbols, 75 exports, 32 importing files by rg import path), a distinct state-consistency domain.
 
 Parent package map: [internal/AGENTS.md](../AGENTS.md).
 

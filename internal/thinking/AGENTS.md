@@ -1,7 +1,7 @@
 # THINKING AND SUMMARY INTENT
 
 ## OVERVIEW
-Reasoning configuration, summary visibility, and provider application; score 14 (23 Go files, 45 exports, 76 importing files), a central cross-protocol semantic domain.
+Reasoning configuration, summary visibility, and provider application; score 14 (23 Go files, 45 exports, 80 importing files by rg import path), a central cross-protocol semantic domain.
 
 Parent package map: [internal/AGENTS.md](../AGENTS.md); pipeline contract: [root guide](../../AGENTS.md).
 

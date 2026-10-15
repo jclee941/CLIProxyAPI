@@ -1,7 +1,7 @@
 # GEMINI TRANSLATORS
 
 ## OVERVIEW
-Gemini content conversion, Interactions bridges and Responses grounding/replay; score 9, a distinct domain with 47 Go files.
+Gemini content conversion, Interactions bridges and Responses grounding/replay; score 9, a distinct domain with 49 Go files.
 
 Registration and shared wire contracts: [parent guide](../AGENTS.md).
 
@@ -17,6 +17,7 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 | Responses requests | `openai/responses/gemini_openai-responses_request.go` | Item ordering and function-output pairing |
 | Responses streams | `openai/responses/gemini_openai-responses_response.go` | Reasoning, text, tool and search output items |
 | Search and citations | `openai/responses/gemini_openai-responses_web_search.go` | Capability checks, grounding merge, rune offsets |
+| Client tool_search replay | `openai/responses/gemini_openai-responses_tool_search.go` | History rewrite; detection in `internal/util/responses_tools.go` |
 | Reasoning carriers | `openai/responses/signature_carrier.go` | Encoding, validation and spoof stripping |
 | Late signatures | `openai/responses/trailing_signature.go` | Replay cache and ordering |
 | Terminal regressions | `openai/responses/issue6258_terminal_test.go` | Stream completion edge cases |
@@ -30,6 +31,8 @@ Registration and shared wire contracts: [parent guide](../AGENTS.md).
 - Citation conversion maps upstream byte offsets into client-visible rune offsets across message parts.
 - Responses carriers use `cpa-gemini-responses-carrier-v1:` with direction and semantic target.
 - Text-signature replay cache keys use `gemini-responses-text:<messageID>`.
+- Client-executed `tool_search_call`/`tool_search_output` history is rewritten to function_call/function_call_output before pairing; Antigravity Responses inherits this.
+- Synthesized Responses `resp_`/`call_` IDs combine a timestamp with process-wide atomic counters.
 - `_cpa_reasoning_*` fields are transient pipeline metadata, never trusted client annotations.
 - Missing safety settings receive OFF for harassment, hate speech, sexual content and dangerous content; civic integrity uses BLOCK_NONE.
 - Existing safety settings are preserved, including explicitly configured empty arrays.

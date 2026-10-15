@@ -21,9 +21,10 @@ Registry validation, authenticated artifact retrieval, and safe binary installat
 
 ## CONVENTIONS
 - GitHub-release and direct installs converge on validated manifests and platform artifacts.
-- PrepareLatestRelease binds cache identity and request headers to one credential snapshot.
+- `PrepareLatestRelease` binds cache identity and request headers to one credential snapshot.
 - Cache/rate-limit identity includes network scope and effective authentication headers.
 - Registry, metadata, and artifact requests have separate auth kinds.
+- Prepared release headers are cloned per request; resolved-auth expiry is checked before using that snapshot.
 - Temporary resolved credentials use byte-backed `Secret` values with explicit clearing.
 - Archive installation accepts one correctly named dynamic library at the archive root.
 - Preserve the difference between release tags and normalized plugin versions.

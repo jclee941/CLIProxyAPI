@@ -17,6 +17,7 @@ Native plugin lifecycle, capability adapters, and scoped RPC bridges; score 12, 
 | Interception | `adapters_interceptors.go` | Cloning, ordering, schema-gated payloads |
 | Auth/model adaptation | `auth_provider.go`, `adapters.go` | OAuth, atomic tokens, model registration |
 | Native callbacks | `host_callbacks*.go`, `callback_contexts.go` | Caller and instance-scoped contexts |
+| Credential callbacks | `auth_callbacks.go`, `auth_callbacks_disabled.go` | Auth-manager bridge and disabled-state preservation |
 | HTTP operations | `http_bridge.go`, `http_operation_bridge.go` | Transports, cancellation, operation ownership |
 | Streams | `stream_bridge.go`, `http_stream_bridge.go`, `model_stream_bridge.go` | Queue and lifetime ownership |
 | Frontend route auth | `frontend_http.go`, `frontend_http_pattern.go` | Pinned route owner/generation |
@@ -28,6 +29,7 @@ Native plugin lifecycle, capability adapters, and scoped RPC bridges; score 12, 
 - Lifecycle serialization uses the cancellable `applyMu` channel; `mu` protects state.
 - Replacement quiesces the old instance and restores it if replacement registration fails.
 - Guarded clients stop admitting calls before draining in-flight work.
+- `client_guard.go` can return cancellation before native calls finish; detached shutdown still waits for physical completion.
 - Callback operations are scoped by plugin ID and instance key, not operation ID alone.
 - Interceptor inputs are cloned, including nested metadata with cycle handling.
 - `*Except` interceptor/router variants skip the plugin initiating nested host execution.

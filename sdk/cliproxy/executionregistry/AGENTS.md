@@ -1,7 +1,7 @@
 # EXECUTION REGISTRY KNOWLEDGE BASE
 
 ## OVERVIEW
-Home-lifetime pending dispatches, resource scopes, release acknowledgements, and observation barriers; score 9 from symbol density, exported contracts, code ratio, and references.
+Home-lifetime pending dispatches, resource scopes, release acknowledgements, and observation barriers; score 11 from symbol density, exported contracts, code ratio, and 45 importing files.
 
 Parent lifecycle: [service guide](../AGENTS.md).
 

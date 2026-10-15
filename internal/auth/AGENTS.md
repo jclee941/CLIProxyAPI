@@ -1,7 +1,7 @@
 # PROVIDER AUTHENTICATION
 
 ## OVERVIEW
-Provider login/refresh clients and persisted token formats; score 16 (subtree: 58 Go files, 9 provider packages, `claude/` has 23 importers), a distinct multi-provider authentication boundary.
+Provider login/refresh clients and persisted token formats; score 16 (subtree: 63 Go files, 9 provider packages, `claude/` has 23 importers by rg import path), a distinct multi-provider authentication boundary.
 Child guides: `claude/`, `codex/`, `devin/`, `kimi/`; `antigravity/`, `meta/`, `vertex/`, `xai/`, `empty/` are covered here.
 
 ## STRUCTURE
@@ -10,7 +10,7 @@ Child guides: `claude/`, `codex/`, `devin/`, `kimi/`; `antigravity/`, `meta/`, `
 | `models.go` | `TokenStorage.SaveTokenToFile` contract |
 | `antigravity/` | Google OAuth, project discovery, and onboarding |
 | `claude/` | PKCE, callback server, account identity, and OAuth transport |
-| `codex/` | OpenAI PKCE, callback server, and ID-token introspection |
+| `codex/` | OpenAI PKCE, SIWC, callback server, file locking, and ID-token introspection |
 | `devin/` | Session token login, profile, and quota-derived auth records |
 | `empty/` | No-op storage for credentials without token files |
 | `kimi/` | Domain-aware device flow and refresh |
@@ -36,6 +36,7 @@ Child guides: `claude/`, `codex/`, `devin/`, `kimi/`; `antigravity/`, `meta/`, `
 - Callback ports belong to SDK orchestration; provider callback servers accept the selected port.
 - `xai/` refresh singleflight is package-wide, like its guided siblings.
 - Claude and Codex filename builders keep the legacy email-based format only as a fallback.
+- Exception: `antigravity/filename.go` is still email-keyed (`antigravity-<email>.json`, else `antigravity.json`).
 - Test provider primitives with `go test ./internal/auth/...` from the repository root.
 
 ## ANTI-PATTERNS

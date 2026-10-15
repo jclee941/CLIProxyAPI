@@ -1,7 +1,7 @@
 # TRANSLATOR KNOWLEDGE BASE
 
 ## OVERVIEW
-Protocol conversion and registration hub; score 16, with eight immediate domains, 26 blank-imported pair packages and 266 Go files below this directory.
+Protocol conversion and registration hub; score 16, with eight immediate domains, 26 blank-imported pair packages, 30 `translator.Register` calls and 269 Go files below this directory.
 
 Parent package map: [internal/AGENTS.md](../AGENTS.md).
 

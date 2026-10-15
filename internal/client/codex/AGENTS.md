@@ -1,7 +1,7 @@
 # CODEX CLIENT INTEGRATION
 
 ## OVERVIEW
-Codex-specific catalogs, realtime sessions, and collaboration adaptation; score 14 (5 packages, 27 Go files, 26 importing files), a distinct client protocol domain.
+Codex-specific catalogs, realtime sessions, and collaboration adaptation; score 14 (5 packages, 27 Go files, 25 importing files outside this tree by rg import path), a distinct client protocol domain.
 Packages: `apply-patch/` (`applypatch`), `live/`, `models/`, `optimize-multi-agent-v2/` (`multiagentv2`), `tool-schema/` (`toolschema`).
 
 ## WHERE TO LOOK
@@ -23,7 +23,7 @@ Packages: `apply-patch/` (`applypatch`), `live/`, `models/`, `optimize-multi-age
 | Catalog validation and revision ownership | `../../registry/AGENTS.md` |
 
 ## CONVENTIONS
-- Model templates come from revisioned registry snapshots; `gpt-5.5` supplies the fallback template.
+- Model templates come from revisioned registry snapshots; `gpt-5.5` is the preferred default template, else the first catalog entry.
 - Catalog output uses `MarshalCompact`: single-line JSON without HTML escaping.
 - Mixed-provider capabilities are intersections, not unions of template features.
 - Required non-Codex option keys remain present with JSON null values.

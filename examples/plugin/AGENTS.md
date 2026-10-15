@@ -1,7 +1,7 @@
 # NATIVE PLUGIN EXAMPLES
 
 ## OVERVIEW
-Capability-focused C ABI examples across Go, C, and Rust; score ~17 from file count, 24 subdirectories, nested modules, Makefile config, and the ABI symbols (`cliproxy_plugin_init` ~107 rg hits).
+Capability-focused native examples across Go, C, and Rust; score 13 from file/directory breadth, Makefile configuration, symbol/export density, and measured router references within this subtree.
 
 ## STRUCTURE
 - `simple/`: mixed-capability ABI introduction.
@@ -31,12 +31,12 @@ Capability-focused C ABI examples across Go, C, and Rust; score ~17 from file co
 - `structured-output/go/` has no `go.mod`: root tests cover it; targeted check is `go test ./examples/plugin/structured-output/go`.
 - Use `make -C examples/plugin list` to inspect configured targets before choosing a build.
 - The Makefile emits `bin/<example>-<lang>.<so|dylib|dll>`; outside `EXAMPLES` are `codex-service-tier`, `frontend-auth-exclusive`, `request-lifecycle`, `scheduler`, `structured-output` (use their README direct builds).
-- `host-callback-auth-files`, `host-model-callback`, `claude-web-search-router` are Go-only yet listed in `EXAMPLES`: `make build` wants c/rust for them; build `bin/<name>-go.<ext>` instead.
+- `BIN_DIR` defaults to an absolute path; set `BIN_DIR=bin` when requesting a relative `bin/` target.
+- `host-callback-auth-files`, `host-model-callback`, `claude-web-search-router` are Go-only yet listed in `EXAMPLES`: the aggregate build requests missing c/rust peers; select only their Go target.
 - Build structured output from the root with `go build -buildmode=c-shared -o structured-output.so ./examples/plugin/structured-output/go`.
-- Shared ABI architecture and repository policies live in `../../AGENTS.md`.
 - Go builds use `-buildmode=c-shared`, C uses CMake, Rust uses locked `cdylib` builds.
 - ABI buffers carry JSON envelopes; lifecycle `config_yaml` is encoded bytes containing raw YAML.
-- Library basename determines plugin ID and the corresponding `plugins.configs` key.
+- Use each example's declared registration name for its `plugins.configs` key; build-target suffixes are not configuration keys.
 - Management browser resources and authenticated management APIs use separate host route surfaces.
 
 ## ANTI-PATTERNS

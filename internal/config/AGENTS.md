@@ -1,7 +1,7 @@
 # CONFIGURATION CONTRACT
 
 ## OVERVIEW
-Shared configuration schema, validation, runtime copies, and YAML persistence; score 14 (69 Go files, 172 exports, 476 importing files), the central configuration boundary.
+Shared configuration schema, validation, runtime copies, and YAML persistence; score 14 (69 Go files, 172 exports, 490 importing files by rg import path), the central configuration boundary.
 
 ## WHERE TO LOOK
 | Change | Location |

@@ -23,12 +23,13 @@ Gin server assembly, protocol multiplexing, and route lifecycle; score 12, a dis
 | Management HTML refresh | `../managementasset/updater.go` | Download/cache lifecycle, not config snapshots |
 | Request-log capture | `middleware/AGENTS.md` | Streaming and deferred-body rules |
 | Native integration fixture | `testdata/frontend_http.c` | Used by frontend HTTP native tests |
+| Shutdown and reload regressions | `server_stop_test.go`, `runtime_reload_regression_test.go` | Immediate close and immutable reload snapshots |
 
 ## CONVENTIONS
 - Server receiver methods are split by responsibility across `server_*.go`.
 - Public compatibility handlers are assembled here; implementations live under SDK handlers.
 - Management route registration and route availability are separate atomic states.
-- V8 configuration routes mark handler context with `management.ConfigV8ContextKey`.
+- Authenticated V8 management routes mark handler context with `management.ConfigV8ContextKey`; OAuth callbacks are registered separately.
 - Keep `/backend-api/codex` aliases aligned with the corresponding response endpoints.
 - Config reload compares against a serialized prior snapshot, not a shared mutable pointer.
 - HTTP and RESP share the listening socket; protocol inspection belongs to each accepted connection.

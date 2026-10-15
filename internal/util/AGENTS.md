@@ -1,7 +1,7 @@
 # SHARED PAYLOAD UTILITIES
 
 ## OVERVIEW
-Schema adaptation, tool identity, zero-copy JSON, and request metadata helpers; score 14 (30 Go files, 73 exports, 131 importing files), a central cross-provider utility domain.
+Schema adaptation, tool identity, zero-copy JSON, and request metadata helpers; score 14 (30 Go files, 73 exports, 133 importing files by rg import path), a central cross-provider utility domain.
 
 ## WHERE TO LOOK
 | Task | File |

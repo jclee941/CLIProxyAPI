@@ -30,6 +30,7 @@ Parent map: [SDK guide](../AGENTS.md); implementation change restrictions remain
 - Track plugin edits to Responses configuration_update items separately from native translation changes.
 - Response normalization runs before translation and after each resulting output chunk.
 - Native stream transforms may intentionally return nil outputs; that is not a missing-route fallback.
+- Retained tool-input failures return native output before raw fallback or plugin response normalization can recover it.
 - Pipeline middleware executes in registration order around its terminal registry call.
 - NewPipeline(nil) selects Default; tests needing isolation can supply NewRegistry explicitly.
 - `RequestEnvelope.Err` carries request-scoped translation failure independently of the pipeline's returned error.
