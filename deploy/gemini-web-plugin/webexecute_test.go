@@ -15,31 +15,38 @@ import (
 // capability RPC and the generation stream, each on the path prefix the
 // credential's auth_user selects.
 var nativeGenerationBody struct {
-	mu   sync.Mutex
-	body string
+	mu        sync.Mutex
+	body      string
+	selection string
 }
 
 // generationTurnID reads the turn id a generation body carries in slot 59.
 func generationTurnID(t *testing.T, body string) string {
 	t.Helper()
+	turn, _ := jsonField(generationFields(t, body), 59).(string)
+	return turn
+}
+
+// generationFields decodes the positional field array of a generation body.
+func generationFields(t *testing.T, body string) []any {
+	t.Helper()
 	form, err := url.ParseQuery(body)
 	if err != nil {
 		t.Errorf("generation body: %v", err)
-		return ""
+		return nil
 	}
 	var envelope []any
 	if json.Unmarshal([]byte(form.Get("f.req")), &envelope) != nil || len(envelope) < 2 {
 		t.Errorf("generation envelope: %s", form.Get("f.req"))
-		return ""
+		return nil
 	}
 	inner, _ := envelope[1].(string)
 	var fields []any
 	if json.Unmarshal([]byte(inner), &fields) != nil || len(fields) < 60 {
 		t.Errorf("generation fields: %s", inner)
-		return ""
+		return nil
 	}
-	turn, _ := fields[59].(string)
-	return turn
+	return fields
 }
 
 func nativeLastGeneration(t *testing.T) string {
@@ -73,6 +80,7 @@ func nativeWebServer(t *testing.T, reply string) *httptest.Server {
 			if readErr == nil {
 				nativeGenerationBody.mu.Lock()
 				nativeGenerationBody.body = string(raw)
+				nativeGenerationBody.selection = request.Header.Get("x-goog-ext-525001261-jspb")
 				nativeGenerationBody.mu.Unlock()
 			}
 			selection := request.Header.Get("x-goog-ext-525001261-jspb")
@@ -114,6 +122,45 @@ func nativeService(t *testing.T, server *httptest.Server) (*service, storageReco
 	service.webOriginOverride = server.URL
 	service.webUploadOverride = server.URL
 	return service, record
+}
+
+func TestTextModelIDsFollowTheModeNames(t *testing.T) {
+	for name, want := range map[string]string{"3.8 Flash": "gemini-app-3.8-flash", "3.5 Flash-Lite": "gemini-app-3.5-flash-lite", "3.1 Pro": "gemini-app-3.1-pro", "4 Argon": "gemini-app-4-argon"} {
+		if got, ok := webPublicModelID(name); !ok || got != want {
+			t.Fatalf("%q -> %q, want %q", name, got, want)
+		}
+	}
+}
+
+// A text model runs in the mode it names, with the thinking level the request
+// asks for in the body and after the mode in the selection header.
+func TestTextModelRunsInItsModeWithTheThinkingLevel(t *testing.T) {
+	server := nativeWebServer(t, "a thought")
+	service, record := nativeService(t, server)
+	call := func(level string) envelope {
+		return invoke(t, service, "executor.execute", executorRequest{
+			AuthID: record.ID, AuthProvider: provider, Model: "gemini-app-3.8-flash",
+			Format: "gemini", SourceFormat: "gemini", StorageJSON: jsonFixture(t, record),
+			Payload: []byte(`{"contents":[{"role":"user","parts":[{"text":"think"}]}],"generationConfig":{"thinkingConfig":{"thinkingLevel":"` + level + `"}}}`),
+		})
+	}
+	if result := call("high"); !result.OK {
+		t.Fatalf("text model turn failed: %+v", result.Error)
+	}
+	nativeGenerationBody.mu.Lock()
+	body, selection := nativeGenerationBody.body, nativeGenerationBody.selection
+	nativeGenerationBody.mu.Unlock()
+	fields := generationFields(t, body)
+	if jsonField(fields, 79) != float64(1) || jsonField(fields, 80) != float64(2) {
+		t.Fatalf("mode %v and thinking level %v, want the Flash mode and extended thinking", jsonField(fields, 79), jsonField(fields, 80))
+	}
+	var header []any
+	if json.Unmarshal([]byte(selection), &header) != nil || jsonField(header, 4) != "cap-flash" || jsonField(header, 15) != float64(2) {
+		t.Fatalf("selection header = %s", selection)
+	}
+	if refused := call("extreme"); refused.OK || refused.Error == nil || refused.Error.Code != "invalid_thinking_level" {
+		t.Fatalf("an unknown thinking level = %+v", refused)
+	}
 }
 
 func TestNativeTextServesFlash(t *testing.T) {

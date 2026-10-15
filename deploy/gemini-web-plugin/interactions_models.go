@@ -11,6 +11,7 @@ func (service *service) interactionModels(account accountModels) []modelInfo {
 	// that silently stopped existing.
 	if account.Available {
 		models = append(models, modelInfo{ID: interactionOmniModel, Object: "model", OwnedBy: provider, Type: provider, Name: interactionOmniModel, DisplayName: "Gemini Omni 1.1 Flash", Description: "Official Interactions request/response shape for inline text-to-video and stored follow-up turns", SupportedGenerationMethods: []string{"interactions"}, SupportedInputModalities: []string{"text"}, SupportedOutputModalities: []string{"video"}})
+		models = append(models, webTextModelInfos(account)...)
 		models = append(models, webImageModelInfos(account)...)
 	}
 	return models

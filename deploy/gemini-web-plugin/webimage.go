@@ -240,7 +240,7 @@ func (service *service) nativeImage(ctx context.Context, record storageRecord, t
 	if err != nil {
 		return nil, err
 	}
-	raw, err := session.sendTurn(ctx, webImagePrompt(prompt), account, model, attachments)
+	raw, err := session.sendTurn(ctx, webImagePrompt(prompt), account, model, attachments, 0)
 	if err != nil {
 		return nil, err
 	}

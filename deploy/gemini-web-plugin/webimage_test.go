@@ -173,10 +173,10 @@ func TestImageModelsArePublishedForTheModesAnAccountHas(t *testing.T) {
 		return ids
 	}
 	full := ids(accountModels{Available: true, Models: []capability{{DisplayName: "3.5 Flash-Lite"}, {DisplayName: "3.8 Flash"}, {DisplayName: "3.1 Pro"}}})
-	if !slices.Equal(full, []string{interactionOmniModel, "gemini-nano-banana-2", "gemini-nano-banana-pro"}) {
+	if !slices.Equal(full, []string{interactionOmniModel, "gemini-app-3.5-flash-lite", "gemini-app-3.8-flash", "gemini-app-3.1-pro", "gemini-nano-banana-2", "gemini-nano-banana-pro"}) {
 		t.Fatalf("models = %v", full)
 	}
-	if lite := ids(accountModels{Available: true, Models: []capability{{DisplayName: "3.5 Flash-Lite"}}}); !slices.Equal(lite, []string{interactionOmniModel}) {
+	if lite := ids(accountModels{Available: true, Models: []capability{{DisplayName: "3.5 Flash-Lite"}}}); !slices.Equal(lite, []string{interactionOmniModel, "gemini-app-3.5-flash-lite"}) {
 		t.Fatalf("Flash-Lite is not the Flash mode, models = %v", lite)
 	}
 }

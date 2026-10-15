@@ -45,7 +45,7 @@ func TestWebGenerationFieldsPinTheProtocolSlots(t *testing.T) {
 // The selection header is the only channel that names the capability, so its
 // positions matter as much as the body's.
 func TestWebSelectionHeaderCarriesCapabilityAndMode(t *testing.T) {
-	encoded := webSelectionHeader(capability{CapabilityID: "cap-42", DisplayName: "3.8 Flash", Mode: 3}, 2, "", "")
+	encoded := webSelectionHeader(capability{CapabilityID: "cap-42", DisplayName: "3.8 Flash", Mode: 3}, 2, 0, "", "")
 	var header []any
 	if err := json.Unmarshal([]byte(encoded), &header); err != nil {
 		t.Fatalf("decode header: %v", err)
@@ -54,11 +54,18 @@ func TestWebSelectionHeaderCarriesCapabilityAndMode(t *testing.T) {
 		t.Fatalf("header length = %d, want 15", len(header))
 	}
 	var extended []any
-	if err := json.Unmarshal([]byte(webSelectionHeader(capability{CapabilityID: "cap-42", Mode: 3}, 2, "INSTANCE", "boq_build")), &extended); err != nil {
+	if err := json.Unmarshal([]byte(webSelectionHeader(capability{CapabilityID: "cap-42", Mode: 3}, 2, 0, "INSTANCE", "boq_build")), &extended); err != nil {
 		t.Fatalf("decode extended header: %v", err)
 	}
 	if len(extended) != 18 || extended[15] != nil || extended[16] != "INSTANCE" || jsonField(extended[17], 0) != "boq_build" {
 		t.Fatalf("instance and build after the mode = %#v", extended)
+	}
+	var thinking []any
+	if err := json.Unmarshal([]byte(webSelectionHeader(capability{CapabilityID: "cap-42", Mode: 3}, 2, 2, "INSTANCE", "boq_build")), &thinking); err != nil {
+		t.Fatalf("decode thinking header: %v", err)
+	}
+	if len(thinking) != 18 || thinking[15] != float64(2) || thinking[16] != "INSTANCE" {
+		t.Fatalf("thinking level after the mode = %#v", thinking)
 	}
 	if header[4] != "cap-42" {
 		t.Fatalf("capability id at 4 = %#v", header[4])

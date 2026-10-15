@@ -242,7 +242,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			execution.turns[execution.key] = turn
 			return service.saveContinuations(execution.local, execution.turns)
 		}
-		_, submitErr := session.postGeneration(ctx, string(encoded), account, model, language, nonce)
+		_, submitErr := session.postGeneration(ctx, string(encoded), account, model, language, nonce, 0)
 		session.generationFrame = nil
 		if submitErr != nil {
 			view.State, view.Error = "pending", safeCredentialCode(submitErr)

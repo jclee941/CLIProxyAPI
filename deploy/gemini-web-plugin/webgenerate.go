@@ -59,14 +59,22 @@ func webGenerationFields(prompt string, mode, thinking int, conversationID strin
 // webSelectionHeader carries the model selection. This is the only place the
 // capability id and mode reach the server; the request body repeats the mode but
 // never names a model.
-func webSelectionHeader(model capability, capacity int, instance, build string) string {
+func webSelectionHeader(model capability, capacity, thinkingLevel int, instance, build string) string {
 	header := []any{1, nil, nil, nil, model.CapabilityID, nil, nil, 0, []any{4, 5, 6, 8}, nil, nil, capacity, nil, nil, model.Mode}
 	if capacity == 3 {
 		header[8] = []any{4, 5, 6, 8, 16, 4, 5, 6, 8, 16}
 	}
-	// The web app follows the mode with its client instance and build label.
+	// The mode is followed by the thinking level a text turn asks for, then the
+	// web app's client instance and build label.
+	if thinkingLevel > 0 || instance != "" && build != "" {
+		var level any
+		if thinkingLevel > 0 {
+			level = thinkingLevel
+		}
+		header = append(header, level)
+	}
 	if instance != "" && build != "" {
-		header = append(header, nil, instance, []any{build})
+		header = append(header, instance, []any{build})
 	}
 	encoded, err := json.Marshal(header)
 	if err != nil {
@@ -86,8 +94,8 @@ func webCapacity(flags []int) int {
 
 // generateText runs one turn against the selected capability and returns the
 // reply text.
-func (session *webSession) generateText(ctx context.Context, prompt string, account webAccount, model capability, attachments []webAttachment) (string, error) {
-	raw, err := session.sendTurn(ctx, prompt, account, model, attachments)
+func (session *webSession) generateText(ctx context.Context, prompt string, account webAccount, model capability, attachments []webAttachment, thinkingLevel int) (string, error) {
+	raw, err := session.sendTurn(ctx, prompt, account, model, attachments, thinkingLevel)
 	if err != nil {
 		return "", err
 	}
@@ -95,8 +103,8 @@ func (session *webSession) generateText(ctx context.Context, prompt string, acco
 }
 
 // sendTurn submits one turn that opens a conversation and returns the reply
-// stream as it arrived.
-func (session *webSession) sendTurn(ctx context.Context, prompt string, account webAccount, model capability, attachments []webAttachment) ([]byte, error) {
+// stream as it arrived. A thinking level of 0 leaves the mode's own.
+func (session *webSession) sendTurn(ctx context.Context, prompt string, account webAccount, model capability, attachments []webAttachment, thinkingLevel int) ([]byte, error) {
 	if session.xsrf == "" {
 		if err := session.bootstrap(ctx); err != nil {
 			return nil, err
@@ -106,17 +114,21 @@ func (session *webSession) sendTurn(ctx context.Context, prompt string, account 
 	if err != nil {
 		return nil, err
 	}
-	fields, err := json.Marshal(webGenerationFields(prompt, model.Mode, webThinkingDefault, conversationID, attachments))
+	layout := webGenerationFields(prompt, model.Mode, webThinkingDefault, conversationID, attachments)
+	if thinkingLevel > 0 {
+		layout[80] = thinkingLevel
+	}
+	fields, err := json.Marshal(layout)
 	if err != nil {
 		return nil, failure(400, "web_request_invalid")
 	}
-	return session.postGeneration(ctx, string(fields), account, model, webLanguageDefault, conversationID)
+	return session.postGeneration(ctx, string(fields), account, model, webLanguageDefault, conversationID, thinkingLevel)
 }
 
 // postGeneration sends one generation turn. Text and video differ only in the
 // field array and the interface language, so the envelope and the selection
 // header are shared.
-func (session *webSession) postGeneration(ctx context.Context, fields string, account webAccount, model capability, language, turn string) ([]byte, error) {
+func (session *webSession) postGeneration(ctx context.Context, fields string, account webAccount, model capability, language, turn string, thinkingLevel int) ([]byte, error) {
 	envelope, err := json.Marshal([]any{nil, fields})
 	if err != nil {
 		return nil, failure(400, "web_request_invalid")
@@ -140,7 +152,7 @@ func (session *webSession) postGeneration(ctx context.Context, fields string, ac
 		session.diag.wire, session.diag.capacity = session.videoWire, capacity
 	}
 	overrides := http.Header{
-		"x-goog-ext-525001261-jspb": {webSelectionHeader(model, capacity, session.instance, session.build)},
+		"x-goog-ext-525001261-jspb": {webSelectionHeader(model, capacity, thinkingLevel, session.instance, session.build)},
 		"x-goog-ext-73010990-jspb":  {"[0,0,0]"},
 		"x-goog-ext-525005358-jspb": {webTurnHeader(turn)},
 	}

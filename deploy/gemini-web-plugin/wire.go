@@ -84,6 +84,13 @@ type modelInfo struct {
 	SupportedGenerationMethods []string
 	SupportedInputModalities   []string
 	SupportedOutputModalities  []string
+	Thinking                   *thinkingSupport `json:"Thinking,omitempty"`
+}
+
+// thinkingSupport is the reasoning control a model accepts. The host strips the
+// thinking configuration from a request to a model that declares none.
+type thinkingSupport struct {
+	Levels []string
 }
 
 type executorRequest struct {

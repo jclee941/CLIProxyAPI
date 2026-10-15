@@ -30,7 +30,7 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 		return nil, failure(400, "unsupported_execution_format")
 	}
 	image, isImage := webImageModelFor(request.Model)
-	if request.Model != flashModel && request.Model != omniModel && !isImage {
+	if !webTextModel(request.Model) && request.Model != omniModel && !isImage {
 		return nil, failure(400, "unsupported_model")
 	}
 	stream := request.Stream || method == "executor.execute_stream"
@@ -120,7 +120,7 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 		}
 		return webExecutionResult(body, stream), nil
 	}
-	if request.Model == flashModel {
+	if webTextModel(request.Model) {
 		body, errNative := service.nativeText(ctx, record, token, request.Model, request.Payload)
 		if errNative != nil {
 			return nil, executionFailure(request.Model, errNative)

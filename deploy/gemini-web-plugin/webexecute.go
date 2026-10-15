@@ -12,24 +12,77 @@ import (
 // derived from the capability the account advertises rather than matched against
 // a name, because nothing else constrains which capability may be used.
 
+// webTextModelPrefix starts every text model identifier; the account's mode
+// name follows it.
+const webTextModelPrefix = "gemini-app-"
+
 // webPublicModelID renders the identifier callers use from the capability name
-// the account advertises: "3.8 Flash" becomes gemini-web-flash-3.8.
+// the account advertises: "3.8 Flash" becomes gemini-app-3.8-flash.
 func webPublicModelID(displayName string) (string, bool) {
 	fields := strings.Fields(displayName)
 	if len(fields) < 2 {
 		return "", false
 	}
-	family := strings.ToLower(strings.Join(fields[1:], "-"))
-	return provider + "-" + family + "-" + fields[0], true
+	return webTextModelPrefix + strings.ToLower(strings.Join(fields, "-")), true
+}
+
+// webTextModel reports whether a model is one of the text models: an account
+// mode, or the internal 3.8 Flash name the continuation protocol uses.
+func webTextModel(model string) bool {
+	return model == flashModel || strings.HasPrefix(model, webTextModelPrefix)
 }
 
 func webSelectCapability(account webAccount, requested string) (capability, bool) {
 	for _, entry := range account.Capabilities {
-		if identifier, ok := webPublicModelID(entry.DisplayName); ok && identifier == requested {
+		identifier, ok := webPublicModelID(entry.DisplayName)
+		if ok && identifier == requested || requested == flashModel && entry.DisplayName == "3.8 Flash" {
 			return entry, true
 		}
 	}
 	return capability{}, false
+}
+
+var webTextThinkingLevels = []string{"low", "medium", "high"}
+
+// webTextModelInfos publishes a text model for every mode the account has.
+func webTextModelInfos(account accountModels) []modelInfo {
+	models := []modelInfo{}
+	seen := map[string]bool{}
+	for _, entry := range account.Models {
+		id, ok := webPublicModelID(entry.DisplayName)
+		if !ok || seen[id] {
+			continue
+		}
+		seen[id] = true
+		models = append(models, modelInfo{ID: id, Object: "model", OwnedBy: provider, Type: provider, Name: id, DisplayName: "Gemini App " + entry.DisplayName, Description: "Text turns through the Gemini web app in its " + entry.DisplayName + " mode", SupportedGenerationMethods: []string{"generateContent", "streamGenerateContent"}, SupportedInputModalities: []string{"text", "image"}, SupportedOutputModalities: []string{"text"}, Thinking: &thinkingSupport{Levels: webTextThinkingLevels}})
+	}
+	return models
+}
+
+// webThinkingLevels maps a Gemini thinkingConfig.thinkingLevel to the web app's
+// thinking level, protocol field 81: standard, medium and extended.
+var webThinkingLevels = map[string]int{"low": 1, "medium": 4, "high": 2}
+
+func webThinkingLevel(payload []byte) (int, error) {
+	var request struct {
+		GenerationConfig struct {
+			ThinkingConfig struct {
+				ThinkingLevel string `json:"thinkingLevel"`
+			} `json:"thinkingConfig"`
+		} `json:"generationConfig"`
+	}
+	if json.Unmarshal(payload, &request) != nil {
+		return 0, failure(400, "invalid_generation_request")
+	}
+	name := strings.ToLower(strings.TrimSpace(request.GenerationConfig.ThinkingConfig.ThinkingLevel))
+	if name == "" {
+		return 0, nil
+	}
+	level, ok := webThinkingLevels[name]
+	if !ok {
+		return 0, failure(400, "invalid_thinking_level")
+	}
+	return level, nil
 }
 
 // nativeText runs one text turn directly against the web product and renders the
@@ -46,6 +99,10 @@ func (service *service) nativeText(ctx context.Context, record storageRecord, to
 	}
 	if strings.TrimSpace(prompt) == "" {
 		return nil, failure(400, "text_only_flash_request")
+	}
+	level, err := webThinkingLevel(payload)
+	if err != nil {
+		return nil, err
 	}
 	session := service.newSession(credential)
 	service.trackJar(record.TokenRef, session)
@@ -66,7 +123,7 @@ func (service *service) nativeText(ctx context.Context, record storageRecord, to
 	if err != nil {
 		return nil, err
 	}
-	text, err := session.generateText(ctx, prompt, account, model, attachments)
+	text, err := session.generateText(ctx, prompt, account, model, attachments, level)
 	if err != nil {
 		return nil, err
 	}
