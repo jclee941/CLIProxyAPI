@@ -80,28 +80,40 @@ func (leases *credentialLeases) getLocked(reference string) *credentialLease {
 // A generation holds its account for minutes, so a caller that arrives during
 // one is not wrong, it is early. Refusing it the instant the slot is taken is
 // what made six linked accounts answer "no account": every one of them was
-// working. These bound how long a turn waits for a slot, and they are variables
-// so a test does not have to sit through the wait. Credential acquisition is the
+// working. This bounds how long a turn waits for a slot, and it is a variable so
+// a test does not have to sit through the wait. Credential acquisition is the
 // one place this plugin is allowed to wait on a clock.
-var (
-	credentialWaitAttempts = 45
-	credentialWaitPoll     = 2 * time.Second
-)
+var credentialWait = 90 * time.Second
 
 // waitForSlot takes the exclusive guard, waiting for a turn already in flight to
-// end rather than reporting the account as unusable.
+// end rather than reporting the account as unusable. The turn waits as a pending
+// writer, which refuses new shared holds. On 2026-10-15 Flow borrowed one account
+// about three times a second with overlapping exchanges, and a turn that only
+// retried the guard every two seconds never found it free: every new room on the
+// one account that could afford it failed after 90 s with session_busy.
 func waitForSlot(ctx context.Context, lease *credentialLease) bool {
-	for attempt := 0; attempt < credentialWaitAttempts; attempt++ {
-		if lease.guard.TryLock() {
-			return true
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(credentialWaitPoll):
-		}
+	if lease.guard.TryLock() {
+		return true
 	}
-	return lease.guard.TryLock()
+	taken := make(chan struct{})
+	go func() {
+		lease.guard.Lock()
+		close(taken)
+	}()
+	timer := time.NewTimer(credentialWait)
+	defer timer.Stop()
+	select {
+	case <-taken:
+		return true
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+	// The pending Lock keeps its place in line; hand the guard back once it lands.
+	go func() {
+		<-taken
+		lease.guard.Unlock()
+	}()
+	return false
 }
 
 func (service *service) acquireCredential(reference string, exclusive bool) (*credentialLease, error) {

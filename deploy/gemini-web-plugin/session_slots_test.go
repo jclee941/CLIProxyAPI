@@ -146,6 +146,39 @@ func TestWaitForSlotStopsWhenTheCallerIsGone(t *testing.T) {
 	}
 }
 
+// Flow borrows an account through overlapping shared holds. A turn waiting for
+// that account must still get it: once the turn waits, no new shared hold gets
+// in, so the slot frees when the holds already taken end.
+func TestWaitForSlotHoldsOffAStreamOfSharedHolders(t *testing.T) {
+	lease := &credentialLease{}
+	lease.guard.RLock()
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		// Each exchange starts before the one ahead of it ends.
+		for lease.guard.TryRLock() {
+			lease.guard.RUnlock()
+		}
+		lease.guard.RUnlock()
+	}()
+	taken := make(chan bool, 1)
+	go func() { taken <- waitForSlot(context.Background(), lease) }()
+
+	select {
+	case ok := <-taken:
+		if !ok {
+			t.Fatal("a waiting turn gave up while shared holds kept arriving")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("overlapping shared holds kept a waiting turn off its account")
+	}
+	<-stopped
+	if lease.guard.TryRLock() {
+		t.Fatal("a shared hold got in while the turn held the slot")
+	}
+	lease.guard.Unlock()
+}
+
 func TestSchedulerQueuesAGenerationBehindABusyAccount_andSharesItForText(t *testing.T) {
 	service, local := continuationFixture(t)
 	busy, err := service.acquireCredential(local.Target.TokenRef, true)
