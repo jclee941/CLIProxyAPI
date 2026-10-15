@@ -309,7 +309,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 	}
 	// One observation per request: recovery never calls StreamGenerate and never
 	// polls or sleeps. The caller may issue another recover while still pending.
-	turns, err := session.readTurns(ctx, turn)
+	turns, err := session.rpc(ctx, webVideoTurnsRPC, []any{turn.Conversation, 32, nil, 1, []any{1}, []any{4}, nil, 1})
 	if err != nil {
 		return continuationResponse(turn.Model, continuationView{Token: view.Token, State: "pending", Error: safeCredentialCode(err)}, nil)
 	}

@@ -47,9 +47,10 @@ type omniOptions struct {
 	// VideoTool sends the video tool as an explicit tool mention, the way the web
 	// app's tool menu does when the user picks it. Off by default.
 	VideoTool bool
-	// TemporaryChat opens the chat as a temporary chat, the web app's
-	// isTemporaryChat in protocol field 46. Off by default; a continuation
-	// inherits its conversation's setting.
+	// TemporaryChat is the web app's isTemporaryChat, protocol field 46. A video
+	// turn cannot use it: ListConversationTurns and GetConversationTurn both
+	// answer web_rpc_denied for a temporary chat (2026-10-15), so its video is
+	// never seen and the account stays held for the whole video budget.
 	TemporaryChat bool
 }
 
@@ -137,6 +138,9 @@ func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {
 		case "temporaryChat":
 			if json.Unmarshal(value, &options.TemporaryChat) != nil {
 				return omniOptions{}, failure(400, "omni_invalid_temporary_chat")
+			}
+			if options.TemporaryChat {
+				return omniOptions{}, failure(400, "omni_temporary_chat_unobservable")
 			}
 		case "candidateCount":
 			var count int

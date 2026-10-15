@@ -17,6 +17,10 @@ func (service *service) prepareContinuation(execution continuationExecution) (in
 		if execution.turn.Model == webResearchModel {
 			return nil, failure(409, "continuation_model_mismatch")
 		}
+		// A turn in a temporary chat could never be read back, so the chat ends.
+		if execution.turn.TemporaryChat {
+			return nil, failure(409, "omni_temporary_chat_unobservable")
+		}
 		address, refused, err := refusedFirstTurnAddress(execution.turn)
 		if err != nil {
 			return nil, err
