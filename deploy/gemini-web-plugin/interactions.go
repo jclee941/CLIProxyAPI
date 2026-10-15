@@ -46,6 +46,10 @@ type interactionRequest struct {
 		// VideoTool is this gateway's extension: send the video tool as an explicit
 		// tool mention, as the web app does when the user picks it from its tool menu.
 		VideoTool bool `json:"video_tool,omitempty"`
+		// TemporaryChat is this gateway's extension: open the chat as a temporary
+		// chat, which the product keeps out of recent chats and personalization. A
+		// continuation inherits its conversation's setting.
+		TemporaryChat bool `json:"temporary_chat,omitempty"`
 	} `json:"generation_config,omitempty"`
 }
 
@@ -161,6 +165,9 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 	}
 	if request.GenerationConfig.VideoTool {
 		config["videoTool"] = true
+	}
+	if request.GenerationConfig.TemporaryChat {
+		config["temporaryChat"] = true
 	}
 	if len(config) != 0 {
 		content["generationConfig"] = config

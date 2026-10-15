@@ -254,3 +254,36 @@ func TestVideoToolMentionIsOptIn(t *testing.T) {
 		}
 	}
 }
+
+// A temporary chat is opt-in, and the web app sends the flag on every turn of
+// such a chat, so a continuation carries it without being asked again. An
+// ordinary conversation cannot become temporary halfway through.
+func TestTemporaryChatIsOptInAndCarriedByContinuations(t *testing.T) {
+	if videoRequestOptions(t, "").TemporaryChat || !videoRequestOptions(t, `{"temporary_chat":true}`).TemporaryChat {
+		t.Fatal("temporary_chat must default off and turn on only when named")
+	}
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{video: true}
+	continuationWeb(t, service, fixture)
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+
+	plain := interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`))
+	temporary := interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first","generation_config":{"temporary_chat":true}}`))
+	interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"next","previous_interaction_id":"`+temporary+`"}`))
+	refused := interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"next","previous_interaction_id":"`+plain+`","generation_config":{"temporary_chat":true}}`)
+
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.fields) != 3 {
+		t.Fatalf("submissions = %d, want 3: the refused continuation must not reach the product", len(fixture.fields))
+	}
+	for index, want := range []string{"null", "1", "1"} {
+		got, err := json.Marshal(fixture.fields[index][45])
+		if err != nil || string(got) != want {
+			t.Fatalf("submission %d: slot 45 = %s, want %s", index, got, want)
+		}
+	}
+	if refused.OK || refused.Error == nil || !strings.Contains(refused.Error.Message, "omni_temporary_chat_inherited") {
+		t.Fatalf("a continuation of an ordinary chat asking for a temporary one = %+v", refused)
+	}
+}

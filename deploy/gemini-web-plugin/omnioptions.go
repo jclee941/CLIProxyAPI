@@ -47,6 +47,10 @@ type omniOptions struct {
 	// VideoTool sends the video tool as an explicit tool mention, the way the web
 	// app's tool menu does when the user picks it. Off by default.
 	VideoTool bool
+	// TemporaryChat opens the chat as a temporary chat, the web app's
+	// isTemporaryChat in protocol field 46. Off by default; a continuation
+	// inherits its conversation's setting.
+	TemporaryChat bool
 }
 
 // webLanguageDefault is the interface language every request has always been
@@ -129,6 +133,10 @@ func parseOmniOptions(config map[string]json.RawMessage) (omniOptions, error) {
 		case "videoTool":
 			if json.Unmarshal(value, &options.VideoTool) != nil {
 				return omniOptions{}, failure(400, "omni_invalid_video_tool")
+			}
+		case "temporaryChat":
+			if json.Unmarshal(value, &options.TemporaryChat) != nil {
+				return omniOptions{}, failure(400, "omni_invalid_temporary_chat")
 			}
 		case "candidateCount":
 			var count int

@@ -63,6 +63,7 @@ func (service *service) prepareContinuation(execution continuationExecution) (in
 	next := continuationTurn{CallerScope: execution.request.Metadata.CallerScope, Model: execution.request.Model, State: "prepared", Parent: parent, Sequence: sequence + 1}
 	if parent != "" {
 		next.VideoWire = execution.turn.VideoWire
+		next.TemporaryChat = execution.turn.TemporaryChat
 	}
 	execution.turns[continuationKey(token)] = next
 	if execution.control.Token != "" {

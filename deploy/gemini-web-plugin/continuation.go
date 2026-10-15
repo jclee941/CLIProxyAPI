@@ -35,6 +35,9 @@ type continuationTurn struct {
 	Error        string        `json:"error,omitempty"`
 	ErrorMessage string        `json:"error_message,omitempty"`
 	VideoWire    videoWireMode `json:"video_wire,omitempty"`
+	// TemporaryChat marks a conversation opened as a temporary chat. The web app
+	// sends the flag on every turn of such a chat, so a continuation inherits it.
+	TemporaryChat bool `json:"temporary_chat,omitempty"`
 }
 type continuationResult struct {
 	Payload []byte

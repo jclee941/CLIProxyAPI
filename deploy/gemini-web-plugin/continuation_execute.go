@@ -101,6 +101,13 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		if err != nil {
 			return nil, err
 		}
+		// A chat is temporary or not from its first turn; a later turn cannot turn
+		// an ordinary conversation into one.
+		if turn.Parent == "" {
+			turn.TemporaryChat = options.TemporaryChat
+		} else if options.TemporaryChat && !turn.TemporaryChat {
+			return nil, failure(400, "omni_temporary_chat_inherited")
+		}
 		// Reference media is validated with the prompt but uploaded later, once
 		// the session that will carry the generation is the final one.
 		if _, media, err = webContentsToPrompt(normalized); err != nil {
@@ -182,6 +189,9 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			fields = turn.VideoWire.fields(fields)
 			if options.VideoTool {
 				fields = webMentionVideoTool(fields)
+			}
+			if turn.TemporaryChat {
+				fields[45] = 1
 			}
 		}
 		if turn.Parent != "" {
