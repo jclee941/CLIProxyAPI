@@ -222,7 +222,13 @@ func webParseVideoCandidate(candidate any) (webVideoState, error) {
 // the code is a matching key, and it is flattened and bounded because a reply is
 // written for a reader, not for a header.
 func webNoVideo(text string) error {
-	refusal := failure(422, "no_video_generated")
+	return webRefusal("no_video_generated", text)
+}
+
+// webRefusal is the failure for a turn answered without the media it asked for,
+// carrying what the product wrote instead.
+func webRefusal(code, text string) error {
+	refusal := failure(422, code)
 	answer := strings.Join(strings.Fields(text), " ")
 	if runes := []rune(answer); len(runes) > 400 {
 		answer = strings.TrimSpace(string(runes[:400])) + "..."
@@ -305,14 +311,21 @@ func (session *webSession) submitVideo(ctx context.Context, prompt string, accou
 }
 
 func (session *webSession) downloadVideo(ctx context.Context, url string) (int, []byte, error) {
+	status, _, body, err := session.download(ctx, url, "video_download_failed")
+	return status, body, err
+}
+
+// download fetches a generated file with the session's headers and reports its
+// status and content type; failureCode names the kind of file in a failure.
+func (session *webSession) download(ctx context.Context, url, failureCode string) (int, string, []byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return 0, nil, failure(400, "web_request_invalid")
+		return 0, "", nil, failure(400, "web_request_invalid")
 	}
 	request.Header = session.headers(time.Now())
 	response, err := session.client.Do(request)
 	if err != nil {
-		return 0, nil, failure(502, "video_download_failed")
+		return 0, "", nil, failure(502, failureCode)
 	}
 	defer func() {
 		if closeErr := response.Body.Close(); closeErr != nil {
@@ -321,9 +334,9 @@ func (session *webSession) downloadVideo(ctx context.Context, url string) (int, 
 	}()
 	body, err := io.ReadAll(io.LimitReader(response.Body, 512*1024*1024))
 	if err != nil {
-		return response.StatusCode, nil, failure(502, "video_download_failed")
+		return response.StatusCode, "", nil, failure(502, failureCode)
 	}
-	return response.StatusCode, body, nil
+	return response.StatusCode, response.Header.Get("Content-Type"), body, nil
 }
 
 // generateVideo submits the prompt and then re-reads the conversation until the

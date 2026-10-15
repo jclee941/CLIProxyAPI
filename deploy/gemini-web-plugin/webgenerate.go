@@ -87,24 +87,30 @@ func webCapacity(flags []int) int {
 // generateText runs one turn against the selected capability and returns the
 // reply text.
 func (session *webSession) generateText(ctx context.Context, prompt string, account webAccount, model capability, attachments []webAttachment) (string, error) {
-	if session.xsrf == "" {
-		if err := session.bootstrap(ctx); err != nil {
-			return "", err
-		}
-	}
-	conversationID, err := webConversationID()
-	if err != nil {
-		return "", err
-	}
-	fields, err := json.Marshal(webGenerationFields(prompt, model.Mode, webThinkingDefault, conversationID, attachments))
-	if err != nil {
-		return "", failure(400, "web_request_invalid")
-	}
-	raw, err := session.postGeneration(ctx, string(fields), account, model, webLanguageDefault, conversationID)
+	raw, err := session.sendTurn(ctx, prompt, account, model, attachments)
 	if err != nil {
 		return "", err
 	}
 	return webReplyText(raw)
+}
+
+// sendTurn submits one turn that opens a conversation and returns the reply
+// stream as it arrived.
+func (session *webSession) sendTurn(ctx context.Context, prompt string, account webAccount, model capability, attachments []webAttachment) ([]byte, error) {
+	if session.xsrf == "" {
+		if err := session.bootstrap(ctx); err != nil {
+			return nil, err
+		}
+	}
+	conversationID, err := webConversationID()
+	if err != nil {
+		return nil, err
+	}
+	fields, err := json.Marshal(webGenerationFields(prompt, model.Mode, webThinkingDefault, conversationID, attachments))
+	if err != nil {
+		return nil, failure(400, "web_request_invalid")
+	}
+	return session.postGeneration(ctx, string(fields), account, model, webLanguageDefault, conversationID)
 }
 
 // postGeneration sends one generation turn. Text and video differ only in the

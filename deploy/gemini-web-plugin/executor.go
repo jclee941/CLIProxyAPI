@@ -29,7 +29,8 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	if request.Format != "gemini" || request.Alt != "" {
 		return nil, failure(400, "unsupported_execution_format")
 	}
-	if request.Model != flashModel && request.Model != omniModel {
+	image, isImage := webImageModelFor(request.Model)
+	if request.Model != flashModel && request.Model != omniModel && !isImage {
 		return nil, failure(400, "unsupported_model")
 	}
 	stream := request.Stream || method == "executor.execute_stream"
@@ -111,6 +112,13 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 			}
 			lease.set(credentialState{state: maintenanceReady})
 		}
+	}
+	if isImage {
+		body, errNative := service.nativeImage(ctx, record, token, image, request.Payload)
+		if errNative != nil {
+			return nil, executionFailure(request.Model, errNative)
+		}
+		return webExecutionResult(body, stream), nil
 	}
 	if request.Model == flashModel {
 		body, errNative := service.nativeText(ctx, record, token, request.Model, request.Payload)
