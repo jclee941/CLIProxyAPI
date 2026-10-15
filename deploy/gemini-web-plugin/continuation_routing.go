@@ -191,6 +191,9 @@ func (service *service) pickContinuation(raw []byte) (picked continuationPick, e
 		owner := local.Target.ID
 		for _, candidate := range request.Candidates {
 			if candidate.ID == owner && candidate.Provider == provider && (retrieval || service.ownerServes(local)) {
+				if !retrieval && (request.Model == omniModel || request.Model == interactionOmniModel) {
+					service.reserveSlot(owner)
+				}
 				return continuationPick{AuthID: owner, Handled: true}, nil
 			}
 		}

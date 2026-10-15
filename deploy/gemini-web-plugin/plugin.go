@@ -85,6 +85,10 @@ type service struct {
 	quota              quotaCache
 	videoDiagMu        sync.Mutex
 	videoDiags         map[string]*videoTurnDiag
+	// slotReservations keep the next video pick off an account until a room just
+	// picked onto it has submitted; see reserveSlot.
+	slotReservationsMu sync.Mutex
+	slotReservations   map[string]time.Time
 }
 
 func newService(host hostCall) *service {

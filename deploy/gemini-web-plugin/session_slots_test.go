@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 )
@@ -116,6 +117,36 @@ func TestSchedulerPrefersAnIdleAccountOverABusyOne(t *testing.T) {
 
 	if !pick.Handled || pick.AuthID != other.ID {
 		t.Fatalf("scheduler queued behind an in-flight generation: %+v", pick)
+	}
+}
+
+// A video room picked onto an account keeps the next video pick elsewhere until
+// it submits: in between the account still reads ready and idle, and a second
+// room there fails once the first one submits. The reservation only orders the
+// candidates, so an account with nothing else to pick is still used.
+func TestSchedulerReservesAPickedVideoRoom(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("second")})
+	ids := []string{local.Target.ID, other.ID}
+	slices.Sort(ids)
+	landOnLocal := func() { slotCursor.Store(uint64(slices.Index(ids, local.Target.ID))) }
+
+	if first := service.pickServableAccount(omniModel, slotCandidates(local.Target.ID)); first.AuthID != local.Target.ID {
+		t.Fatalf("first room = %+v", first)
+	}
+	landOnLocal()
+	if second := service.pickServableAccount(omniModel, slotCandidates(ids...)); !second.Handled || second.AuthID != other.ID {
+		t.Fatalf("a second room went to the account still opening the first: %+v", second)
+	}
+	if alone := service.pickServableAccount(omniModel, slotCandidates(local.Target.ID)); !alone.Handled || alone.AuthID != local.Target.ID {
+		t.Fatalf("a reservation refused the only account: %+v", alone)
+	}
+	later := time.Now().Add(slotReservation)
+	service.now = func() time.Time { return later }
+	landOnLocal()
+	if released := service.pickServableAccount(omniModel, slotCandidates(ids...)); released.AuthID != local.Target.ID {
+		t.Fatalf("an expired reservation still kept the account out: %+v", released)
 	}
 }
 

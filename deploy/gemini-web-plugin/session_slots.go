@@ -3,6 +3,7 @@ package main
 import (
 	"slices"
 	"sync/atomic"
+	"time"
 )
 
 var slotCursor atomic.Uint64
@@ -41,21 +42,28 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 		}
 		eligible = append(eligible, candidate.ID)
 	}
+	video := model == omniModel || model == interactionOmniModel
 	// A video room stays on the account that opens it, so it only opens where the
 	// whole room is paid for; with no such account there is no room to open.
-	if model == omniModel || model == interactionOmniModel {
+	if video {
 		eligible = slices.DeleteFunc(eligible, func(id string) bool { return !service.affordsARoom(id) })
 	}
-	var idle, busy []string
+	var idle, busy, reserved []string
 	for _, id := range eligible {
-		if !service.slotIsIdle(servable[id]) {
+		switch {
+		case video && service.slotReserved(id):
+			reserved = append(reserved, id)
+		case !service.slotIsIdle(servable[id]):
 			busy = append(busy, id)
-			continue
+		default:
+			idle = append(idle, id)
 		}
-		idle = append(idle, id)
 	}
 	if len(idle) == 0 {
 		idle = busy
+	}
+	if len(idle) == 0 {
+		idle = reserved
 	}
 	if len(idle) == 0 {
 		return continuationPick{}
@@ -64,7 +72,34 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 	// rotation, and host candidate ordering must not change the cycle.
 	slices.Sort(idle)
 	index := (slotCursor.Add(1) - 1) % uint64(len(idle))
+	if video {
+		service.reserveSlot(idle[index])
+	}
 	return continuationPick{AuthID: idle[index], Handled: true}
+}
+
+// slotReservation covers a video room from its pick until its turn records the
+// submission. In between the account still reads ready and idle, and on
+// 2026-10-15 a second room picked onto it three seconds later failed with
+// session_requires_reconciliation once the first one submitted.
+const slotReservation = time.Minute
+
+// reserveSlot keeps the next video pick off the account. Like the idle
+// preference it only orders the candidates: an account with nothing else to
+// pick is still used.
+func (service *service) reserveSlot(id string) {
+	service.slotReservationsMu.Lock()
+	defer service.slotReservationsMu.Unlock()
+	if service.slotReservations == nil {
+		service.slotReservations = make(map[string]time.Time)
+	}
+	service.slotReservations[id] = service.now().Add(slotReservation)
+}
+
+func (service *service) slotReserved(id string) bool {
+	service.slotReservationsMu.Lock()
+	defer service.slotReservationsMu.Unlock()
+	return service.now().Before(service.slotReservations[id])
 }
 
 // slotIsIdle reports whether no generation holds or awaits the account's guard.
