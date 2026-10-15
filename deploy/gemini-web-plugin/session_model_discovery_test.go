@@ -64,7 +64,7 @@ func TestLocalModelsUseCommittedRevision_whenHostSaveMarkerClosedBeforeWriterRel
 				if err := json.Unmarshal(result.Result, &models); err != nil {
 					return err
 				}
-				if len(models.Models) != 5 || models.Models[0].ID != interactionOmniModel || models.Models[1].ID != "gemini-app-3.8-flash" || models.Models[2].ID != "gemini-nano-banana-2" || models.Models[3].ID != webMusicModel || models.Models[4].ID != webResearchModel {
+				if len(models.Models) != 6 || models.Models[0].ID != interactionOmniModel || models.Models[1].ID != "gemini-app-3.8-flash" || models.Models[2].ID != "gemini-nano-banana-2" || models.Models[3].ID != "gemini-nano-banana-2-image" || models.Models[4].ID != webMusicModel || models.Models[5].ID != webResearchModel {
 					t.Error("discovery did not return fresh supported models")
 				}
 				return nil

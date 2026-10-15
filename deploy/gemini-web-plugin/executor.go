@@ -14,6 +14,13 @@ func (service *service) execute(ctx context.Context, method string, raw []byte) 
 	if json.Unmarshal(raw, &request) != nil {
 		return nil, failure(400, "invalid_execution_request")
 	}
+	if request.Format == webImagesFormat {
+		return service.executeImagesRoute(ctx, method, request)
+	}
+	return service.executeRequest(ctx, method, request)
+}
+
+func (service *service) executeRequest(ctx context.Context, method string, request executorRequest) (interface{}, error) {
 	if method == "executor.count_tokens" {
 		return nil, failure(400, "count_tokens_not_supported")
 	}

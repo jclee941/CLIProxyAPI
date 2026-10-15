@@ -99,7 +99,7 @@ func TestRegistrationLoadsProductionShapedConfiguration_withAndWithoutNativeGene
 				t.Fatalf("configuration not applied: %+v", settings)
 			}
 			registration := string(result.Result)
-			if !strings.Contains(registration, `"scheduler":true`) || !strings.Contains(registration, `["gemini","interactions"]`) {
+			if !strings.Contains(registration, `"scheduler":true`) || !strings.Contains(registration, `["gemini","openai-image","interactions"]`) {
 				t.Fatalf("native continuation capabilities missing: %s", registration)
 			}
 			registrations[name] = registration
