@@ -53,6 +53,11 @@ func webTextModelInfos(account accountModels) []modelInfo {
 		if !ok || seen[id] {
 			continue
 		}
+		// 3.1 Pro answered every text turn on every account with a generic error
+		// or a stream that never came (2026-10-15); the operator runs on Argon.
+		if fields := strings.Fields(entry.DisplayName); len(fields) > 1 && strings.Join(fields[1:], " ") == "Pro" {
+			continue
+		}
 		seen[id] = true
 		models = append(models, modelInfo{ID: id, Object: "model", OwnedBy: provider, Type: provider, Name: id, DisplayName: "Gemini App " + entry.DisplayName, Description: "Text turns through the Gemini web app in its " + entry.DisplayName + " mode", SupportedGenerationMethods: []string{"generateContent", "streamGenerateContent"}, SupportedInputModalities: []string{"text", "image"}, SupportedOutputModalities: []string{"text"}, Thinking: &thinkingSupport{Levels: webTextThinkingLevels}})
 	}

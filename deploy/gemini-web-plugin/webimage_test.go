@@ -191,7 +191,7 @@ func TestImageModelsAreNotPublished(t *testing.T) {
 		return ids
 	}
 	full := accountModels{Available: true, Models: []capability{{DisplayName: "3.5 Flash-Lite"}, {DisplayName: "3.8 Flash"}, {DisplayName: "3.1 Pro"}}}
-	if published := ids(service.interactionModels(full)); !slices.Equal(published, []string{interactionOmniModel, "gemini-app-3.5-flash-lite", "gemini-app-3.8-flash", "gemini-app-3.1-pro", webMusicModel, webResearchModel}) {
+	if published := ids(service.interactionModels(full)); !slices.Equal(published, []string{interactionOmniModel, "gemini-app-3.5-flash-lite", "gemini-app-3.8-flash", webMusicModel}) {
 		t.Fatalf("published = %v", published)
 	}
 	if images := ids(webImageModelInfos(full)); !slices.Equal(images, []string{"gemini-nano-banana-2", "gemini-nano-banana-pro"}) {

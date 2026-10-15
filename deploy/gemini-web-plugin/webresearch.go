@@ -29,8 +29,12 @@ const webResearchStart = "Start research"
 // most an hour, so a report that has not arrived well after that will not.
 const webResearchLimit = 90 * time.Minute
 
+// webResearchFamily is the account mode research runs in. In Flash the opening
+// turn came back without a plan on 2026-10-15, and the operator runs on Argon.
+const webResearchFamily = "Argon"
+
 func webResearchModelInfos(account accountModels) []modelInfo {
-	if _, ok := webFamilyCapability(account.Models, "Flash"); !ok {
+	if _, ok := webFamilyCapability(account.Models, webResearchFamily); !ok {
 		return nil
 	}
 	return []modelInfo{{ID: webResearchModel, Object: "model", OwnedBy: provider, Type: provider, Name: webResearchModel, DisplayName: "Deep Research (Gemini)", Description: "The Gemini web app's Deep Research agent on the Interactions surface: background runs, collaborative planning and follow-up questions", SupportedGenerationMethods: []string{"interactions"}, SupportedInputModalities: []string{"text", "image", "document"}, SupportedOutputModalities: []string{"text"}}}
@@ -521,7 +525,7 @@ func (service *service) executeResearch(ctx context.Context, request executorReq
 		return nil, err
 	}
 	var ok bool
-	if run.model, ok = webFamilyCapability(run.account.Capabilities, "Flash"); !ok {
+	if run.model, ok = webFamilyCapability(run.account.Capabilities, webResearchFamily); !ok {
 		return nil, failure(404, "account_model_unavailable")
 	}
 	collaborative := body.AgentConfig.CollaborativePlanning

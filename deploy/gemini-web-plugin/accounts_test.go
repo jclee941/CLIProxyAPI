@@ -94,7 +94,7 @@ func TestAccountsListIsolatesSessions_andReportsExpiredTruthfully(t *testing.T) 
 	if response.StatusCode != 200 || len(body.Accounts) != 2 || body.Provider != provider {
 		t.Fatalf("invalid account response: %s", response.Body)
 	}
-	if body.Accounts[0].Status != "ready" || len(body.Accounts[0].Models) != 4 || body.Accounts[0].Models[0].ID != interactionOmniModel || body.Accounts[0].Models[1].ID != "gemini-app-3.8-flash" || body.Accounts[0].Models[2].ID != webMusicModel || body.Accounts[0].Models[3].ID != webResearchModel || body.Accounts[0].Usage == nil || *body.Accounts[0].Usage.Metrics[0].RemainingUnits != 12 {
+	if body.Accounts[0].Status != "ready" || len(body.Accounts[0].Models) != 3 || body.Accounts[0].Models[0].ID != interactionOmniModel || body.Accounts[0].Models[1].ID != "gemini-app-3.8-flash" || body.Accounts[0].Models[2].ID != webMusicModel || body.Accounts[0].Usage == nil || *body.Accounts[0].Usage.Metrics[0].RemainingUnits != 12 {
 		t.Fatalf("lost measured health: %s", response.Body)
 	}
 	if body.Accounts[1].Status != "expired" || body.Accounts[1].Usage != nil || len(body.Accounts[1].Models) != 0 {

@@ -66,7 +66,7 @@ func researchWeb(t *testing.T, service *service, fixture *researchWebFixture) {
 		case strings.HasSuffix(request.URL.Path, "/batchexecute"):
 			switch request.URL.Query().Get("rpcids") {
 			case accountCapabilityRPC:
-				writeFixture(t, writer, rpcEnvelope(t, accountCapabilityRPC, slots(17, map[int]any{14: 1000, 15: []any{slots(18, map[int]any{0: "cap-flash", 11: "3.8 Flash", 17: 1})}})))
+				writeFixture(t, writer, rpcEnvelope(t, accountCapabilityRPC, slots(17, map[int]any{14: 1000, 15: []any{slots(18, map[int]any{0: "cap-flash", 11: "3.8 Flash", 17: 1}), slots(18, map[int]any{0: "cap-argon", 11: "4 Argon", 17: 8})}})))
 			case webVideoTurnsRPC:
 				fixture.reads++
 				body := ""
@@ -164,6 +164,26 @@ func (fixture *researchWebFixture) sent() [][]any {
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
 	return slices.Clone(fixture.turns)
+}
+
+// Research runs in the account's Argon mode, so only an account with it
+// publishes the model, and every research turn names that mode.
+func TestResearchRunsInTheArgonMode(t *testing.T) {
+	if models := webResearchModelInfos(accountModels{Models: []capability{{DisplayName: "3.8 Flash"}}}); len(models) != 0 {
+		t.Fatalf("published without Argon: %+v", models)
+	}
+	if models := webResearchModelInfos(accountModels{Models: []capability{{DisplayName: "3.8 Flash"}, {DisplayName: "4 Argon"}}}); len(models) != 1 || models[0].ID != webResearchModel {
+		t.Fatalf("published with Argon: %+v", models)
+	}
+	service, local := continuationFixture(t)
+	fixture := &researchWebFixture{}
+	researchWeb(t, service, fixture)
+	researchResponse(t, researchCall(t, service, local, `{"model":"gemini-deep-research","input":"How is battery recycling changing?","background":true}`))
+	for _, fields := range fixture.sent() {
+		if jsonField(fields, 79) != float64(8) {
+			t.Fatalf("research turn mode = %v, want Argon's 8", jsonField(fields, 79))
+		}
+	}
 }
 
 func TestResearchStartsItsPlanAndAnswersWithTheReport(t *testing.T) {
