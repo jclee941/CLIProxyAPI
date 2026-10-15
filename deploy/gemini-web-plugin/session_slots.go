@@ -67,14 +67,18 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 	return continuationPick{AuthID: idle[index], Handled: true}
 }
 
-// slotIsIdle probes the exclusive guard a generation takes. It is a scheduling
-// hint, not a reservation: the executor still acquires the lease itself.
+// slotIsIdle reports whether no generation holds or awaits the account's guard.
+// It is a scheduling hint, not a reservation: the executor still acquires the
+// lease itself. Shared holds leave the account idle: Flow borrows an account
+// through them many times a minute, and since a waiting turn holds off new ones,
+// a turn sent there takes the slot once the exchanges in flight end. Counting
+// them busy kept the least used account out of every pick on 2026-10-15.
 func (service *service) slotIsIdle(reference string) bool {
 	lease := service.leases.get(reference)
-	if !lease.guard.TryLock() {
+	if !lease.guard.TryRLock() {
 		return false
 	}
-	lease.guard.Unlock()
+	lease.guard.RUnlock()
 	return true
 }
 

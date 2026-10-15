@@ -119,6 +119,33 @@ func TestSchedulerPrefersAnIdleAccountOverABusyOne(t *testing.T) {
 	}
 }
 
+// Flow borrows an account through shared holds, and a turn sent there takes the
+// slot once the exchanges in flight end, so a borrowed account stays in the
+// rotation instead of losing every pick to idle ones.
+func TestSchedulerKeepsASharedHeldAccountInTheRotation(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("second")})
+	borrowed, err := service.acquireCredential(local.Target.TokenRef, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer borrowed.guard.RUnlock()
+	if _, err := service.accountLease(local.Target); err != nil {
+		t.Fatal(err)
+	}
+	candidates := slotCandidates(local.Target.ID, other.ID)
+
+	picked := map[string]bool{}
+	for range 2 {
+		picked[service.pickServableAccount(omniModel, candidates).AuthID] = true
+	}
+
+	if !picked[local.Target.ID] || !picked[other.ID] {
+		t.Fatalf("a borrowed account fell out of the rotation: %v", picked)
+	}
+}
+
 // A turn waits for a slot rather than being told the account cannot serve it.
 func TestWaitForSlotTakesTheGuardOnceTheTurnAheadEnds(t *testing.T) {
 	lease := &credentialLease{}
