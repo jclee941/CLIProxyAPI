@@ -93,6 +93,13 @@ not false success. Request-level all-provider usage is unchanged and remains in
 the existing summary above the plugin measurements. Detailed login/registration
 remains accessible through the checked **Open GeminiWeb plugin panel** action.
 
+Antigravity quota reads every quota summary host and merges their groups,
+because the hosts list different groups: the daily host lists only Claude and
+GPT, while the production host also lists Gemini. The model inventory is read
+only when no summary host lists a group. xAI unified billing answers in proto3
+JSON, which omits a zero `creditUsagePercent`, so a weekly unified period
+without one shows 0%; other weekly payloads without the field stay Unknown.
+
 ## Isolated Browser QA
 
 Use a locally installed Playwright/Playwright Core ES module and Chromium.

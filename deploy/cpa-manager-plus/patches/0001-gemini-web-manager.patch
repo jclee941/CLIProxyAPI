@@ -2411,3 +2411,281 @@ index 0000000..c6b2cbc
 +    ...(value.error !== undefined ? { error: value.error } : {}),
 +  };
 +}
+diff --git a/apps/web/src/types/quota.ts b/apps/web/src/types/quota.ts
+index 0f717ed90390ef142c2f05663acab5c883183f55..e29f31ddd459e1218180aefb2408a853b4bdcffe 100644
+--- a/apps/web/src/types/quota.ts
++++ b/apps/web/src/types/quota.ts
+@@ -524,10 +524,12 @@ export interface XaiBillingUsage {
+ export interface XaiBillingConfig {
+   currentPeriod?: XaiBillingPeriod | null;
+   current_period?: XaiBillingPeriod | null;
+   creditUsagePercent?: number | string | null;
+   credit_usage_percent?: number | string | null;
++  isUnifiedBillingUser?: boolean | null;
++  is_unified_billing_user?: boolean | null;
+   productUsage?: XaiProductUsage[] | null;
+   product_usage?: XaiProductUsage[] | null;
+   monthlyLimit?: XaiBillingCent | number | string | null;
+   monthly_limit?: XaiBillingCent | number | string | null;
+   used?: XaiBillingCent | number | string | null;
+diff --git a/apps/web/src/utils/quota/providerRequests.test.ts b/apps/web/src/utils/quota/providerRequests.test.ts
+index 27eb62ecbcf4f238538635418d0b9bb4c1424fd4..b37ecf486ee0d09f7665416b99df8a8e0fa04b4b 100644
+--- a/apps/web/src/utils/quota/providerRequests.test.ts
++++ b/apps/web/src/utils/quota/providerRequests.test.ts
+@@ -1991,10 +1991,27 @@ describe('buildXaiBillingSummary', () => {
+         creditUsagePercent: 0,
+       })
+     ).toMatchObject({ periodType: 'weekly', usagePercent: 0 });
+   });
+ 
++  it('reads an omitted unified weekly usage as zero', () => {
++    expect(
++      buildXaiBillingSummary({
++        currentPeriod: {
++          type: 'USAGE_PERIOD_TYPE_WEEKLY',
++          start: '2026-10-16T04:14:08.685976+00:00',
++          end: '2026-10-23T04:14:08.685976+00:00',
++        },
++        onDemandCap: { val: 0 },
++        onDemandUsed: { val: 0 },
++        isUnifiedBillingUser: true,
++        billingPeriodStart: '2026-10-16T04:14:08.685976+00:00',
++        billingPeriodEnd: '2026-10-23T04:14:08.685976+00:00',
++      })
++    ).toMatchObject({ periodType: 'weekly', usagePercent: 0 });
++  });
++
+   it('treats nested protobuf zero placeholders as absent billing evidence', () => {
+     const summary = buildXaiBillingSummary({
+       currentPeriod: {
+         type: 'weekly',
+         start: '2026-08-13T00:00:00Z',
+@@ -3255,32 +3272,40 @@ describe('fetchAntigravityQuota', () => {
+     mocks.getSubscription.mockResolvedValue({
+       plan: 'pro',
+       tierName: 'Antigravity Pro',
+       tierId: 'g1-pro-tier',
+     });
+-    mocks.request.mockResolvedValueOnce({
+-      statusCode: 200,
+-      hasStatusCode: true,
+-      header: {},
+-      bodyText: '',
+-      body: {
+-        groups: [
+-          {
+-            displayName: 'Gemini models',
+-            buckets: [
+-              {
+-                bucketId: 'gemini-weekly',
+-                displayName: 'Weekly limit',
+-                window: 'weekly',
+-                remainingFraction: 0.7,
+-                resetTime: '2026-07-02T00:00:00Z',
+-              },
+-            ],
+-          },
+-        ],
+-      },
+-    });
++    mocks.request
++      .mockResolvedValueOnce({
++        statusCode: 200,
++        hasStatusCode: true,
++        header: {},
++        bodyText: '',
++        body: {
++          groups: [
++            {
++              displayName: 'Gemini models',
++              buckets: [
++                {
++                  bucketId: 'gemini-weekly',
++                  displayName: 'Weekly limit',
++                  window: 'weekly',
++                  remainingFraction: 0.7,
++                  resetTime: '2026-07-02T00:00:00Z',
++                },
++              ],
++            },
++          ],
++        },
++      })
++      .mockResolvedValue({
++        statusCode: 404,
++        hasStatusCode: true,
++        header: {},
++        bodyText: 'not found',
++        body: null,
++      });
+ 
+     const result = await fetchAntigravityQuota(
+       {
+         name: 'antigravity.json',
+         type: 'antigravity',
+@@ -3288,11 +3313,11 @@ describe('fetchAntigravityQuota', () => {
+         project_id: 'project-1',
+       },
+       t
+     );
+ 
+-    expect(mocks.request).toHaveBeenCalledTimes(1);
++    expect(mocks.request).toHaveBeenCalledTimes(ANTIGRAVITY_QUOTA_SUMMARY_URLS.length);
+     expect(mocks.request.mock.calls[0][0]).toMatchObject({
+       url: ANTIGRAVITY_QUOTA_SUMMARY_URLS[0],
+     });
+     expect(mocks.getSubscription).toHaveBeenCalledWith('ag-1', undefined);
+     expect(result.subscription).toEqual({
+@@ -3310,10 +3335,68 @@ describe('fetchAntigravityQuota', () => {
+       ],
+     });
+     expect(result.quotaInventoryObserved).toBe(true);
+   });
+ 
++  it('merges the groups that each summary host lists', async () => {
++    const claudeGroup = {
++      displayName: 'Claude and GPT models',
++      buckets: [
++        {
++          bucketId: '3p-weekly',
++          displayName: 'Weekly Limit Remaining',
++          window: 'weekly',
++          resetTime: '2026-10-19T06:01:31Z',
++          remainingFraction: 0,
++        },
++      ],
++    };
++    const geminiGroup = {
++      displayName: 'Gemini Models',
++      buckets: [
++        {
++          bucketId: 'gemini-weekly',
++          displayName: 'Weekly Limit Remaining',
++          window: 'weekly',
++          resetTime: '2026-10-21T02:23:26Z',
++          remainingFraction: 0.66,
++        },
++      ],
++    };
++    const summary = (groups: unknown[]) => ({
++      statusCode: 200,
++      hasStatusCode: true,
++      header: {},
++      bodyText: '',
++      body: { groups },
++    });
++    mocks.request
++      .mockResolvedValueOnce(summary([claudeGroup]))
++      .mockResolvedValueOnce(summary([claudeGroup]))
++      .mockResolvedValueOnce(summary([geminiGroup, claudeGroup]));
++
++    const result = await fetchAntigravityQuota(
++      {
++        name: 'antigravity.json',
++        type: 'antigravity',
++        authIndex: 'ag-1',
++        project_id: 'project-1',
++      },
++      t
++    );
++
++    expect(mocks.request.mock.calls.map((call) => call[0].url)).toEqual(
++      ANTIGRAVITY_QUOTA_SUMMARY_URLS
++    );
++    expect(result.groups.map((group) => group.label)).toEqual([
++      'Claude and GPT models',
++      'Gemini Models',
++    ]);
++    expect(result.groups[1]?.buckets[0]).toMatchObject({ remainingFraction: 0.66 });
++    expect(result.quotaInventoryObserved).toBe(true);
++  });
++
+   it('keeps Antigravity quota and subscription requests on the captured CPA scope', async () => {
+     mocks.getSubscription.mockResolvedValue(null);
+     mocks.request.mockResolvedValueOnce({
+       statusCode: 200,
+       hasStatusCode: true,
+diff --git a/apps/web/src/utils/quota/providerRequests.ts b/apps/web/src/utils/quota/providerRequests.ts
+index ad4f99bfd250b51f11af2d5aa3e97eb57560bd19..31736b9f7b282a7d1a14f1720e473c31706cef46 100644
+--- a/apps/web/src/utils/quota/providerRequests.ts
++++ b/apps/web/src/utils/quota/providerRequests.ts
+@@ -271,12 +271,18 @@ export const fetchAntigravityQuota = async (
+   let lastError = '';
+   let lastStatus: number | undefined;
+   let priorityStatus: number | undefined;
+   let hadSuccess = false;
+   let quotaInventoryObserved = false;
++  // Summary hosts list different groups (the daily host omits Gemini), so
++  // every summary host is read and their groups are merged.
++  const summaryGroups: AntigravityQuotaGroup[] = [];
++  let summaryServerTimeOffsetMs: number | null = null;
+ 
+   for (const url of [...ANTIGRAVITY_QUOTA_SUMMARY_URLS, ...ANTIGRAVITY_AVAILABLE_MODELS_URLS]) {
++    const isSummaryUrl = ANTIGRAVITY_QUOTA_SUMMARY_URLS.includes(url);
++    if (!isSummaryUrl && summaryGroups.length > 0) break;
+     try {
+       const result = await apiCallApi.request(
+         {
+           authIndex,
+           method: 'POST',
+@@ -310,10 +316,20 @@ export const fetchAntigravityQuota = async (
+         quotaInventoryObserved ||= hasExplicitEmptyAntigravityInventory(payload);
+         lastError = t('antigravity_quota.empty_models');
+         continue;
+       }
+ 
++      if (isSummaryUrl) {
++        if (summaryGroups.length === 0) {
++          summaryServerTimeOffsetMs = resolveResponseServerTimeOffsetMs(result.header);
++        }
++        summaryGroups.push(
++          ...groups.filter((group) => !summaryGroups.some((known) => known.id === group.id))
++        );
++        continue;
++      }
++
+       return {
+         groups,
+         quotaInventoryObserved: true,
+         subscription: await subscriptionPromise,
+         serverTimeOffsetMs: resolveResponseServerTimeOffsetMs(result.header),
+@@ -328,10 +344,19 @@ export const fetchAntigravityQuota = async (
+         }
+       }
+     }
+   }
+ 
++  if (summaryGroups.length > 0) {
++    return {
++      groups: summaryGroups,
++      quotaInventoryObserved: true,
++      subscription: await subscriptionPromise,
++      serverTimeOffsetMs: summaryServerTimeOffsetMs,
++    };
++  }
++
+   if (hadSuccess) {
+     return {
+       groups: [],
+       quotaInventoryObserved,
+       subscription: await subscriptionPromise,
+@@ -1189,11 +1214,18 @@ export const buildXaiBillingSummary = (
+   const rawCreditUsagePercent = normalizeNumberValue(
+     config.creditUsagePercent ?? config.credit_usage_percent
+   );
+   const periodStart = normalizeXaiPeriodTimestamp(currentPeriod?.start);
+   const periodEnd = normalizeXaiPeriodTimestamp(currentPeriod?.end);
+-  const creditUsagePercent = rawCreditUsagePercent;
++  // Unified billing answers in proto3 JSON, which drops a zero percentage, so a
++  // weekly unified period without one has used 0% of its credits.
++  const creditUsagePercent =
++    rawCreditUsagePercent ??
++    (periodType === 'weekly' &&
++    (config.isUnifiedBillingUser ?? config.is_unified_billing_user) === true
++      ? 0
++      : null);
+   const billingCycle = config.billingCycle ?? config.billing_cycle ?? null;
+   const nestedUsage = config.usage ?? null;
+   const productUsage = normalizeXaiProductUsage(
+     config.productUsage ?? config.product_usage,
+     'Product'
