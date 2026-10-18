@@ -18,7 +18,7 @@ Google Flow generation and resource APIs over Gemini-owned sessions; score 13 fo
 | Uploads and media | `flow_upload_image.go`, `flow_upload_video.go`, `flow_media_api.go` | Scoped resumable transfers and references |
 | Protocol output | `flow_response_formats.go`, `flow_response_chat.go`, `flow_response_claude.go`, `flow_response_responses.go` | Plain and streaming responses |
 | Status and dashboard | `flow_status.go`, `flow_resource.go`, `DESIGN.md` | Account credits, lease state, bundled resource |
-| Host quota provider | `flow_quota.go` | Credit balance as a summary metric for management quota lookups |
+| Host quota provider | `flow_quota.go` | Monthly credit window, busy-lease answers from the latest reading |
 | Wire fixtures and ABI smoke | `testdata/flow_models.json`, `smoke/load.c` | Captured catalog shapes and real loader checks |
 
 ## CONVENTIONS
@@ -27,7 +27,7 @@ Google Flow generation and resource APIs over Gemini-owned sessions; score 13 fo
 - `make build` emits `flow2api.so` with `CGO_ENABLED=1` and `-buildmode=c-shared`.
 - Keep `flow2api.so.sha256` and `build-manifest.json` paired with the built artifact.
 - Gemini owns credentials and rotation; Flow receives broker response bodies and scoped headers, never its cookie jar.
-- A refused credential lease can be awaited before submission; `withoutLeaseWait` makes account listings return busy promptly.
+- A refused credential lease can be awaited before submission; `withoutLeaseWait` lets account listings and quota lookups answer at once from the latest reading (`flowReadings`, also fed by generation balance reads and used for the credit floor); only a lookup with no reading waits up to `flowQuotaLeaseWait`.
 - Rejected captcha tokens can be replaced because no generation started; a lost response is an unknown outcome.
 - Low-priority refusal may fall back to paid normal priority only with at least the code's 5000-credit floor.
 - `web/index.html` is generated from `../gemini-web-plugin/web/src/flow/`; follow that web directory's guide.

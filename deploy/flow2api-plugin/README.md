@@ -453,20 +453,29 @@ Flow models, and one entry per configured account:
 | `project` | Current project ID, when one is known. |
 | `error` | Named error for a non-`ready` account. |
 
-Each call reads Flow live. There is no refresh route.
+Each call reads Flow live; there is no refresh route. While Gemini holds the
+account (for example during a video generation), the entry reports `busy` with
+the latest balance read and its `observed_at`.
 
 Each Flow credential also answers the core quota lookup,
 `POST /v0/management/quota/fetch` with `{"auth_index": "<credential auth index>"}`
 (or `GET /v0/management/plugins/flow2api/quota?auth_index=...`), which the
-Manager's Refresh quota action uses. The balance comes back as a summary metric,
-because Flow reports no allowance or reset time for it:
+Manager's quota display uses. On Google AI Pro and Google AI Ultra the Google
+Flow credits come back as a `monthly` window: the share left of the plan's
+monthly grant (1,000 and 25,000, from the Google Flow Help credit table) and
+the time Flow refreshes them. Purchased AI credits, when the account has any,
+are a separate summary metric:
 
 ```json
-{"subscription":{"tierId":"3"},"summary":[{"key":"credits","label":"Flow credits","value":24470,"unit":"credits","format":"number"}]}
+{"subscription":{"tierId":"3"},"groups":[{"displayName":"Google Flow","buckets":[{"window":"monthly","remainingFraction":0.9698,"resetTime":"2026-11-15T10:38:16Z","description":"24245 / 25000 Google Flow credits"}]}]}
 ```
 
-The lookup reads Flow live. An account busy with a Gemini generation answers at
-once with `flow_session_exchange_busy` instead of waiting.
+Other plans report the balance as a `credits` summary metric. The lookup reads
+Flow live. While Gemini holds the account it answers at once with the latest
+balance the plugin read, from a lookup, the account listing or the start of a
+generation; the description carries that read time when a Flow request that
+may spend credits ran since. Only before the plugin has read any balance does
+a lookup wait for the account, up to 60 seconds.
 
 `GET /v0/resource/plugins/flow2api/index` serves the read-only "Google Flow"
 dashboard page that shows the same data. On the current Manager, enable

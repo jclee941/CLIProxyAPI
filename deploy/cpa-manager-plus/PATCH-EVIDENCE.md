@@ -310,3 +310,59 @@ such as Flow credits render as amounts without a percentage.
   accounts listed 5H/7D remaining of 71/20, 64/20, 47/65 and 100/9%, the Flow
   account listed `24,365 credits`, and the detail tab showed the Google Web
   5-hour window. No page errors.
+
+## Automatic Plugin Quota And Flow Monthly Window (2026-10-19)
+
+Enabled plugin-quota rows on the visible Accounts page refresh in the
+background once their last read is five minutes old. Flow's quota arrives as a
+`monthly` bucket with its refresh time (flow2api `1f46e3c9`) and renders as a
+standard 30D window over the billing month ending at that refresh.
+
+| Item | Value |
+| --- | --- |
+| Build | `SOURCE_REF=v1.12.11 build-patched.sh /tmp/cpa-mgr-build-1792347356`, apply clean |
+| Patch SHA-256 | `beaa6786c0119fea995bb1610a9f5e9eea46aebc35ca67c5b6f3e5f4df06c8b4` |
+| HTML SHA-256 | `0ec5d327211d6e90ad39b39416617a8a8458f510ae57155e6574da868837a24e` |
+| Image | `cpa-manager-plus:v1.12.11-quota.20261019.2` from the vendor `Dockerfile.manager-server` |
+
+- Type-check, ESLint, the full web suite (**3378 tests in 228 files**), the
+  production build and demo isolation passed.
+- `tests/gemini-web-browser.mjs` passed at 1280, 768 and 375px: the Flow row
+  showed its 30D window with no click and the first `/quota/fetch` was that
+  automatic read; the disabled GeminiWeb fixture still refreshed on request.
+- Production (NAS 215, `compose.yml.prev-quota-20261019-1` kept): a fresh
+  browser context on `https://cliproxy.jclee.me`, with no Refresh quota click,
+  read all five plugin credentials (all 200). The Flow row showed 30D 97% with
+  reset 11/15 19:38 and its detail the standard monthly window
+  `24175 / 25000 Google Flow credits` over 10/15 to 11/15; the four Gemini rows
+  showed 5H/7D. No page errors.
+
+## Monitoring Plugin Quota Without A Click (2026-10-19)
+
+An opened Monitoring account whose quota comes only from CPA plugin providers
+reads it on opening and again once the last read, its own or one the Accounts
+page stored, is five minutes old (checked every minute while the page is
+visible and connected). Before, it showed "No queryable quota" until Refresh
+Quota was pressed.
+
+| Item | Value |
+| --- | --- |
+| Build | `SOURCE_REF=v1.12.11 build-patched.sh /tmp/cpa-mgr-build-1792349384`, apply clean |
+| Patch SHA-256 | `945cec7d347c373d9c5bf231f04377e3208427c12153f9b0ab173443e5717619` |
+| HTML SHA-256 | `fc80dd1ef2ccf6348baf08e5e1c767b02c019b62c73988200d2d529d58af20a6` |
+| Image | `cpa-manager-plus:v1.12.11-quota.20261019.3` from the vendor `Dockerfile.manager-server` |
+
+- Type-check, ESLint, the full web suite (**3381 tests in 228 files**), the
+  production build and demo isolation passed; `selectStalePluginQuotaRowIds`
+  has unit tests for unread, stale, loading, mixed-provider and already-stored
+  reads. `tests/gemini-web-browser.mjs` passed at 1280, 768 and 375px.
+- Production (NAS 215, `compose.yml.prev-quota-20261019-2` kept): a fresh
+  browser context on `https://cliproxy.jclee.me/management.html#/monitoring`,
+  with no Refresh Quota click, opened a Gemini Web account and the Flow
+  account. Each issued one `/quota/fetch` (200) and showed
+  `Google Web · 5-hour limit` / `Weekly limit` and
+  `Google Flow · Monthly limit`, `23990 / 25000 Google Flow credits`. No page
+  errors.
+- The first attempt opened the account then running an Omni turn; its read
+  came back 502 `needs_operator` from the GeminiWeb plugin, which now reads a
+  running turn's usage the way its account listing does.

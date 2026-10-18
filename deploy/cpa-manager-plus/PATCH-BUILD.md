@@ -76,11 +76,15 @@ providers: the row, detail and batch **Refresh quota** actions call
 `POST /v0/management/quota/fetch` with only `{auth_index}`, and the Monitoring
 account overview loads the same route. Codex keeps its own adapter even though
 the ChatGPT Web plugin also answers for it. The normalized buckets become
-quota windows (`5h` and `weekly` show as 5H and 7D with remaining percentage
-and reset time); summary metrics such as Flow credits, which have no allowance
-or reset time, show as amounts with no percentage, and a metric-only credential
-keeps an unknown quota status. Quota is read only on an explicit refresh or
-when a Monitoring account is opened; there is no quota poll.
+quota windows (`5h` and `weekly` show as 5H and 7D, Flow's `monthly` as 30D
+over the billing month that ends at its refresh time, each with remaining
+percentage and reset time); summary metrics such as purchased AI credits show
+as amounts with no percentage, and a metric-only credential keeps an unknown
+quota status. Enabled plugin-quota rows on the visible Accounts page refresh
+in the background once their last read is five minutes old (checked every
+minute while the page is visible); disabled ones refresh on request. An opened
+Monitoring account whose quota comes only from plugin providers reads it on
+opening and again once the last read is five minutes old.
 
 The GeminiWeb detail section below the quota windows keeps the raw
 measurements. **Load GeminiWeb quota** uses
