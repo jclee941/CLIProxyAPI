@@ -263,7 +263,7 @@ index 414f593..fd426b3 100644
    align-content: center;
    gap: 7px;
 diff --git c/apps/web/src/features/accounts/AccountsPage.tsx i/apps/web/src/features/accounts/AccountsPage.tsx
-index 7013705..879642b 100644
+index 7013705..2466eef 100644
 --- c/apps/web/src/features/accounts/AccountsPage.tsx
 +++ i/apps/web/src/features/accounts/AccountsPage.tsx
 @@ -45,10 +45,11 @@ import {
@@ -290,7 +290,19 @@ index 7013705..879642b 100644
    CredentialHealthInspectionMode,
    CredentialInspectionSnapshot,
    CredentialInspectionTarget,
-@@ -1252,25 +1254,28 @@ export function AccountsPage() {
+@@ -381,10 +383,11 @@ const renderAccountDetailTrigger = ({
+ 
+ const MAX_CONCURRENT_QUOTA_REFRESHES_PER_PROVIDER = 1;
+ const MAX_CONCURRENT_QUOTA_REFRESH_PROVIDERS = 3;
+ const MAX_CONCURRENT_ACCOUNT_HISTORY_REQUESTS = 2;
+ const PASSIVE_ACCOUNTS_EVIDENCE_REFRESH_MS = 60_000;
++const PLUGIN_QUOTA_STALE_MS = 5 * 60_000;
+ const CREDENTIAL_EVIDENCE_UNIQUE_FILE_NAME_BOUNDARY_PREFIX = 'unique-file-name\u0000';
+ const CREDENTIAL_EVIDENCE_SOURCE_FILE_BOUNDARY_PREFIX = 'source-file\u0000';
+ const CREDENTIAL_EVIDENCE_PROVIDER_BOUNDARY_PREFIX = 'provider\u0000';
+ 
+ const getAccountQuotaRefreshKey = (row: AccountRow): string =>
+@@ -1252,25 +1255,28 @@ export function AccountsPage() {
    const antigravityQuota = useQuotaStore((state) => state.antigravityQuota);
    const claudeQuota = useQuotaStore((state) => state.claudeQuota);
    const codexQuota = useQuotaStore((state) => state.codexQuota);
@@ -320,7 +332,7 @@ index 7013705..879642b 100644
      () => initialWorkspaceUrlState.current.view
    );
    const [documentVisible, setDocumentVisible] = useState(
-@@ -2875,10 +2880,11 @@ export function AccountsPage() {
+@@ -2875,10 +2881,11 @@ export function AccountsPage() {
            break;
          case XAI_CONFIG.type:
            prune(XAI_CONFIG, setXaiQuota);
@@ -332,7 +344,7 @@ index 7013705..879642b 100644
        return targetFiles;
      },
      [
-@@ -2887,10 +2893,11 @@ export function AccountsPage() {
+@@ -2887,10 +2894,11 @@ export function AccountsPage() {
        setAntigravityQuota,
        setClaudeQuota,
        setCredentialEvidenceBoundaries,
@@ -344,7 +356,7 @@ index 7013705..879642b 100644
    );
    invalidateProviderCredentialEvidenceRef.current = invalidateProviderCredentialEvidence;
  
-@@ -5892,19 +5899,29 @@ export function AccountsPage() {
+@@ -5892,19 +5900,29 @@ export function AccountsPage() {
                setXaiQuota,
                getScopedQuotaState(XAI_CONFIG, baseQuotaStores.xaiQuota, row.raw)
              )
@@ -374,7 +386,51 @@ index 7013705..879642b 100644
        authFilesRequestScope,
        baseQuotaStores,
      ]
-@@ -7484,11 +7501,15 @@ export function AccountsPage() {
+@@ -6054,10 +6072,43 @@ export function AccountsPage() {
+   );
+ 
+   const isManualQuotaRefreshing = (row: AccountRow): boolean =>
+     manualQuotaRefreshingKeys.has(getAccountQuotaRefreshKey(row));
+ 
++  // Plugin quota providers answer through CPA, so the page keeps their rows
++  // current itself: stale rows on the visible page refresh without a click.
++  const pluginQuotaAutoRefreshKeysRef = useRef(new Set<string>());
++  const refreshStalePluginQuotas = useCallback(() => {
++    const nowMs = Date.now();
++    pageRows.forEach((row) => {
++      if (row.runtimeOnly || row.raw.disabled === true || !isPluginQuotaFile(row.raw)) return;
++      const refreshKey = getAccountQuotaRefreshKey(row);
++      if (
++        pluginQuotaAutoRefreshKeysRef.current.has(refreshKey) ||
++        manualQuotaRefreshingKeysRef.current.has(refreshKey)
++      ) {
++        return;
++      }
++      const quota = getScopedQuotaState(PLUGIN_QUOTA_CONFIG, baseQuotaStores.pluginQuota, row.raw);
++      const lastAttemptMs = Math.max(quota?.fetchedAtMs ?? 0, quota?.failedAtMs ?? 0);
++      if (quota?.status === 'loading' || nowMs - lastAttemptMs < PLUGIN_QUOTA_STALE_MS) return;
++      pluginQuotaAutoRefreshKeysRef.current.add(refreshKey);
++      void refreshQuotaForRow(row).finally(() => {
++        pluginQuotaAutoRefreshKeysRef.current.delete(refreshKey);
++      });
++    });
++  }, [baseQuotaStores.pluginQuota, pageRows, refreshQuotaForRow]);
++
++  useEffect(() => {
++    if (activeView === 'accounts' && documentVisible) refreshStalePluginQuotas();
++  }, [activeView, documentVisible, refreshStalePluginQuotas]);
++
++  useInterval(
++    refreshStalePluginQuotas,
++    activeView === 'accounts' && documentVisible ? PASSIVE_ACCOUNTS_EVIDENCE_REFRESH_MS : null
++  );
++
+   const refreshAccountHistory = useCallback(
+     (row: AccountRow): Promise<void> => {
+       if (!requestHistoryAvailable) return Promise.resolve();
+       const refreshKey = JSON.stringify({
+         checking: featureAvailability.checking,
+@@ -7484,11 +7535,15 @@ export function AccountsPage() {
                    const label = visibleScopeLabel
                      ? `${visibleScopeLabel} · ${window.label}`
                      : window.groupLabel
@@ -391,7 +447,7 @@ index 7013705..879642b 100644
                quotaEmptyLabel;
              const healthTitle = t(
                item.health.tooltipKey,
-@@ -7755,10 +7776,33 @@ export function AccountsPage() {
+@@ -7755,10 +7810,33 @@ export function AccountsPage() {
                              ? `${visibleScopeLabel} · ${window.label}`
                              : window.label;
                            const barClass = usesFallbackQuotaPresentation
@@ -425,7 +481,7 @@ index 7013705..879642b 100644
                                key={window.key}
                                className={styles.quotaWindowCard}
                                data-account-quota-window={window.key}
-@@ -7933,10 +7977,11 @@ export function AccountsPage() {
+@@ -7933,10 +8011,11 @@ export function AccountsPage() {
  
      const renderActiveDetail = () => {
        if (detailTab === 'quota') {
@@ -735,7 +791,7 @@ index fa33d49..ad8bd7a 100644
    it('assigns a file-level item to the only account row behind that file', () => {
      const rows = buildAccountRows(
 diff --git c/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.test.ts i/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.test.ts
-index 01343ff..6097010 100644
+index 01343ff..b5c0246 100644
 --- c/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.test.ts
 +++ i/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.test.ts
 @@ -26,10 +26,11 @@ const emptyStores = (): AccountQuotaStores => ({
@@ -762,7 +818,7 @@ index 01343ff..6097010 100644
      const legacy = record[file.name];
      if (!legacy) return;
      const identity = buildQuotaCredentialIdentity(file);
-@@ -1044,5 +1046,64 @@ describe('accountQuotaDisplayWindows', () => {
+@@ -1044,5 +1046,113 @@ describe('accountQuotaDisplayWindows', () => {
          t,
        })
      ).toEqual([]);
@@ -826,9 +882,58 @@ index 01343ff..6097010 100644
 +    ]);
 +    expect(windows[2]?.amountLabel).toMatch(/^24.470 credits$/);
 +  });
++
++  it('shows a monthly plugin bucket as the billing month ending at its refresh', () => {
++    const nowMs = Date.parse('2026-10-19T02:00:00Z');
++    const file = {
++      name: 'flow2api-a.json',
++      type: 'flow2api',
++      provider: 'flow2api',
++      authIndex: 'auth-flow',
++      supports_quota: true,
++    } as AuthFileItem;
++    const stores = emptyStores();
++    stores.pluginQuota[file.name] = {
++      status: 'success',
++      groups: [
++        {
++          id: 'google-flow',
++          label: 'Google Flow',
++          buckets: [
++            {
++              id: 'google-flow-monthly',
++              label: 'monthly',
++              window: 'monthly',
++              remainingFraction: 0.9698,
++              resetTime: '2026-11-15T10:38:16Z',
++            },
++          ],
++        },
++      ],
++      summary: [],
++      fetchedAtMs: nowMs,
++    };
++
++    const [window] = buildAccountQuotaDisplayWindows(buildRow(file, stores), {
++      stores,
++      translateQuotaWindowLabel,
++      t,
++      nowMs,
++    });
++
++    expect(window).toMatchObject({
++      kind: 'monthly',
++      windowMode: 'calendar',
++      remainingPercent: 96.98,
++      resetAtMs: Date.parse('2026-11-15T10:38:16Z'),
++      cycleStartMs: Date.parse('2026-10-15T10:38:16Z'),
++      fromMs: Date.parse('2026-10-15T10:38:16Z'),
++    });
++    expect(isStandardAccountQuotaListWindow(window)).toBe(true);
++  });
 +});
 diff --git c/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.ts i/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.ts
-index 3f8e699..41213cb 100644
+index 3f8e699..528ec14 100644
 --- c/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.ts
 +++ i/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.ts
 @@ -19,10 +19,15 @@ import {
@@ -859,12 +964,36 @@ index 3f8e699..41213cb 100644
  export interface AccountQuotaDisplayWindow {
    key: string;
    label: string;
-@@ -760,10 +766,57 @@ const buildXaiQuotaDisplayWindows = (
+@@ -760,10 +766,81 @@ const buildXaiQuotaDisplayWindows = (
    });
  
    return windows;
  };
  
++// A plugin's monthly window is its billing cycle: one calendar month up to the
++// refresh the plugin reports.
++const pluginQuotaWindowCycle = (
++  window: string | undefined,
++  resetAtMs: number | null
++): {
++  limitWindowSeconds: number | null;
++  windowMode?: QuotaWindowMode;
++  cycleStartMs?: number;
++  cycleEndMs?: number;
++} => {
++  if (window?.trim().toLowerCase() !== 'monthly' || resetAtMs === null) {
++    return { limitWindowSeconds: parseAntigravityWindowSeconds(window) };
++  }
++  const cycleStart = new Date(resetAtMs);
++  cycleStart.setUTCMonth(cycleStart.getUTCMonth() - 1);
++  return {
++    limitWindowSeconds: Math.round((resetAtMs - cycleStart.getTime()) / 1000),
++    windowMode: 'calendar',
++    cycleStartMs: cycleStart.getTime(),
++    cycleEndMs: resetAtMs,
++  };
++};
++
 +const buildPluginQuotaDisplayWindows = (
 +  row: AccountRow,
 +  options: BuildAccountQuotaDisplayWindowsOptions
@@ -886,7 +1015,7 @@ index 3f8e699..41213cb 100644
 +        resetLabel: formatDisplayResetTime(bucket.resetTime),
 +        resetAtMs: reset.resetAtMs,
 +        resetAccuracy: reset.resetAccuracy,
-+        limitWindowSeconds: parseAntigravityWindowSeconds(bucket.window),
++        ...pluginQuotaWindowCycle(bucket.window, reset.resetAtMs),
 +        description: bucket.description ?? group.description,
 +        groupLabel: group.label,
 +        source: 'plugin',
@@ -917,7 +1046,7 @@ index 3f8e699..41213cb 100644
    options: BuildAccountQuotaDisplayWindowsOptions
  ): AccountQuotaDisplayWindow[] => {
    if (row.quota.remainingPercent === null && row.quota.usedPercent === null) return [];
-@@ -810,7 +863,12 @@ export const buildAccountQuotaDisplayWindows = (
+@@ -810,7 +887,12 @@ export const buildAccountQuotaDisplayWindows = (
    if (row.provider === 'xai') {
      const windows = buildXaiQuotaDisplayWindows(row, options);
      if (windows.length) return windows;

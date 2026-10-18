@@ -35,7 +35,9 @@ const pluginQuota = {
   },
   'fixture-3': {
     subscription: { tierId: '3' },
-    summary: [{ key: 'credits', label: 'Flow credits', value: 24470, unit: 'credits', format: 'number' }],
+    groups: [{ displayName: 'Google Flow', buckets: [
+      { window: 'monthly', remainingFraction: 0.9698, resetTime: new Date(Date.now() + 27 * 86400_000).toISOString(), description: '24245 / 25000 Google Flow credits' },
+    ] }],
   },
 };
 const measured = {
@@ -141,6 +143,12 @@ try {
     const sidebarToggle = page.getByRole('button', { name: 'Expand sidebar', exact: true });
     if (await sidebarToggle.isVisible()) await sidebarToggle.click();
     await accountsLink.click();
+    const flowCard = page.locator('[data-account-card]').filter({ hasText: flowAccountId });
+    const flowMonthly = flowCard.locator('[data-account-quota-window="google-flow:google-flow-monthly"]');
+    await flowMonthly.waitFor();
+    assert.match((await flowMonthly.textContent()).replace(/\s+/g, ' '), /30D.*9[67]/);
+    const autoQuotaCalls = calls.slice(quotaStart).filter(({ path }) => path === '/v0/management/quota/fetch');
+    assert.deepEqual(autoQuotaCalls.map(({ body }) => JSON.parse(body)), [{ auth_index: 'fixture-3' }]);
     const accountCard = page.locator('[data-account-card]').filter({ hasText: accountId });
     await accountCard.getByRole('button', { name: 'Refresh quota', exact: true }).click();
     const geminiWindows = accountCard.locator('[data-account-quota-window]');
@@ -149,15 +157,10 @@ try {
     assert.equal(geminiWindowText.length, 2);
     assert.match(geminiWindowText[0], /5H.*71/);
     assert.match(geminiWindowText[1], /7D.*20/);
-    const flowCard = page.locator('[data-account-card]').filter({ hasText: flowAccountId });
-    await flowCard.getByRole('button', { name: 'Refresh quota', exact: true }).click();
-    const flowCredits = flowCard.locator('[data-account-quota-window="metric:credits"]');
-    await flowCredits.waitFor();
-    assert.match(await flowCredits.textContent(), /Flow credits.*24,470 credits/);
     await flowCard.scrollIntoViewIfNeeded();
     await capture(page, `quota-list-${width}`);
     const coreQuotaCalls = calls.slice(quotaStart).filter(({ path }) => path === '/v0/management/quota/fetch');
-    assert.deepEqual(coreQuotaCalls.map(({ body }) => JSON.parse(body)), [{ auth_index: 'fixture-1' }, { auth_index: 'fixture-3' }]);
+    assert.deepEqual(coreQuotaCalls.map(({ body }) => JSON.parse(body)), [{ auth_index: 'fixture-3' }, { auth_index: 'fixture-1' }]);
     await accountCard.locator('[data-account-detail-trigger="quota"]').click();
     await page.locator('[data-quota-window-group="standard"]').waitFor();
     const panel = page.locator('[data-gemini-web-quota]');
