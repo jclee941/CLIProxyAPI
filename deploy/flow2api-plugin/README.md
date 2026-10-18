@@ -455,6 +455,19 @@ Flow models, and one entry per configured account:
 
 Each call reads Flow live. There is no refresh route.
 
+Each Flow credential also answers the core quota lookup,
+`POST /v0/management/quota/fetch` with `{"auth_index": "<credential auth index>"}`
+(or `GET /v0/management/plugins/flow2api/quota?auth_index=...`), which the
+Manager's Refresh quota action uses. The balance comes back as a summary metric,
+because Flow reports no allowance or reset time for it:
+
+```json
+{"subscription":{"tierId":"3"},"summary":[{"key":"credits","label":"Flow credits","value":24470,"unit":"credits","format":"number"}]}
+```
+
+The lookup reads Flow live. An account busy with a Gemini generation answers at
+once with `flow_session_exchange_busy` instead of waiting.
+
 `GET /v0/resource/plugins/flow2api/index` serves the read-only "Google Flow"
 dashboard page that shows the same data. On the current Manager, enable
 "Remember credential" when logging in, or use the page's masked Manager Admin Key

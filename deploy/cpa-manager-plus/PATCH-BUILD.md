@@ -69,29 +69,31 @@ baselines, calling `/gemini-web-auth-url`, or starting a native poll. That
 backend auth endpoint is still intentionally unsupported. The plugin owns
 Google companion login and persistence. Other providers keep native OAuth.
 
-For an existing `gemini-web` credential, open its native Quota tab using the
-quota region or **GeminiWeb quota details** row action. **Load GeminiWeb quota**
-uses `GET /v0/management/plugins/gemini-web/accounts`; subsequent refreshes use
-`POST /v0/management/plugins/gemini-web/refresh` with only `{id}`. Both use the
-existing Manager auth transport. There is no automatic load, quota poll,
-second key prompt, credential mutation, or implicit enablement.
+Credentials whose provider is answered by a CPA plugin quota provider
+(`supports_quota: true` in the auth-file list and no built-in Manager adapter,
+currently `gemini-web` and `flow2api`) refresh quota like the built-in
+providers: the row, detail and batch **Refresh quota** actions call
+`POST /v0/management/quota/fetch` with only `{auth_index}`, and the Monitoring
+account overview loads the same route. Codex keeps its own adapter even though
+the ChatGPT Web plugin also answers for it. The normalized buckets become
+quota windows (`5h` and `weekly` show as 5H and 7D with remaining percentage
+and reset time); summary metrics such as Flow credits, which have no allowance
+or reset time, show as amounts with no percentage, and a metric-only credential
+keeps an unknown quota status. Quota is read only on an explicit refresh or
+when a Monitoring account is opened; there is no quota poll.
 
-The manual adapter follows the existing quota configuration lifecycle but
-deliberately bypasses Codex decoders, inferred windows, normalized percentages,
-global plan counters, and window request estimates. The native detail section
-shows provider tier/code, enabled/state observation, models, observation time,
+The GeminiWeb detail section below the quota windows keeps the raw
+measurements. **Load GeminiWeb quota** uses
+`GET /v0/management/plugins/gemini-web/accounts`; subsequent refreshes use
+`POST /v0/management/plugins/gemini-web/refresh` with only `{id}`. It shows
+provider tier/code, enabled/state observation, models, observation time,
 remaining provider compute units, raw usage fraction, explicitly supplied
-percentage, and reset time. Missing values remain Unknown. Windows appear only
-when supplied, including `ai_credit` and `unknown`. A failed refresh retains the
-previous observation only with an explicit stale notice. An HTTP 200 body with
-`status: error` or `expired` is not success. Missing/null metrics are not zero
-or unlimited quota. Opaque tier codes are never renamed to PRO.
-
-The list's aggregate quota and plan counters intentionally remain unknown for
-GeminiWeb. Batch quota refresh reports guidance to the manual detail section,
-not false success. Request-level all-provider usage is unchanged and remains in
-the existing summary above the plugin measurements. Detailed login/registration
-remains accessible through the checked **Open GeminiWeb plugin panel** action.
+percentage, and reset time. Missing values remain Unknown. A failed refresh
+retains the previous observation only with an explicit stale notice. An HTTP
+200 body with `status: error` or `expired` is not success. Missing/null metrics
+are not zero or unlimited quota. Opaque tier codes are never renamed to PRO.
+Detailed login/registration remains accessible through the checked **Open
+GeminiWeb plugin panel** action.
 
 Antigravity quota reads every quota summary host and merges their groups,
 because the hosts list different groups: the daily host lists only Claude and

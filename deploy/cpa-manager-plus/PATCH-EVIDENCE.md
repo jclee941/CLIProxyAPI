@@ -5,6 +5,8 @@ The native-quota receipt below is retained as the earlier baseline. The current
 combined patch and Remember-off bridge receipt are in **In-Memory Bridge Follow-up**.
 The latest combined artifact and account UI receipt are in **GPTWeb Account UI
 And Narrow POST Extension**; the earlier receipts remain historical baselines.
+The plugin quota change and its production receipt are in **Plugin Quota Through
+CPA (2026-10-19)**.
 
 ## Inputs And Artifacts
 
@@ -281,3 +283,30 @@ Live scoped host callbacks, host bootstrap `CHATGPT2API_AUTH_KEY` injection,
 homogeneous patched vendor rollout, real access-snapshot import/rotation and Web
 entitlements remain unverified operator gates. This is not a production readiness,
 Lighthouse, live-login, OCI-image or deployment receipt.
+
+## Plugin Quota Through CPA (2026-10-19)
+
+Credentials that CPA marks `supports_quota: true` and that have no built-in
+Manager adapter (`gemini-web`, `flow2api`) now refresh through
+`POST /v0/management/quota/fetch` in Accounts (row, detail and batch) and in the
+Monitoring account overview. Buckets render as quota windows; summary metrics
+such as Flow credits render as amounts without a percentage.
+
+| Item | Value |
+| --- | --- |
+| Build | `SOURCE_REF=v1.12.11 build-patched.sh /tmp/cpa-mgr-build-20261019b`, apply clean |
+| Patch SHA-256 | `d3320e0ce6e8a00143c0dbf031f29ef45c651f2346e8086612038d9c3694d178` |
+| HTML SHA-256 | `bf147b40967ebd6fb5897ac111de8bae4153c35ea963df9f389766e6bc4cb35a` |
+| Image | `cpa-manager-plus:v1.12.11-quota.20261019.1` from the vendor `Dockerfile.manager-server` |
+
+- Type-check, ESLint and Prettier on the changed files, the full web suite
+  (**3377 tests in 228 files**), the production build and demo isolation passed.
+- `tests/gemini-web-browser.mjs` passed at 1280, 768 and 375px: one
+  `/quota/fetch` per refreshed credential, the GeminiWeb row lists 5H 71% and
+  7D 20%, the Flow row lists `24,470 credits`, the detail shows the standard
+  windows above the GeminiWeb panel, and the earlier panel checks still pass.
+- Production (NAS 215, `compose.yml.prev-quota-20261016` kept): on
+  `https://cliproxy.jclee.me`, five refreshes answered 200. The four Gemini
+  accounts listed 5H/7D remaining of 71/20, 64/20, 47/65 and 100/9%, the Flow
+  account listed `24,365 credits`, and the detail tab showed the Google Web
+  5-hour window. No page errors.

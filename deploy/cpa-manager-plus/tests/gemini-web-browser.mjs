@@ -19,10 +19,25 @@ const plugin = {
 };
 let portalAvailable = true;
 const accountId = 'gemini-web-fixture-1.json';
+const flowAccountId = 'flow2api-fixture.json';
 const nativeFiles = [
-  { id: accountId, name: accountId, provider: 'gemini-web', type: 'gemini-web', label: 'GeminiWeb fixture', auth_index: 'fixture-1', disabled: true, status: 'ready' },
+  { id: accountId, name: accountId, provider: 'gemini-web', type: 'gemini-web', label: 'GeminiWeb fixture', auth_index: 'fixture-1', disabled: true, status: 'ready', supports_quota: true, quota_provider: 'gemini-web' },
   { id: 'codex-fixture.json', name: 'codex-fixture.json', provider: 'codex', type: 'codex', label: 'Codex fixture', auth_index: 'fixture-2', status: 'ready' },
+  { id: flowAccountId, name: flowAccountId, provider: 'flow2api', type: 'flow2api', label: 'Flow fixture', auth_index: 'fixture-3', status: 'active', supports_quota: true, quota_provider: 'flow2api' },
 ];
+const pluginQuota = {
+  'fixture-1': {
+    subscription: { tierId: '3' },
+    groups: [{ displayName: 'Google Web', buckets: [
+      { window: '5h', remainingFraction: 0.71, resetTime: new Date(Date.now() + 2 * 3600_000).toISOString(), description: '34144 provider_compute_unit remaining' },
+      { window: 'weekly', remainingFraction: 0.2, resetTime: new Date(Date.now() + 3 * 86400_000).toISOString(), description: '191629 provider_compute_unit remaining' },
+    ] }],
+  },
+  'fixture-3': {
+    subscription: { tierId: '3' },
+    summary: [{ key: 'credits', label: 'Flow credits', value: 24470, unit: 'credits', format: 'number' }],
+  },
+};
 const measured = {
   id: accountId, label: 'GeminiWeb fixture', enabled: false, status: 'ready', observed_at: 1800000001,
   models: [{ id: 'fixture-model', name: 'Provider supplied model' }],
@@ -64,6 +79,7 @@ const server = createServer(async (request, response) => {
     case '/v0/management/auth-files': payload = { files: nativeFiles }; break;
     case '/v0/management/plugins/gemini-web/accounts': payload = { provider: 'gemini-web', accounts: [quotaResponse] }; break;
     case '/v0/management/plugins/gemini-web/refresh': payload = quotaResponse; break;
+    case '/v0/management/quota/fetch': payload = pluginQuota[JSON.parse(body).auth_index]; break;
     case '/v0/management/codex-auth-url': payload = { url: 'https://example.invalid/authorize', state: 'synthetic-state' }; break;
     case '/v0/management/get-auth-status': payload = { status: 'wait' }; break;
   }
@@ -126,7 +142,24 @@ try {
     if (await sidebarToggle.isVisible()) await sidebarToggle.click();
     await accountsLink.click();
     const accountCard = page.locator('[data-account-card]').filter({ hasText: accountId });
-    await accountCard.getByRole('button', { name: /^(Refresh quota|GeminiWeb quota details)$/ }).click();
+    await accountCard.getByRole('button', { name: 'Refresh quota', exact: true }).click();
+    const geminiWindows = accountCard.locator('[data-account-quota-window]');
+    await geminiWindows.nth(1).waitFor();
+    const geminiWindowText = await geminiWindows.evaluateAll((nodes) => nodes.map((node) => node.textContent.replace(/\s+/g, ' ')));
+    assert.equal(geminiWindowText.length, 2);
+    assert.match(geminiWindowText[0], /5H.*71/);
+    assert.match(geminiWindowText[1], /7D.*20/);
+    const flowCard = page.locator('[data-account-card]').filter({ hasText: flowAccountId });
+    await flowCard.getByRole('button', { name: 'Refresh quota', exact: true }).click();
+    const flowCredits = flowCard.locator('[data-account-quota-window="metric:credits"]');
+    await flowCredits.waitFor();
+    assert.match(await flowCredits.textContent(), /Flow credits.*24,470 credits/);
+    await flowCard.scrollIntoViewIfNeeded();
+    await capture(page, `quota-list-${width}`);
+    const coreQuotaCalls = calls.slice(quotaStart).filter(({ path }) => path === '/v0/management/quota/fetch');
+    assert.deepEqual(coreQuotaCalls.map(({ body }) => JSON.parse(body)), [{ auth_index: 'fixture-1' }, { auth_index: 'fixture-3' }]);
+    await accountCard.locator('[data-account-detail-trigger="quota"]').click();
+    await page.locator('[data-quota-window-group="standard"]').waitFor();
     const panel = page.locator('[data-gemini-web-quota]');
     await panel.waitFor();
     await panel.scrollIntoViewIfNeeded();
@@ -174,7 +207,7 @@ try {
     await page.waitForURL('**#/plugin-pages/gemini-web/0');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     assert(!overflow, `Document overflow at ${width}`);
-    results.push({ width, oauthPortal: true, nativeGeminiRequests: 0, codexStartAndPoll: true, missingResourceError: true, quotaManualOnly: true, nullableMetrics: true, staleOnFailure: true, quotaCalls: quotaCalls.length, overflow, errors });
+    results.push({ width, oauthPortal: true, nativeGeminiRequests: 0, codexStartAndPoll: true, missingResourceError: true, listQuotaFromCore: coreQuotaCalls.length, nullableMetrics: true, staleOnFailure: true, quotaCalls: quotaCalls.length, overflow, errors });
     assert.deepEqual(errors, []);
     await context.close();
   }
