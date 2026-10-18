@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -36,6 +37,39 @@ func (service *service) pauseLowPriority(account string) {
 	service.lowPriorityPausedUntil[account] = service.now().Add(flowLowPriorityPause)
 }
 
+// A daily model quota Flow names stays spent until a reset the refusal does not
+// state. From 2026-10-12 to 10-19 the image models answered 1,061 requests with
+// PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED, 50 to 80 an hour from the evening
+// until about 02:00 KST, and 113 of the 170 too-much-traffic refusals Veo got
+// came within an hour of one. The web app stops offering a model once its daily
+// quota is spent. After such a refusal the model is answered here on that
+// account for this long; the first request after it goes to Flow and finds out
+// whether the quota is back.
+const flowDailyQuotaHold = 30 * time.Minute
+
+// dailyQuotaHeld reports until when a daily quota refusal keeps the model on the
+// account from being sent.
+func (service *service) dailyQuotaHeld(account, model string) (time.Time, bool) {
+	service.flowMu.Lock()
+	defer service.flowMu.Unlock()
+	until := service.dailyQuotaHeldUntil[account+"\x00"+model]
+	return until, service.now().Before(until)
+}
+
+// holdDailyQuota starts the hold when Flow refused the model for its daily quota.
+func (service *service) holdDailyQuota(account, model string, err error) {
+	var public *publicError
+	if !errors.As(err, &public) || public.Code != "flow_quota_exhausted" || !strings.Contains(public.Message, "PER_MODEL_DAILY_QUOTA_REACHED") {
+		return
+	}
+	service.flowMu.Lock()
+	defer service.flowMu.Unlock()
+	if service.dailyQuotaHeldUntil == nil {
+		service.dailyQuotaHeldUntil = map[string]time.Time{}
+	}
+	service.dailyQuotaHeldUntil[account+"\x00"+model] = service.now().Add(flowDailyQuotaHold)
+}
+
 // Below this balance a refused low-priority request is not sent at normal
 // priority, which spends credits the caller did not ask for (5 for each
 // 8-second 720p clip, about 900 on the night of 2026-10-10). The rest is kept
@@ -53,6 +87,10 @@ func (service *service) lowPriorityFallback(account string) error {
 }
 
 func (service *service) flowGenerate(ctx context.Context, record storageRecord, model flowModel, input flowInput) ([]byte, error) {
+	if until, held := service.dailyQuotaHeld(record.SourceAuthID, model.id); held && input.options.Mode != "upscale" {
+		message := fmt.Sprintf("flow_quota_exhausted: PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED; %s is not sent again before %s", model.id, until.UTC().Format(time.RFC3339))
+		return nil, &publicError{Code: "flow_quota_exhausted", Message: message, HTTPStatus: 429}
+	}
 	if input.options.Priority == "low" && service.lowPriorityPaused(record.SourceAuthID) {
 		if err := service.lowPriorityFallback(record.SourceAuthID); err != nil {
 			return nil, err
@@ -147,6 +185,7 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 		}
 	}
 	if err != nil {
+		service.holdDailyQuota(record.SourceAuthID, model.id, err)
 		return nil, err
 	}
 	// Every submitted operation is observed to its terminal state even if a

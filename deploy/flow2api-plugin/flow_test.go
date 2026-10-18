@@ -483,6 +483,13 @@ func TestDecodeFlowRPCNamesTheRefusal(t *testing.T) {
 	}{
 		"unusual activity": {refused([]any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY"}}}}), "flow_captcha_rejected", 503},
 		"too much traffic": {refused([]any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC"}}}}), "flow_rate_limited", 429},
+		"high traffic":     {refused([]any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_HIGH_TRAFFIC"}}}}), "flow_rate_limited", 429},
+		"throttled":        {refused([]any{3, nil, []any{"PUBLIC_ERROR_USER_REQUESTS_THROTTLED"}}), "flow_rate_limited", 429},
+		"traffic disabled": {refused([]any{3, nil, []any{"PUBLIC_ERROR_MODEL_DISABLED_DUE_TO_TRAFFIC"}}), "flow_rate_limited", 429},
+		"overloaded":       {refused([]any{3, nil, []any{"PUBLIC_ERROR_MODEL_OVERLOADED"}}), "flow_rate_limited", 429},
+		"too many running": {refused([]any{3, nil, []any{"PUBLIC_ERROR_CONCURRENT_LIMIT_REACHED"}}), "flow_rate_limited", 429},
+		"minor":            {refused([]any{3, nil, []any{"PUBLIC_ERROR_MINOR"}}), "flow_request_rejected", 400},
+		"protected image":  {refused([]any{3, nil, []any{"PUBLIC_ERROR_IP_INPUT_IMAGE"}}), "flow_request_rejected", 400},
 		"plan":             {refused([]any{7, nil, []any{"MODEL_ACCESS_DENIED"}}), "flow_model_access_denied", 403},
 		"unsafe prompt":    {refused([]any{3, nil, []any{"PUBLIC_ERROR_UNSAFE_GENERATION"}}), "flow_request_rejected", 400},
 		"exhausted":        {refused([]any{8}), "flow_quota_exhausted", 429},
@@ -650,6 +657,46 @@ func TestFlowTooMuchTrafficIsARateLimitWithoutRetries(t *testing.T) {
 	// Then: the caller is told to back off after one submission.
 	if result.OK || result.Error.Code != "flow_rate_limited" || result.Error.HTTPStatus != 429 || fixture.count("YhhmEf") != 1 {
 		t.Fatalf("throttled request = %+v after %d submissions", result.Error, fixture.count("YhhmEf"))
+	}
+}
+
+func TestFlowDailyQuotaRefusalHoldsTheModel(t *testing.T) {
+	// Given: Flow refusing Nano Banana 2 for its daily quota, then serving it.
+	fixture := newFlowFixture(t)
+	refusal := flowErrorEnvelope(t, []any{"wrb.fr", "ogiZ0b", nil, nil, nil, []any{8, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED"}}}}, "generic"})
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{[]any{flowTestProject}}))
+	fixture.reply("ogiZ0b", refusal, rpcEnvelope(t, "ogiZ0b", []any{[]any{[]any{flowTestMedia, nil, fixture.link("image")}}}))
+	service, record := flowService(t, fixture)
+	clock := time.Unix(1792000000, 0)
+	service.now = func() time.Time { return clock }
+	image := `{"contents":[{"role":"user","parts":[{"text":"a red apple"}]}]}`
+
+	// When: the model is refused, then asked for again at once.
+	refused := flowExecute(t, service, record, "flow-nano-banana-2", image)
+	selections := fixture.count("nzlxg")
+	again := flowExecute(t, service, record, "flow-nano-banana-2", image)
+
+	// Then: the repeat is answered here, without a selection or a submission.
+	if refused.OK || refused.Error.Code != "flow_quota_exhausted" || again.OK || again.Error.Code != "flow_quota_exhausted" ||
+		again.Error.HTTPStatus != 429 || fixture.count("ogiZ0b") != 1 || fixture.count("nzlxg") != selections {
+		t.Fatalf("refused %+v, again %+v after %d submissions", refused.Error, again.Error, fixture.count("ogiZ0b"))
+	}
+
+	// When: another model on the account is asked for.
+	flowInlineMedia(t, flowExecute(t, service, record, "flow-nano-banana-pro", image))
+
+	// Then: only the refused model is held.
+	if fixture.count("ogiZ0b") != 2 {
+		t.Fatalf("%d submissions, want the other model sent", fixture.count("ogiZ0b"))
+	}
+
+	// When: the hold has passed.
+	clock = clock.Add(flowDailyQuotaHold)
+	mime, data := flowInlineMedia(t, flowExecute(t, service, record, "flow-nano-banana-2", image))
+
+	// Then: the next request goes to Flow again and is served.
+	if mime != "image/png" || string(data) != string(flowTestPNG) || fixture.count("ogiZ0b") != 3 {
+		t.Fatalf("image %s %d bytes after %d submissions", mime, len(data), fixture.count("ogiZ0b"))
 	}
 }
 

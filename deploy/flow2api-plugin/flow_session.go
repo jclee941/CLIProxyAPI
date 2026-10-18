@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -251,18 +252,33 @@ func flowErrorCode(value any) string {
 	return ""
 }
 
+// flowThrottles are the refusals the web app answers with "Flow demand is high,
+// try again later" or "too many generations are running".
+var flowThrottles = []string{"TOO_MUCH_TRAFFIC", "HIGH_TRAFFIC", "USER_REQUESTS_THROTTLED", "MODEL_DISABLED_DUE_TO_TRAFFIC", "MODEL_OVERLOADED", "CONCURRENT_LIMIT_REACHED"}
+
+// flowRefusedInputs are refusals of the prompt or an input image. They keep the
+// prefix so that USER_MINOR, which refuses the account, does not read as MINOR.
+var flowRefusedInputs = []string{
+	"PUBLIC_ERROR_SEXUAL", "PUBLIC_ERROR_MINOR", "PUBLIC_ERROR_REPUTATIONAL", "PUBLIC_ERROR_NON_ENGLISH_PROMPT",
+	"PUBLIC_ERROR_PHOTOREAL_", "PUBLIC_ERROR_PROMINENT_PEOPLE_", "PUBLIC_ERROR_IP_INPUT_IMAGE", "PUBLIC_ERROR_UNDERSPECIFIED_ANIMAL",
+	"PUBLIC_ERROR_IMAGE_TOO_", "PUBLIC_ERROR_UNKNOWN_IMAGE_FILE_FORMAT", "PUBLIC_ERROR_VIDEO_DURATION_TOO_LONG",
+}
+
 // flowRejection maps Flow's refusal onto the status the host acts on. A token
-// Flow judged unusual is retried with a fresh one; too much traffic is a rate
-// limit the caller must back off from, so it is neither retried nor sent at
-// another priority; a refused prompt is the caller's to change; a model the
-// plan does not include stays refused.
+// Flow judged unusual is retried with a fresh one; traffic and demand refusals
+// are a rate limit the caller must back off from, so they are neither retried
+// nor sent at another priority; a refused prompt or input image is the caller's
+// to change; a model the plan does not include stays refused.
 func flowRejection(code string) error {
 	upper := strings.ToUpper(code)
 	rejection := func(status int, name string) error {
 		return &publicError{Code: name, Message: name + ": " + code, HTTPStatus: status}
 	}
+	names := func(markers []string) bool {
+		return slices.ContainsFunc(markers, func(marker string) bool { return strings.Contains(upper, marker) })
+	}
 	switch {
-	case strings.Contains(upper, "TOO_MUCH_TRAFFIC"):
+	case names(flowThrottles):
 		return rejection(429, "flow_rate_limited")
 	case strings.Contains(upper, "UNUSUAL_ACTIVITY") || strings.Contains(upper, "RECAPTCHA"):
 		return rejection(503, "flow_captcha_rejected")
@@ -272,7 +288,7 @@ func flowRejection(code string) error {
 		return failure(401, "flow_unauthenticated")
 	case strings.Contains(upper, "QUOTA") || strings.Contains(upper, "CREDIT") || strings.Contains(upper, "RESOURCE_EXHAUSTED") || upper == "RPC_CODE_8":
 		return rejection(429, "flow_quota_exhausted")
-	case strings.Contains(upper, "UNSAFE") || strings.Contains(upper, "FILTER") || strings.Contains(upper, "SAFETY") || strings.Contains(upper, "POLICY") || upper == "RPC_CODE_3":
+	case strings.Contains(upper, "UNSAFE") || strings.Contains(upper, "FILTER") || strings.Contains(upper, "SAFETY") || strings.Contains(upper, "POLICY") || upper == "RPC_CODE_3" || names(flowRefusedInputs):
 		return rejection(400, "flow_request_rejected")
 	default:
 		return rejection(502, "flow_rpc_rejected")
