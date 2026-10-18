@@ -165,9 +165,10 @@ func (service *service) runningTurn(record storageRecord) *accountActivity {
 	return &accountActivity{Model: model, StartedAt: turn.StartedAt, Summary: turn.Summary}
 }
 
-// busySessionToken reads the credential of a session that is mid-turn. Only the
-// read-only account inspection uses it: execution still goes through resolveLocal,
-// which refuses a session that is not ready.
+// busySessionToken reads the credential of a session that is mid-turn. Only
+// read-only inspection, the account listing and the quota lookup, uses it:
+// execution still goes through resolveLocal, which refuses a session that is not
+// ready.
 func (service *service) busySessionToken(record storageRecord) (sessionToken, error) {
 	local, err := service.localRecord(record)
 	if err != nil {

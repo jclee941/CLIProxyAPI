@@ -52,6 +52,12 @@ func (service *service) quotaFetch(ctx context.Context, raw []byte) (interface{}
 		return nil, failure(400, "unsupported_quota_provider")
 	}
 	record, token, err := service.quotaCredential(ctx, request.HostCallbackID, request.AuthID, request.StorageJSON)
+	// A running turn locks the session against new work, but the credential
+	// behind it still answers, so its usage is read the way the account listing
+	// reads it. Only the lock is passed over: every other refusal stands.
+	if safeCredentialCode(err) == "needs_operator" && service.runningTurn(record) != nil {
+		token, err = service.busySessionToken(record)
+	}
 	if err != nil {
 		return nil, err
 	}

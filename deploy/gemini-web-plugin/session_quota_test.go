@@ -137,6 +137,30 @@ func TestQuotaFetchResolvesThroughHostCallback_whenStorageJSONIsAbsent(t *testin
 	}
 }
 
+func TestQuotaFetchReadsUsage_whileATurnIsGenerating(t *testing.T) {
+	// Given: an account whose submitted turn is still generating in this process.
+	service, local := continuationFixture(t)
+	service.startedAt = 0
+	continuationWeb(t, service, &continuationWebFixture{interrupted: true})
+	prepared := continuationReceipt(t, continuationCall(t, service, local, `{"geminiWebContinuation":{"action":"prepare"}}`))
+	continuationReceipt(t, continuationCall(t, service, local, submitContinuationBody(prepared.Token, "first")))
+
+	// When: the host asks for its quota.
+	result := quotaFetchFor(t, service, local.Target)
+
+	// Then: the usage is read with the running turn's credential.
+	if !result.OK {
+		t.Fatalf("quota fetch during a generation failed: %+v", result.Error)
+	}
+	var view quotaViewFixture
+	if err := json.Unmarshal(result.Result, &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Subscription == nil || view.Subscription.TierID != "3" {
+		t.Fatalf("subscription=%+v", view.Subscription)
+	}
+}
+
 func TestQuotaFetchFailsClosed_whenSessionIsInterrupted(t *testing.T) {
 	service, _, record := localAccountFixture(t, true)
 
