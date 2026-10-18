@@ -150,7 +150,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	service.mu.Lock()
 	service.config = config
 	service.mu.Unlock()
-	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"flow2api","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","ConfigFields":[{"Name":"accounts","Type":"array","Description":"Existing Gemini account IDs allowed for Flow"},{"Name":"session_broker_url","Type":"string","Description":"Local core URL serving the Gemini session exchange"},{"Name":"captcha_provider","Type":"enum","EnumValues":["native","browser","yescaptcha","capsolver"],"Description":"Flow token provider"},{"Name":"captcha_key","Type":"string","Description":"External token provider credential"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini","openai","openai-response","claude"],"management_api":true,"frontend_http":true}}`), nil
+	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"flow2api","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","ConfigFields":[{"Name":"accounts","Type":"array","Description":"Existing Gemini account IDs allowed for Flow"},{"Name":"session_broker_url","Type":"string","Description":"Local core URL serving the Gemini session exchange"},{"Name":"captcha_provider","Type":"enum","EnumValues":["native","browser","yescaptcha","capsolver"],"Description":"Flow token provider"},{"Name":"captcha_key","Type":"string","Description":"External token provider credential"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini","openai","openai-response","claude"],"management_api":true,"frontend_http":true,"quota_provider":true}}`), nil
 }
 
 func (service *service) dispatch(ctx context.Context, method string, raw []byte) (interface{}, error) {
@@ -161,8 +161,14 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 		return flowHTTPRegistration(), nil
 	case "frontend_http.handle":
 		return service.flowHTTP(ctx, raw)
-	case "auth.identifier", "executor.identifier":
+	case "auth.identifier", "executor.identifier", "quota.identifier":
 		return map[string]string{"identifier": provider}, nil
+	case "quota.describe":
+		return quotaDescription{SupportedProviders: []string{provider}, DisplayName: "Google Flow"}, nil
+	case "quota.fetch":
+		return service.quotaFetch(ctx, raw)
+	case "quota.reset":
+		return nil, failure(400, "flow_quota_reset_unsupported")
 	case "model.static", "model.register":
 		return struct {
 			Provider string

@@ -20,6 +20,29 @@ func flowCredits(payload any) (int, bool) {
 	return value, valid && value >= 0
 }
 
+// flowBalance reads the credit balance, and the tier when Flow reports one, of
+// the Gemini account record borrows.
+func (service *service) flowBalance(ctx context.Context, record storageRecord) (int, *int, error) {
+	var credits int
+	var tier *int
+	err := service.withFlowSession(ctx, record, func(session *flowSession) error {
+		payload, err := session.rpc(ctx, "nzlxg", []any{}, flowProjectsPath, "")
+		if err != nil {
+			return err
+		}
+		balance, ok := flowCredits(payload)
+		if !ok {
+			return failure(502, "flow_credits_missing")
+		}
+		credits = balance
+		if value, valid := jsonInteger(jsonField(payload, 3)); valid && value > 0 {
+			tier = &value
+		}
+		return nil
+	})
+	return credits, tier, err
+}
+
 type flowAccountView struct {
 	ID         string `json:"id"`
 	Label      string `json:"label,omitempty"`
@@ -69,25 +92,12 @@ func (service *service) flowStatus(ctx context.Context, request managementReques
 	accounts := []flowAccountView{}
 	reading := withoutLeaseWait(ctx)
 	for _, id := range service.settings().FlowAccounts {
-		record := storageRecord{ID: id, SourceAuthID: id}
 		view := flowAccountView{ID: id, Label: labels[id], Status: "unknown"}
-		err := service.withFlowSession(reading, record, func(session *flowSession) error {
-			payload, err := session.rpc(reading, "nzlxg", []any{}, flowProjectsPath, "")
-			if err != nil {
-				return err
-			}
-			credits, ok := flowCredits(payload)
-			if !ok {
-				return failure(502, "flow_credits_missing")
-			}
-			view.Credits = &credits
-			if tier, valid := jsonInteger(jsonField(payload, 3)); valid && tier > 0 {
-				view.Tier = &tier
-			}
+		credits, tier, err := service.flowBalance(reading, storageRecord{ID: id, SourceAuthID: id})
+		if err == nil {
+			view.Credits, view.Tier = &credits, tier
 			view.Status, view.ObservedAt = "ready", service.now().Unix()
-			return nil
-		})
-		if err != nil {
+		} else {
 			view.Status, view.Error = "error", safeCredentialMessage(err)
 			code := safeCredentialCode(err)
 			switch {

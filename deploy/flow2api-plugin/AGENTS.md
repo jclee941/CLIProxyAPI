@@ -18,6 +18,7 @@ Google Flow generation and resource APIs over Gemini-owned sessions; score 13 fo
 | Uploads and media | `flow_upload_image.go`, `flow_upload_video.go`, `flow_media_api.go` | Scoped resumable transfers and references |
 | Protocol output | `flow_response_formats.go`, `flow_response_chat.go`, `flow_response_claude.go`, `flow_response_responses.go` | Plain and streaming responses |
 | Status and dashboard | `flow_status.go`, `flow_resource.go`, `DESIGN.md` | Account credits, lease state, bundled resource |
+| Host quota provider | `flow_quota.go` | Credit balance as a summary metric for management quota lookups |
 | Wire fixtures and ABI smoke | `testdata/flow_models.json`, `smoke/load.c` | Captured catalog shapes and real loader checks |
 
 ## CONVENTIONS
