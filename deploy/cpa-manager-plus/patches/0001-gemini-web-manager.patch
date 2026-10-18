@@ -263,7 +263,7 @@ index 414f593..fd426b3 100644
    align-content: center;
    gap: 7px;
 diff --git c/apps/web/src/features/accounts/AccountsPage.tsx i/apps/web/src/features/accounts/AccountsPage.tsx
-index 7013705..2466eef 100644
+index 7013705..f4aa6e6 100644
 --- c/apps/web/src/features/accounts/AccountsPage.tsx
 +++ i/apps/web/src/features/accounts/AccountsPage.tsx
 @@ -45,10 +45,11 @@ import {
@@ -278,31 +278,23 @@ index 7013705..2466eef 100644
    refreshQuotaWithConfig,
    type QuotaConfig,
    type QuotaRefreshResult,
-@@ -333,10 +334,11 @@ import {
+@@ -333,10 +334,15 @@ import {
  } from '@/utils/quota/credentialScope';
  import {
    buildProviderCredentialTaskPlan,
    runProviderCredentialTaskPlan,
  } from '@/utils/quota/providerRefreshScheduler';
-+import { isPluginQuotaFile } from '@/utils/quota/pluginQuota';
++import {
++  PLUGIN_QUOTA_CHECK_MS,
++  PLUGIN_QUOTA_STALE_MS,
++  isPluginQuotaFile,
++} from '@/utils/quota/pluginQuota';
  import { createCodexInspectionConnectionFingerprint } from '@/features/monitoring/codexInspection';
  import type {
    CredentialHealthInspectionMode,
    CredentialInspectionSnapshot,
    CredentialInspectionTarget,
-@@ -381,10 +383,11 @@ const renderAccountDetailTrigger = ({
- 
- const MAX_CONCURRENT_QUOTA_REFRESHES_PER_PROVIDER = 1;
- const MAX_CONCURRENT_QUOTA_REFRESH_PROVIDERS = 3;
- const MAX_CONCURRENT_ACCOUNT_HISTORY_REQUESTS = 2;
- const PASSIVE_ACCOUNTS_EVIDENCE_REFRESH_MS = 60_000;
-+const PLUGIN_QUOTA_STALE_MS = 5 * 60_000;
- const CREDENTIAL_EVIDENCE_UNIQUE_FILE_NAME_BOUNDARY_PREFIX = 'unique-file-name\u0000';
- const CREDENTIAL_EVIDENCE_SOURCE_FILE_BOUNDARY_PREFIX = 'source-file\u0000';
- const CREDENTIAL_EVIDENCE_PROVIDER_BOUNDARY_PREFIX = 'provider\u0000';
- 
- const getAccountQuotaRefreshKey = (row: AccountRow): string =>
-@@ -1252,25 +1255,28 @@ export function AccountsPage() {
+@@ -1252,25 +1258,28 @@ export function AccountsPage() {
    const antigravityQuota = useQuotaStore((state) => state.antigravityQuota);
    const claudeQuota = useQuotaStore((state) => state.claudeQuota);
    const codexQuota = useQuotaStore((state) => state.codexQuota);
@@ -332,7 +324,7 @@ index 7013705..2466eef 100644
      () => initialWorkspaceUrlState.current.view
    );
    const [documentVisible, setDocumentVisible] = useState(
-@@ -2875,10 +2881,11 @@ export function AccountsPage() {
+@@ -2875,10 +2884,11 @@ export function AccountsPage() {
            break;
          case XAI_CONFIG.type:
            prune(XAI_CONFIG, setXaiQuota);
@@ -344,7 +336,7 @@ index 7013705..2466eef 100644
        return targetFiles;
      },
      [
-@@ -2887,10 +2894,11 @@ export function AccountsPage() {
+@@ -2887,10 +2897,11 @@ export function AccountsPage() {
        setAntigravityQuota,
        setClaudeQuota,
        setCredentialEvidenceBoundaries,
@@ -356,7 +348,7 @@ index 7013705..2466eef 100644
    );
    invalidateProviderCredentialEvidenceRef.current = invalidateProviderCredentialEvidence;
  
-@@ -5892,19 +5900,29 @@ export function AccountsPage() {
+@@ -5892,19 +5903,29 @@ export function AccountsPage() {
                setXaiQuota,
                getScopedQuotaState(XAI_CONFIG, baseQuotaStores.xaiQuota, row.raw)
              )
@@ -386,7 +378,7 @@ index 7013705..2466eef 100644
        authFilesRequestScope,
        baseQuotaStores,
      ]
-@@ -6054,10 +6072,43 @@ export function AccountsPage() {
+@@ -6054,10 +6075,43 @@ export function AccountsPage() {
    );
  
    const isManualQuotaRefreshing = (row: AccountRow): boolean =>
@@ -422,7 +414,7 @@ index 7013705..2466eef 100644
 +
 +  useInterval(
 +    refreshStalePluginQuotas,
-+    activeView === 'accounts' && documentVisible ? PASSIVE_ACCOUNTS_EVIDENCE_REFRESH_MS : null
++    activeView === 'accounts' && documentVisible ? PLUGIN_QUOTA_CHECK_MS : null
 +  );
 +
    const refreshAccountHistory = useCallback(
@@ -430,7 +422,7 @@ index 7013705..2466eef 100644
        if (!requestHistoryAvailable) return Promise.resolve();
        const refreshKey = JSON.stringify({
          checking: featureAvailability.checking,
-@@ -7484,11 +7535,15 @@ export function AccountsPage() {
+@@ -7484,11 +7538,15 @@ export function AccountsPage() {
                    const label = visibleScopeLabel
                      ? `${visibleScopeLabel} · ${window.label}`
                      : window.groupLabel
@@ -447,7 +439,7 @@ index 7013705..2466eef 100644
                quotaEmptyLabel;
              const healthTitle = t(
                item.health.tooltipKey,
-@@ -7755,10 +7810,33 @@ export function AccountsPage() {
+@@ -7755,10 +7813,33 @@ export function AccountsPage() {
                              ? `${visibleScopeLabel} · ${window.label}`
                              : window.label;
                            const barClass = usesFallbackQuotaPresentation
@@ -481,7 +473,7 @@ index 7013705..2466eef 100644
                                key={window.key}
                                className={styles.quotaWindowCard}
                                data-account-quota-window={window.key}
-@@ -7933,10 +8011,11 @@ export function AccountsPage() {
+@@ -7933,10 +8014,11 @@ export function AccountsPage() {
  
      const renderActiveDetail = () => {
        if (detailTab === 'quota') {
@@ -1850,10 +1842,25 @@ index 0000000..4754103
 +  return { request, response };
 +}
 diff --git c/apps/web/src/features/monitoring/MonitoringCenterPage.tsx i/apps/web/src/features/monitoring/MonitoringCenterPage.tsx
-index 0c34c38..c2ceb37 100644
+index 0c34c38..aa13ca3 100644
 --- c/apps/web/src/features/monitoring/MonitoringCenterPage.tsx
 +++ i/apps/web/src/features/monitoring/MonitoringCenterPage.tsx
-@@ -79,10 +79,11 @@ import { type AccountQuotaState } from '@/features/monitoring/components/account
+@@ -40,12 +40,14 @@ import {
+   type AccountSortState,
+   type MonitoringAccountOverviewMode,
+ } from '@/features/monitoring/accountOverviewState';
+ import {
+   buildMonitoringAccountQuotaTargetsByRowId,
++  selectStalePluginQuotaRowIds,
+   type MonitoringAccountQuotaTarget,
+ } from '@/features/monitoring/accountOverviewQuotaTargets';
++import { PLUGIN_QUOTA_CHECK_MS } from '@/utils/quota/pluginQuota';
+ import {
+   AccountExpandedDetails,
+   AccountOverviewCard,
+ } from '@/features/monitoring/components/AccountOverviewCard';
+ import {
+@@ -79,10 +81,11 @@ import { type AccountQuotaState } from '@/features/monitoring/components/account
  import {
    ANTIGRAVITY_CONFIG,
    CLAUDE_CONFIG,
@@ -1865,7 +1872,7 @@ index 0c34c38..c2ceb37 100644
    type QuotaConfig,
    type QuotaRefreshResult,
    type QuotaSetter,
-@@ -270,25 +271,28 @@ export function MonitoringCenterPage() {
+@@ -270,25 +273,28 @@ export function MonitoringCenterPage() {
    const antigravityQuota = useQuotaStore((state) => state.antigravityQuota);
    const claudeQuota = useQuotaStore((state) => state.claudeQuota);
    const codexQuota = useQuotaStore((state) => state.codexQuota);
@@ -1895,7 +1902,7 @@ index 0c34c38..c2ceb37 100644
    );
    const [selectedProvider, setSelectedProvider] = useState(
      () => initialMonitoringCenterUiState.current.selectedProvider
-@@ -1352,19 +1356,26 @@ export function MonitoringCenterPage() {
+@@ -1352,19 +1358,26 @@ export function MonitoringCenterPage() {
            return run(
              XAI_CONFIG,
              setXaiQuota,
@@ -1922,17 +1929,151 @@ index 0c34c38..c2ceb37 100644
      ]
    );
  
+@@ -1587,10 +1600,32 @@ export function MonitoringCenterPage() {
+     focusedAccountId,
+     loadAccountQuota,
+     pendingCredentialMutationProviders,
+   ]);
+ 
++  // Accounts whose quota comes only from CPA plugin providers load it when
++  // opened and keep it current while open, as plugin rows on Accounts do.
++  const refreshOpenPluginQuotas = useCallback(() => {
++    selectStalePluginQuotaRowIds({
++      expandedRowIds: Object.keys(expandedAccounts).filter((rowId) => expandedAccounts[rowId]),
++      targetsByRowId: accountQuotaTargetsByRowId,
++      statesByRowId: accountQuotaStatesByRowIdRef.current,
++      pluginQuota,
++      nowMs: Date.now(),
++    }).forEach((rowId) => {
++      void loadAccountQuota(rowId, true);
++    });
++  }, [accountQuotaTargetsByRowId, expandedAccounts, loadAccountQuota, pluginQuota]);
++  const pluginQuotaRefreshActive =
++    isCurrentLayer && documentVisible && connectionStatus === 'connected';
++
++  useEffect(() => {
++    if (pluginQuotaRefreshActive) refreshOpenPluginQuotas();
++  }, [pluginQuotaRefreshActive, refreshOpenPluginQuotas]);
++
++  useInterval(refreshOpenPluginQuotas, pluginQuotaRefreshActive ? PLUGIN_QUOTA_CHECK_MS : null);
++
+   const toggleAccountExpanded = useCallback((accountId: string) => {
+     setExpandedAccounts((previous) => ({
+       ...previous,
+       [accountId]: !previous[accountId],
+     }));
+diff --git c/apps/web/src/features/monitoring/accountOverviewQuotaTargets.test.ts i/apps/web/src/features/monitoring/accountOverviewQuotaTargets.test.ts
+index 3fc3e81..088ab1c 100644
+--- c/apps/web/src/features/monitoring/accountOverviewQuotaTargets.test.ts
++++ i/apps/web/src/features/monitoring/accountOverviewQuotaTargets.test.ts
+@@ -1,9 +1,18 @@
+ import { describe, expect, it } from 'vitest';
++import type { AuthFileItem } from '@/types';
++import {
++  buildQuotaCredentialIdentity,
++  getQuotaCredentialStoreKey,
++} from '@/utils/quota/credentialScope';
+ import type { MonitoringAccountRow } from './hooks/useMonitoringData';
+ import type { MonitoringAccountAuthState } from './accountOverviewState';
+-import { buildMonitoringAccountQuotaTargetsByRowId } from './accountOverviewQuotaTargets';
++import {
++  buildMonitoringAccountQuotaTargetsByRowId,
++  selectStalePluginQuotaRowIds,
++  type MonitoringAccountQuotaTarget,
++} from './accountOverviewQuotaTargets';
+ 
+ const createAccountRow = (overrides: Partial<MonitoringAccountRow> = {}): MonitoringAccountRow => ({
+   id: overrides.id ?? 'account@example.com',
+   account: overrides.account ?? 'account@example.com',
+   provider: overrides.provider,
+@@ -272,5 +281,67 @@ describe('accountOverviewQuotaTargets', () => {
+       { provider: 'antigravity', fileName: 'antigravity.json' },
+     ]);
+     expect(result.get('same@example.com')).toBeUndefined();
+   });
+ });
++
++describe('selectStalePluginQuotaRowIds', () => {
++  const nowMs = Date.parse('2026-10-19T03:00:00Z');
++  const target = (
++    provider: MonitoringAccountQuotaTarget['provider'],
++    name: string
++  ): MonitoringAccountQuotaTarget => ({
++    key: `${provider}::${name}`,
++    provider,
++    authIndex: name,
++    authLabel: name,
++    fileName: name,
++    file: { name, provider: provider === 'plugin' ? 'gemini-web' : provider } as AuthFileItem,
++    accountId: null,
++    planType: null,
++  });
++  const gemini = target('plugin', 'gemini-web-a.json');
++  const targetsByRowId = new Map([
++    ['gemini', [gemini]],
++    ['mixed', [target('plugin', 'gemini-web-b.json'), target('xai', 'xai-b.json')]],
++    ['closed', [target('plugin', 'gemini-web-c.json')]],
++  ]);
++  type Selection = Parameters<typeof selectStalePluginQuotaRowIds>[0];
++  const select = (
++    statesByRowId: Selection['statesByRowId'],
++    pluginQuota: Selection['pluginQuota'] = {}
++  ) =>
++    selectStalePluginQuotaRowIds({
++      expandedRowIds: ['gemini', 'mixed'],
++      targetsByRowId,
++      statesByRowId,
++      pluginQuota,
++      nowMs,
++    });
++
++  it('loads an opened account served only by plugin quota that has not been read', () => {
++    expect(select({})).toEqual(['gemini']);
++  });
++
++  it('reads it again once its last read is five minutes old', () => {
++    expect(select({ gemini: { status: 'success', lastRefreshedAt: nowMs - 4 * 60_000 } })).toEqual(
++      []
++    );
++    expect(select({ gemini: { status: 'error', failedAtMs: nowMs - 5 * 60_000 } })).toEqual([
++      'gemini',
++    ]);
++    expect(select({ gemini: { status: 'loading', lastRefreshedAt: nowMs - 10 * 60_000 } })).toEqual(
++      []
++    );
++  });
++
++  it('counts a read the Accounts page already stored', () => {
++    const stored = {
++      status: 'success' as const,
++      groups: [],
++      summary: [],
++      fetchedAtMs: nowMs - 60_000,
++      ...buildQuotaCredentialIdentity(gemini.file),
++    };
++    expect(select({}, { [getQuotaCredentialStoreKey(gemini.file)]: stored })).toEqual([]);
++  });
++});
 diff --git c/apps/web/src/features/monitoring/accountOverviewQuotaTargets.ts i/apps/web/src/features/monitoring/accountOverviewQuotaTargets.ts
-index 2ec0cbe..7ba45dd 100644
+index 2ec0cbe..5e5b51c 100644
 --- c/apps/web/src/features/monitoring/accountOverviewQuotaTargets.ts
 +++ i/apps/web/src/features/monitoring/accountOverviewQuotaTargets.ts
-@@ -8,14 +8,21 @@ import {
+@@ -1,6 +1,6 @@
+-import type { AuthFileItem } from '@/types';
++import type { AuthFileItem, PluginQuotaState } from '@/types';
+ import {
+   isAntigravityFile,
+   isClaudeFile,
+   isCodexFile,
+   isDisabledAuthFile,
+@@ -8,14 +8,22 @@ import {
    isXaiFile,
    normalizeAuthIndex,
    resolveCodexChatgptAccountId,
    resolveCodexPlanType,
  } from '@/utils/quota';
-+import { isPluginQuotaFile } from '@/utils/quota/pluginQuota';
++import { getCredentialScopedQuotaState } from '@/utils/quota/credentialScope';
++import { PLUGIN_QUOTA_STALE_MS, isPluginQuotaFile } from '@/utils/quota/pluginQuota';
  import type { MonitoringAccountAuthState } from './accountOverviewState';
  import type { MonitoringAccountRow } from './hooks/useMonitoringData';
  
@@ -1949,7 +2090,7 @@ index 2ec0cbe..7ba45dd 100644
    key: string;
    provider: MonitoringAccountQuotaProvider;
    authIndex: string;
-@@ -46,10 +53,11 @@ export const resolveMonitoringAccountQuotaProvider = (
+@@ -46,10 +54,11 @@ export const resolveMonitoringAccountQuotaProvider = (
    if (isCodexFile(file)) return 'codex';
    if (isClaudeFile(file)) return 'claude';
    if (isAntigravityFile(file)) return 'antigravity';
@@ -1961,6 +2102,51 @@ index 2ec0cbe..7ba45dd 100644
  
  const isQuotaTargetable = (file: AuthFileItem) => {
    if (isDisabledAuthFile(file)) return false;
+@@ -120,5 +129,44 @@ export const buildMonitoringAccountQuotaTargetsByRowId = (
+             left.provider.localeCompare(right.provider)
+         ),
+       ] as const;
+     })
+   );
++
++type MonitoringQuotaReadState = {
++  status: string;
++  lastRefreshedAt?: number;
++  failedAtMs?: number;
++};
++
++// An opened account whose quota comes only from CPA plugin providers loads it
++// by itself, and again once its last read is stale, as the Accounts page does.
++export const selectStalePluginQuotaRowIds = ({
++  expandedRowIds,
++  targetsByRowId,
++  statesByRowId,
++  pluginQuota,
++  nowMs,
++}: {
++  expandedRowIds: string[];
++  targetsByRowId: Map<string, MonitoringAccountQuotaTarget[]>;
++  statesByRowId: Record<string, MonitoringQuotaReadState>;
++  pluginQuota: Record<string, PluginQuotaState>;
++  nowMs: number;
++}): string[] =>
++  expandedRowIds.filter((rowId) => {
++    const targets = targetsByRowId.get(rowId) ?? [];
++    if (targets.length === 0 || targets.some((target) => target.provider !== 'plugin')) {
++      return false;
++    }
++    const state = statesByRowId[rowId];
++    const stored = targets.map((target) => getCredentialScopedQuotaState(pluginQuota, target.file));
++    if (state?.status === 'loading' || stored.some((quota) => quota?.status === 'loading')) {
++      return false;
++    }
++    const lastReadMs = Math.max(
++      state?.lastRefreshedAt ?? 0,
++      state?.failedAtMs ?? 0,
++      ...stored.map((quota) => Math.max(quota?.fetchedAtMs ?? 0, quota?.failedAtMs ?? 0))
++    );
++    return nowMs - lastReadMs >= PLUGIN_QUOTA_STALE_MS;
++  });
 diff --git c/apps/web/src/features/monitoring/model/monitoringCenterPageModel.test.ts i/apps/web/src/features/monitoring/model/monitoringCenterPageModel.test.ts
 index f121640..dc01198 100644
 --- c/apps/web/src/features/monitoring/model/monitoringCenterPageModel.test.ts
@@ -3833,10 +4019,10 @@ index 0000000..ee5a867
 +});
 diff --git c/apps/web/src/utils/quota/pluginQuota.ts i/apps/web/src/utils/quota/pluginQuota.ts
 new file mode 100644
-index 0000000..ad8e505
+index 0000000..26f745a
 --- /dev/null
 +++ i/apps/web/src/utils/quota/pluginQuota.ts
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,145 @@
 +import type { TFunction } from 'i18next';
 +import type {
 +  AntigravityQuotaBucket,
@@ -3861,6 +4047,11 @@ index 0000000..ad8e505
 +  summary: PluginQuotaMetric[];
 +  subscription: AntigravityQuotaSubscription | null;
 +}
++
++// Plugin quota shown on an open page is checked every PLUGIN_QUOTA_CHECK_MS and
++// refreshes by itself once its last read is PLUGIN_QUOTA_STALE_MS old.
++export const PLUGIN_QUOTA_CHECK_MS = 60_000;
++export const PLUGIN_QUOTA_STALE_MS = 5 * 60_000;
 +
 +const hasBuiltInQuotaAdapter = (file: AuthFileItem): boolean =>
 +  isAntigravityFile(file) ||
