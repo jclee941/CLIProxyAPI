@@ -27,20 +27,29 @@ const (
 	flowLeaseWait = 5 * time.Minute
 )
 
-type flowLeaseWaitOff struct{}
+type flowLeaseWaitLimit struct{}
+
+// withLeaseWait bounds how long exchanges under ctx wait for a busy lease.
+func withLeaseWait(ctx context.Context, limit time.Duration) context.Context {
+	return context.WithValue(ctx, flowLeaseWaitLimit{}, limit)
+}
 
 // withoutLeaseWait makes exchanges under ctx report a busy lease at once, so a
 // reading such as the account listing shows the account busy instead of
 // blocking behind a generation.
 func withoutLeaseWait(ctx context.Context) context.Context {
-	return context.WithValue(ctx, flowLeaseWaitOff{}, true)
+	return withLeaseWait(ctx, 0)
 }
 
 func (service *service) exchange(ctx context.Context, accountID, method, target string, body []byte, headers http.Header) (exchangeResult, error) {
-	deadline := service.now().Add(flowLeaseWait)
+	wait := flowLeaseWait
+	if limit, bounded := ctx.Value(flowLeaseWaitLimit{}).(time.Duration); bounded {
+		wait = limit
+	}
+	deadline := service.now().Add(wait)
 	for {
 		result, err := service.exchangeWithRequestID(ctx, accountID, method, target, body, headers, "")
-		if safeCredentialCode(err) != "flow_session_exchange_busy" || ctx.Value(flowLeaseWaitOff{}) != nil || !service.now().Before(deadline) {
+		if safeCredentialCode(err) != "flow_session_exchange_busy" || !service.now().Before(deadline) {
 			return result, err
 		}
 		if service.waitFlow(ctx, flowLeasePoll) != nil {

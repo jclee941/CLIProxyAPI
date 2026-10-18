@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 func flowCredits(payload any) (int, bool) {
@@ -20,27 +21,85 @@ func flowCredits(payload any) (int, bool) {
 	return value, valid && value >= 0
 }
 
-// flowBalance reads the credit balance, and the tier when Flow reports one, of
-// the Gemini account record borrows.
-func (service *service) flowBalance(ctx context.Context, record storageRecord) (int, *int, error) {
-	var credits int
-	var tier *int
+// flowReading is one GetCredits answer: [credits, paygate tier, plan SKU,
+// tier, AI credits, Google Flow credits, [refresh seconds, nanos]]. The Flow
+// web client shows field 6 as the Google Flow credits, field 5 as the AI
+// credits and field 7 as the time the Google Flow credits refresh.
+type flowReading struct {
+	credits     int
+	paygate     int
+	tier        *int
+	aiCredits   *int
+	flowCredits *int
+	refreshAt   time.Time
+	observedAt  time.Time
+	// current is cleared once Flow may have spent credits after the reading.
+	current bool
+}
+
+func flowReadingOf(payload any, credits int, observedAt time.Time) flowReading {
+	reading := flowReading{credits: credits, observedAt: observedAt, current: true}
+	count := func(index int) *int {
+		if value, valid := jsonInteger(jsonField(payload, index)); valid && value >= 0 {
+			return &value
+		}
+		return nil
+	}
+	reading.paygate, _ = jsonInteger(jsonField(payload, 1))
+	if tier := count(3); tier != nil && *tier > 0 {
+		reading.tier = tier
+	}
+	reading.aiCredits, reading.flowCredits = count(4), count(5)
+	if seconds, valid := jsonInteger(jsonField(payload, 6, 0)); valid && seconds > 0 {
+		nanos, _ := jsonInteger(jsonField(payload, 6, 1))
+		reading.refreshAt = time.Unix(int64(seconds), int64(nanos)).UTC()
+	}
+	return reading
+}
+
+// flowBalance reads the credits of the Gemini account record borrows and keeps
+// the reading as that account's latest.
+func (service *service) flowBalance(ctx context.Context, record storageRecord) (flowReading, error) {
+	var reading flowReading
 	err := service.withFlowSession(ctx, record, func(session *flowSession) error {
 		payload, err := session.rpc(ctx, "nzlxg", []any{}, flowProjectsPath, "")
 		if err != nil {
 			return err
 		}
-		balance, ok := flowCredits(payload)
+		credits, ok := flowCredits(payload)
 		if !ok {
 			return failure(502, "flow_credits_missing")
 		}
-		credits = balance
-		if value, valid := jsonInteger(jsonField(payload, 3)); valid && value > 0 {
-			tier = &value
-		}
+		reading = flowReadingOf(payload, credits, service.now())
 		return nil
 	})
-	return credits, tier, err
+	if err == nil {
+		service.flowMu.Lock()
+		if service.flowReadings == nil {
+			service.flowReadings = map[string]flowReading{}
+		}
+		service.flowReadings[record.SourceAuthID] = reading
+		service.flowMu.Unlock()
+	}
+	return reading, err
+}
+
+func (service *service) lastFlowReading(account string) (flowReading, bool) {
+	service.flowMu.Lock()
+	defer service.flowMu.Unlock()
+	reading, found := service.flowReadings[account]
+	return reading, found
+}
+
+// markFlowSpend runs before and after every request that may spend credits, so
+// a reading taken before or during it no longer stands for the balance.
+func (service *service) markFlowSpend() {
+	service.flowMu.Lock()
+	defer service.flowMu.Unlock()
+	for account, reading := range service.flowReadings {
+		reading.current = false
+		service.flowReadings[account] = reading
+	}
 }
 
 type flowAccountView struct {
@@ -93,10 +152,10 @@ func (service *service) flowStatus(ctx context.Context, request managementReques
 	reading := withoutLeaseWait(ctx)
 	for _, id := range service.settings().FlowAccounts {
 		view := flowAccountView{ID: id, Label: labels[id], Status: "unknown"}
-		credits, tier, err := service.flowBalance(reading, storageRecord{ID: id, SourceAuthID: id})
+		balance, err := service.flowBalance(reading, storageRecord{ID: id, SourceAuthID: id})
 		if err == nil {
-			view.Credits, view.Tier = &credits, tier
-			view.Status, view.ObservedAt = "ready", service.now().Unix()
+			view.Credits, view.Tier = &balance.credits, balance.tier
+			view.Status, view.ObservedAt = "ready", balance.observedAt.Unix()
 		} else {
 			view.Status, view.Error = "error", safeCredentialMessage(err)
 			code := safeCredentialCode(err)

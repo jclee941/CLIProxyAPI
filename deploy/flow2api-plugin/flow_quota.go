@@ -3,11 +3,26 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"strconv"
+	"time"
 )
 
 type quotaSubscription struct {
 	TierID string `json:"tierId,omitempty"`
+}
+
+type quotaBucket struct {
+	Window            string  `json:"window,omitempty"`
+	RemainingFraction float64 `json:"remainingFraction"`
+	ResetTime         string  `json:"resetTime,omitempty"`
+	Description       string  `json:"description,omitempty"`
+}
+
+type quotaGroup struct {
+	DisplayName string        `json:"displayName,omitempty"`
+	Buckets     []quotaBucket `json:"buckets,omitempty"`
 }
 
 type quotaMetric struct {
@@ -20,7 +35,8 @@ type quotaMetric struct {
 
 type quotaFetchResponse struct {
 	Subscription *quotaSubscription `json:"subscription,omitempty"`
-	Summary      []quotaMetric      `json:"summary"`
+	Groups       []quotaGroup       `json:"groups,omitempty"`
+	Summary      []quotaMetric      `json:"summary,omitempty"`
 }
 
 type quotaDescription struct {
@@ -29,11 +45,17 @@ type quotaDescription struct {
 	SupportsReset      bool     `json:"supports_reset"`
 }
 
-// quotaFetch reports the credit balance of the Gemini account a Flow
-// credential borrows. Flow states no allowance or reset time for it, so the
-// balance is a summary metric: a quota bucket would need a remaining fraction
-// Flow does not report. Like the account listing, a busy account answers at
-// once instead of waiting behind a generation.
+// flowMonthlyCredits is the monthly Google Flow credit grant per paygate tier,
+// from the credit table in the Google Flow Help Center
+// (https://support.google.com/flow/answer/16526234): Google AI Pro, paygate
+// tier ONE (1), gets 1,000 and Google AI Ultra, paygate tier TWO (2), 25,000.
+// Other tiers have no grant this plugin can confirm and report their balance.
+var flowMonthlyCredits = map[int]int{1: 1000, 2: 25000}
+
+// flowQuotaLeaseWait keeps a lookup that waits for a busy lease inside the
+// time a management request survives behind the public tunnel.
+const flowQuotaLeaseWait = 60 * time.Second
+
 func (service *service) quotaFetch(ctx context.Context, raw []byte) (interface{}, error) {
 	var request struct {
 		AuthID      string `json:"auth_id"`
@@ -56,13 +78,59 @@ func (service *service) quotaFetch(ctx context.Context, raw []byte) (interface{}
 	if !service.flowAccount(record.SourceAuthID) {
 		return nil, failure(403, "flow_account_not_enabled")
 	}
-	credits, tier, err := service.flowBalance(withoutLeaseWait(ctx), record)
+	balance, err := service.flowBalance(withoutLeaseWait(ctx), record)
+	if safeCredentialCode(err) == "flow_session_exchange_busy" {
+		balance, err = service.flowBalanceBehindLease(ctx, record)
+	}
 	if err != nil {
 		return nil, err
 	}
-	response := quotaFetchResponse{Summary: []quotaMetric{{Key: "credits", Label: "Flow credits", Value: float64(credits), Unit: "credits", Format: "number"}}}
-	if tier != nil {
-		response.Subscription = &quotaSubscription{TierID: strconv.Itoa(*tier)}
+	return flowQuota(balance), nil
+}
+
+// flowBalanceBehindLease answers while a Gemini turn holds the source account's
+// lease. Such a turn spends no Flow credits, so a reading taken since Flow last
+// ran is still the balance. Otherwise the lookup waits for the lease and, when
+// the turn outlasts the wait, answers with the last reading and its age.
+func (service *service) flowBalanceBehindLease(ctx context.Context, record storageRecord) (flowReading, error) {
+	last, known := service.lastFlowReading(record.SourceAuthID)
+	if known && last.current {
+		return last, nil
 	}
-	return response, nil
+	balance, err := service.flowBalance(withLeaseWait(ctx, flowQuotaLeaseWait), record)
+	if known && safeCredentialCode(err) == "flow_session_exchange_busy" {
+		return last, nil
+	}
+	return balance, err
+}
+
+func flowQuota(balance flowReading) quotaFetchResponse {
+	response := quotaFetchResponse{}
+	if balance.tier != nil {
+		response.Subscription = &quotaSubscription{TierID: strconv.Itoa(*balance.tier)}
+	}
+	flowCredits := balance.credits
+	if balance.flowCredits != nil {
+		flowCredits = *balance.flowCredits
+	}
+	if grant, granted := flowMonthlyCredits[balance.paygate]; granted {
+		bucket := quotaBucket{
+			Window:            "monthly",
+			RemainingFraction: math.Min(1, float64(flowCredits)/float64(grant)),
+			Description:       fmt.Sprintf("%d / %d Google Flow credits", flowCredits, grant),
+		}
+		if !balance.refreshAt.IsZero() {
+			bucket.ResetTime = balance.refreshAt.Format(time.RFC3339)
+		}
+		if !balance.current {
+			bucket.Description += ", read " + balance.observedAt.UTC().Format(time.RFC3339)
+		}
+		response.Groups = []quotaGroup{{DisplayName: "Google Flow", Buckets: []quotaBucket{bucket}}}
+	} else {
+		response.Summary = append(response.Summary, quotaMetric{Key: "credits", Label: "Flow credits", Value: float64(flowCredits), Unit: "credits", Format: "number"})
+	}
+	if balance.aiCredits != nil && *balance.aiCredits > 0 {
+		response.Summary = append(response.Summary, quotaMetric{Key: "ai_credits", Label: "AI credits", Value: float64(*balance.aiCredits), Unit: "credits", Format: "number"})
+	}
+	return response
 }
