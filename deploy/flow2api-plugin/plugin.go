@@ -42,8 +42,9 @@ type service struct {
 	flowPages               map[string]flowPage
 	flowProjects            map[string]string
 	lowPriorityPausedUntil  map[string]time.Time
-	flowCreditBalance       map[string]int
 	flowReadings            map[string]flowReading
+	flowSpending            int
+	flowSpendSequence       uint64
 	captchaBrowser          flowBrowser
 	flowOriginOverride      string
 	recaptchaOriginOverride string
@@ -236,8 +237,7 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 		if !ok {
 			return nil, failure(400, "flow_unsupported_model")
 		}
-		service.markFlowSpend()
-		defer service.markFlowSpend()
+		defer service.beginFlowSpend()()
 		return service.executeFlow(ctx, method, request, model)
 	case "executor.count_tokens", "executor.http_request":
 		return nil, failure(400, "flow_operation_unsupported")

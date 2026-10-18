@@ -33,12 +33,18 @@ type flowReading struct {
 	flowCredits *int
 	refreshAt   time.Time
 	observedAt  time.Time
-	// current is cleared once Flow may have spent credits after the reading.
-	current bool
+	spends      flowSpendMark
 }
 
-func flowReadingOf(payload any, credits int, observedAt time.Time) flowReading {
-	reading := flowReading{credits: credits, observedAt: observedAt, current: true}
+// flowSpendMark records the requests that may spend credits as a reading
+// begins: how many have begun or ended, and whether none is running.
+type flowSpendMark struct {
+	sequence uint64
+	idle     bool
+}
+
+func flowReadingOf(payload any, credits int) flowReading {
+	reading := flowReading{credits: credits}
 	count := func(index int) *int {
 		if value, valid := jsonInteger(jsonField(payload, index)); valid && value >= 0 {
 			return &value
@@ -62,6 +68,7 @@ func flowReadingOf(payload any, credits int, observedAt time.Time) flowReading {
 func (service *service) flowBalance(ctx context.Context, record storageRecord) (flowReading, error) {
 	var reading flowReading
 	err := service.withFlowSession(ctx, record, func(session *flowSession) error {
+		mark := service.flowSpendSnapshot()
 		payload, err := session.rpc(ctx, "nzlxg", []any{}, flowProjectsPath, "")
 		if err != nil {
 			return err
@@ -70,18 +77,23 @@ func (service *service) flowBalance(ctx context.Context, record storageRecord) (
 		if !ok {
 			return failure(502, "flow_credits_missing")
 		}
-		reading = flowReadingOf(payload, credits, service.now())
+		reading = service.keepFlowReading(record.SourceAuthID, payload, credits, mark)
 		return nil
 	})
-	if err == nil {
-		service.flowMu.Lock()
-		if service.flowReadings == nil {
-			service.flowReadings = map[string]flowReading{}
-		}
-		service.flowReadings[record.SourceAuthID] = reading
-		service.flowMu.Unlock()
-	}
 	return reading, err
+}
+
+// keepFlowReading keeps a GetCredits answer as the account's latest balance.
+func (service *service) keepFlowReading(account string, payload any, credits int, mark flowSpendMark) flowReading {
+	reading := flowReadingOf(payload, credits)
+	reading.observedAt, reading.spends = service.now(), mark
+	service.flowMu.Lock()
+	defer service.flowMu.Unlock()
+	if service.flowReadings == nil {
+		service.flowReadings = map[string]flowReading{}
+	}
+	service.flowReadings[account] = reading
+	return reading
 }
 
 func (service *service) lastFlowReading(account string) (flowReading, bool) {
@@ -91,15 +103,31 @@ func (service *service) lastFlowReading(account string) (flowReading, bool) {
 	return reading, found
 }
 
-// markFlowSpend runs before and after every request that may spend credits, so
-// a reading taken before or during it no longer stands for the balance.
-func (service *service) markFlowSpend() {
+// beginFlowSpend runs as a request that may spend credits begins; the function
+// it returns runs as the request ends.
+func (service *service) beginFlowSpend() func() {
+	service.flowMu.Lock()
+	service.flowSpending++
+	service.flowSpendSequence++
+	service.flowMu.Unlock()
+	return func() {
+		service.flowMu.Lock()
+		service.flowSpending--
+		service.flowSpendSequence++
+		service.flowMu.Unlock()
+	}
+}
+
+func (service *service) flowSpendSnapshot() flowSpendMark {
 	service.flowMu.Lock()
 	defer service.flowMu.Unlock()
-	for account, reading := range service.flowReadings {
-		reading.current = false
-		service.flowReadings[account] = reading
-	}
+	return flowSpendMark{sequence: service.flowSpendSequence, idle: service.flowSpending == 0}
+}
+
+// flowReadingCurrent reports whether reading is still the balance: no request
+// that may spend credits was running when it was taken or has run since.
+func (service *service) flowReadingCurrent(reading flowReading) bool {
+	return reading.spends.idle && reading.spends.sequence == service.flowSpendSnapshot().sequence
 }
 
 type flowAccountView struct {
@@ -162,6 +190,10 @@ func (service *service) flowStatus(ctx context.Context, request managementReques
 			switch {
 			case strings.HasSuffix(code, "busy"):
 				view.Status = "busy"
+				// A Gemini turn holds the account; it spends no Flow credits.
+				if last, known := service.lastFlowReading(id); known {
+					view.Credits, view.Tier, view.ObservedAt = &last.credits, last.tier, last.observedAt.Unix()
+				}
 			case strings.Contains(code, "unauthenticated") || strings.Contains(code, "credential_identity_invalid"):
 				view.Status = "expired"
 			}

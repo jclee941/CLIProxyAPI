@@ -189,42 +189,68 @@ func TestFlowQuotaAnswersABusyLeaseWithTheCurrentReading(t *testing.T) {
 	}
 }
 
-func TestFlowQuotaRereadsTheBalanceAfterFlowMaySpendCredits(t *testing.T) {
+func TestFlowQuotaAnswersABusyLeaseAtOnceAfterFlowMaySpendCredits(t *testing.T) {
 	// Given: a reading, then a Flow request that may spend credits.
 	fixture := newFlowFixture(t)
 	flowCreditsReply(t, fixture, flowLiveCredits)
 	service, record := flowService(t, fixture)
 	waits := flowClock(service)
-	flowQuotaRead(t, flowQuotaFetch(t, service, record))
+	before := flowQuotaRead(t, flowQuotaFetch(t, service, record))
 	invoke(t, service, "frontend_http.handle", flowHTTPRequest{Method: "POST", Path: "/v1/flow/projects"})
 	flowCreditsReply(t, fixture, "[20000,2,3,3,null,20000,[1794739096,0]]")
-	flowBusyFor(fixture, 2)
+	flowBusyFor(fixture, 1)
 
-	// When: the quota is read while the lease is briefly busy.
-	quota := flowQuotaRead(t, flowQuotaFetch(t, service, record))
+	// When: the quota is read while a Gemini turn holds the lease, then after it.
+	during := flowQuotaRead(t, flowQuotaFetch(t, service, record))
+	after := flowQuotaRead(t, flowQuotaFetch(t, service, record))
 
-	// Then: the lookup waits for the lease and reports the new balance.
-	if *waits == 0 || quota.Groups[0].Buckets[0].RemainingFraction != 0.8 {
-		t.Fatalf("lookup after a spend waited %d times and answered %+v", *waits, quota)
+	// Then: the busy lookup answers the last reading at once, and the next
+	// lookup reads the new balance.
+	if *waits != 0 || during.Groups[0].Buckets[0].RemainingFraction != before.Groups[0].Buckets[0].RemainingFraction {
+		t.Fatalf("busy lookup waited %d times and answered %+v", *waits, during)
+	}
+	if after.Groups[0].Buckets[0].RemainingFraction != 0.8 {
+		t.Fatalf("lookup after the turn = %+v", after)
 	}
 }
 
-func TestFlowQuotaAnswersTheLastReadingWhenTheTurnOutlastsTheWait(t *testing.T) {
+func TestFlowQuotaWaitsForTheLeaseOnlyWithoutAReading(t *testing.T) {
 	fixture := newFlowFixture(t)
 	flowCreditsReply(t, fixture, flowLiveCredits)
 	service, record := flowService(t, fixture)
 	waits := flowClock(service)
-	before := flowQuotaRead(t, flowQuotaFetch(t, service, record))
-	service.markFlowSpend()
-	flowBusyFor(fixture, 1000)
+	flowBusyFor(fixture, 2)
 
 	quota := flowQuotaRead(t, flowQuotaFetch(t, service, record))
 
-	if want := int(flowQuotaLeaseWait / flowLeasePoll); *waits != want {
-		t.Fatalf("lookup waited %d times, want %d", *waits, want)
+	if *waits == 0 || math.Abs(quota.Groups[0].Buckets[0].RemainingFraction-24245.0/25000.0) > 1e-9 {
+		t.Fatalf("first lookup behind a busy lease waited %d times and answered %+v", *waits, quota)
 	}
-	if quota.Groups[0].Buckets[0].RemainingFraction != before.Groups[0].Buckets[0].RemainingFraction {
-		t.Fatalf("last reading = %+v", quota)
+}
+
+func TestFlowReadingStandsForTheBalanceOnlyWithoutASpendSinceIt(t *testing.T) {
+	service := newService(nil)
+	service.now = func() time.Time { return time.Unix(1792000000, 0) }
+	var payload any
+	if err := json.Unmarshal([]byte(flowLiveCredits), &payload); err != nil {
+		t.Fatal(err)
+	}
+	read := func() flowReading {
+		return service.keepFlowReading("account", payload, 24245, service.flowSpendSnapshot())
+	}
+
+	quiet := read()
+	end := service.beginFlowSpend()
+	during := read()
+	if service.flowReadingCurrent(quiet) || service.flowReadingCurrent(during) {
+		t.Fatal("a reading stood for the balance while Flow may spend credits")
+	}
+	end()
+	if service.flowReadingCurrent(during) {
+		t.Fatal("a reading taken during a spend stood for the balance after it")
+	}
+	if !service.flowReadingCurrent(read()) {
+		t.Fatal("a reading taken after the spend is not the balance")
 	}
 }
 

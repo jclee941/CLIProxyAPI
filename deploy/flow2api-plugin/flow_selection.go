@@ -124,12 +124,13 @@ func (service *service) selectFlowOptions(ctx context.Context, record storageRec
 	}
 	var usages []flowModelUsage
 	err := service.withFlowSession(ctx, record, func(session *flowSession) error {
+		mark := service.flowSpendSnapshot()
 		credits, err := session.rpc(ctx, "nzlxg", []any{}, flowProjectsPath, "")
 		if err != nil {
 			return err
 		}
 		if balance, ok := flowCredits(credits); ok {
-			service.recordFlowBalance(record.SourceAuthID, balance)
+			service.keepFlowReading(record.SourceAuthID, credits, balance, mark)
 		}
 		var valid bool
 		if selection.tier, valid = jsonInteger(jsonField(credits, 3)); !valid || selection.tier < 1 || selection.tier > 3 {

@@ -108,6 +108,37 @@ func TestFlowStatusReportsBusyLeaseWithoutWaiting(t *testing.T) {
 	}
 }
 
+func TestFlowStatusKeepsTheLatestBalanceWhileBusy(t *testing.T) {
+	// Given: a balance read before a Gemini turn took the source account's lease.
+	fixture := newFlowFixture(t)
+	service, _ := flowService(t, fixture)
+	service.now = func() time.Time { return time.Unix(1700000000, 0) }
+	if _, err := service.flowStatus(context.Background(), managementRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	fixture.mu.Lock()
+	fixture.busyRPC, fixture.busyRemaining = "nzlxg", 1
+	fixture.mu.Unlock()
+	service.now = func() time.Time { return time.Unix(1700000300, 0) }
+
+	// When: the accounts are listed during the turn.
+	result, err := service.flowStatus(context.Background(), managementRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then: the account shows busy with the balance and the time it was read.
+	var response struct {
+		Accounts []flowAccountView `json:"accounts"`
+	}
+	if err := json.Unmarshal(jsonFixture(t, result), &response); err != nil {
+		t.Fatal(err)
+	}
+	if account := response.Accounts[0]; account.Status != "busy" || account.Credits == nil || *account.Credits != 142 || account.ObservedAt != 1700000000 {
+		t.Fatalf("busy account listed as %+v", account)
+	}
+}
+
 func TestFlowStatusKeepsFailedCreditLookupUnknown(t *testing.T) {
 	fixture := newFlowFixture(t)
 	fixture.mu.Lock()

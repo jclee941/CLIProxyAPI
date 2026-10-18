@@ -42,21 +42,10 @@ func (service *service) pauseLowPriority(account string) {
 // for work the caller asks to run at normal priority.
 const flowFallbackCreditFloor = 5000
 
-func (service *service) recordFlowBalance(account string, credits int) {
-	service.flowMu.Lock()
-	defer service.flowMu.Unlock()
-	if service.flowCreditBalance == nil {
-		service.flowCreditBalance = map[string]int{}
-	}
-	service.flowCreditBalance[account] = credits
-}
-
 // lowPriorityFallback refuses the normal-priority fallback below the credit
-// floor, judged by the balance the latest model selection read.
+// floor, judged by the latest balance read.
 func (service *service) lowPriorityFallback(account string) error {
-	service.flowMu.Lock()
-	defer service.flowMu.Unlock()
-	if service.flowCreditBalance[account] >= flowFallbackCreditFloor {
+	if reading, _ := service.lastFlowReading(account); reading.credits >= flowFallbackCreditFloor {
 		return nil
 	}
 	message := fmt.Sprintf("flow_credit_floor_reached: Flow refused low priority, and normal priority is not used below %d credits", flowFallbackCreditFloor)

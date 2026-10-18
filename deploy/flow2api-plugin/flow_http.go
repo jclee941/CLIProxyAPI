@@ -140,8 +140,7 @@ func (service *service) flowHTTP(ctx context.Context, raw []byte) (httpResponse,
 		err = failure(400, "flow_request_invalid")
 	} else {
 		if request.Method != http.MethodGet {
-			service.markFlowSpend()
-			defer service.markFlowSpend()
+			defer service.beginFlowSpend()()
 		}
 		response, err = service.flowHTTPRoute(ctx, request)
 	}

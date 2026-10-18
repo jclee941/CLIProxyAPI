@@ -79,32 +79,31 @@ func (service *service) quotaFetch(ctx context.Context, raw []byte) (interface{}
 		return nil, failure(403, "flow_account_not_enabled")
 	}
 	balance, err := service.flowBalance(withoutLeaseWait(ctx), record)
+	earlier := false
 	if safeCredentialCode(err) == "flow_session_exchange_busy" {
-		balance, err = service.flowBalanceBehindLease(ctx, record)
+		balance, earlier, err = service.flowBalanceBehindLease(ctx, record)
 	}
 	if err != nil {
 		return nil, err
 	}
-	return flowQuota(balance), nil
+	return flowQuota(balance, earlier), nil
 }
 
 // flowBalanceBehindLease answers while a Gemini turn holds the source account's
-// lease. Such a turn spends no Flow credits, so a reading taken since Flow last
-// ran is still the balance. Otherwise the lookup waits for the lease and, when
-// the turn outlasts the wait, answers with the last reading and its age.
-func (service *service) flowBalanceBehindLease(ctx context.Context, record storageRecord) (flowReading, error) {
-	last, known := service.lastFlowReading(record.SourceAuthID)
-	if known && last.current {
-		return last, nil
+// lease. Such a turn spends no Flow credits, so the latest reading answers at
+// once, reporting whether Flow may have spent credits since it was taken. Only
+// an account without any reading waits for the lease.
+func (service *service) flowBalanceBehindLease(ctx context.Context, record storageRecord) (flowReading, bool, error) {
+	if last, known := service.lastFlowReading(record.SourceAuthID); known {
+		return last, !service.flowReadingCurrent(last), nil
 	}
 	balance, err := service.flowBalance(withLeaseWait(ctx, flowQuotaLeaseWait), record)
-	if known && safeCredentialCode(err) == "flow_session_exchange_busy" {
-		return last, nil
-	}
-	return balance, err
+	return balance, false, err
 }
 
-func flowQuota(balance flowReading) quotaFetchResponse {
+// flowQuota reports balance. A balance read before Flow may have spent credits
+// dates its window description with the time it was read.
+func flowQuota(balance flowReading, earlier bool) quotaFetchResponse {
 	response := quotaFetchResponse{}
 	if balance.tier != nil {
 		response.Subscription = &quotaSubscription{TierID: strconv.Itoa(*balance.tier)}
@@ -122,7 +121,7 @@ func flowQuota(balance flowReading) quotaFetchResponse {
 		if !balance.refreshAt.IsZero() {
 			bucket.ResetTime = balance.refreshAt.Format(time.RFC3339)
 		}
-		if !balance.current {
+		if earlier {
 			bucket.Description += ", read " + balance.observedAt.UTC().Format(time.RFC3339)
 		}
 		response.Groups = []quotaGroup{{DisplayName: "Google Flow", Buckets: []quotaBucket{bucket}}}
