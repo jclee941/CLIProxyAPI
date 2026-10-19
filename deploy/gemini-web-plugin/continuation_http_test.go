@@ -52,6 +52,9 @@ type continuationWebFixture struct {
 	refuseMode float64
 	// replyLanguage is what slot 9 of a prose candidate carries; empty leaves it unset.
 	replyLanguage string
+	// streamUnsettled closes the submit stream while its candidate still reads
+	// as in progress; the conversation read has the settled one.
+	streamUnsettled bool
 	// usage and budget are the jSf9Qc and CheckGxuBudget bodies a turn reads
 	// after it ends; nil answers with no windows and no cap.
 	usage        []any
@@ -135,7 +138,12 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 				candidate[0] = fmt.Sprintf("rc_%d", n)
 			}
 			fixture.candidates = append(fixture.candidates, candidate)
-			frame := slots(26, map[int]any{1: []any{"c_chat", fmt.Sprintf("r_%d", n)}, 4: []any{candidate}, 25: fmt.Sprintf("context_%d", n)})
+			streamed := candidate
+			if fixture.streamUnsettled && len(candidate) > 8 {
+				streamed = append([]any(nil), candidate...)
+				streamed[8] = []any{1}
+			}
+			frame := slots(26, map[int]any{1: []any{"c_chat", fmt.Sprintf("r_%d", n)}, 4: []any{streamed}, 25: fmt.Sprintf("context_%d", n)})
 			if fixture.missingHandles {
 				frame[1] = nil
 			}

@@ -247,11 +247,9 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 				return nil, err
 			}
 			lines, shapes = 0, nil
-			var answered any
 			session.generationFrame = func(raw []byte) error {
 				lines, shapes = lines+1, frameShapes(shapes, raw)
 				diag.observeFrame(raw)
-				answered = lastFrameCandidate(raw, answered)
 				updated, err := continuationFrame(turn, raw)
 				if err != nil {
 					return err
@@ -293,15 +291,15 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 				}
 				return continuationResponse(turn.Model, view, nil)
 			}
-			var refusal error
-			if answered != nil {
-				_, refusal = webParseVideoCandidate(answered)
-			}
-			standard, again := standardModeFallback(options.VideoMode, model, account, diag, refusal)
-			if refused != nil || !again || turn.Conversation == "" || turn.Reply == "" {
+			if refused != nil || turn.Conversation == "" || turn.Reply == "" || !proseFallbackEligible(options.VideoMode, model, diag) {
 				break
 			}
-			service.reportVideoTurn(diag, videoOutcome(refusal))
+			outcome := session.settledOutcome(ctx, turn)
+			standard, again := standardModeFallback(account, outcome)
+			if !again {
+				break
+			}
+			service.reportVideoTurn(diag, videoOutcome(outcome))
 			attempt := turn
 			refused, model = &attempt, standard
 			turn.Conversation, turn.Reply, turn.Candidate, turn.Metadata = "", "", "", ""

@@ -1,26 +1,51 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 )
 
-// standardModeFallback is the capability a video turn is made on again, and
-// whether to make it, after the mode configured as the default answered the turn
-// in prose instead of calling the video tool. From 22:35 KST on 2026-10-19 4 Argon
-// answered nearly every video turn with the product's text-model reply while 3.8
-// Flash made the same requests' videos in the same minute, so the operator chose
-// to make such a turn on the standard mode at once (2026-10-20). A mode the caller
-// named is never replaced. A reply with no language in slot 9 came from the video
-// tool itself, and a limit the product named holds on every model, so neither is
-// sent again.
-func standardModeFallback(requested int, used capability, account webAccount, diag *videoTurnDiag, refusal error) (capability, bool) {
+// proseFallbackEligible reports whether a video turn may be made again on the
+// standard mode once the product has answered it: the request named no mode,
+// the mode configured as the default is not the standard one, and the reply came
+// as prose, which names its language in candidate slot 9. From 22:35 KST on
+// 2026-10-19 4 Argon answered nearly every video turn with the product's
+// text-model reply while 3.8 Flash made the same requests' videos in the same
+// minute, so the operator chose to make such a turn on the standard mode at once
+// (2026-10-20). A mode the caller named is never replaced, and a reply with no
+// language came from the video tool itself, which another model would meet too.
+func proseFallbackEligible(requested int, used capability, diag *videoTurnDiag) bool {
+	return requested == 0 && used.Mode != 1 && diag != nil && diag.hasS9v
+}
+
+// standardModeFallback is the capability an eligible turn is made on again, and
+// whether to make it, given how the turn ended. Only a turn that ended without a
+// video is sent again, and not when the product named a limit, which holds on
+// every model.
+func standardModeFallback(account webAccount, outcome error) (capability, bool) {
 	var public *publicError
-	if requested != 0 || used.Mode == 1 || diag == nil || !diag.hasS9v ||
-		!errors.As(refusal, &public) || public.Code != "no_video_generated" || webVideoLimitReply(public.Message) {
+	if !errors.As(outcome, &public) || public.Code != "no_video_generated" || webVideoLimitReply(public.Message) {
 		return capability{}, false
 	}
 	return webVideoCapability(account)
+}
+
+// settledOutcome reads a submitted turn back once and reports how it ended: nil
+// while it is still producing a video or has one, its refusal, or why it could
+// not be read. The stream can close before the reply settles, so the
+// conversation read decides, as it does for the turn's own result.
+func (session *webSession) settledOutcome(ctx context.Context, turn continuationTurn) error {
+	turns, err := session.rpc(ctx, webVideoTurnsRPC, []any{turn.Conversation, 32, nil, 1, []any{1}, []any{4}, nil, 1})
+	if err != nil {
+		return err
+	}
+	candidate, err := continuationCandidate(turn, turns)
+	if err != nil {
+		return err
+	}
+	_, err = webParseVideoCandidate(candidate)
+	return err
 }
 
 // fallbackAddress is where a turn made again on the standard mode is sent: in
@@ -45,19 +70,4 @@ func fallbackAddress(parent string, refused continuationTurn) ([]any, error) {
 		address[9] = context
 	}
 	return address, nil
-}
-
-// lastFrameCandidate is the newest candidate a generation line carries, or the
-// one seen before it when the line carries none.
-func lastFrameCandidate(raw []byte, seen any) any {
-	frames, err := webResponseFrames(raw)
-	if err != nil {
-		return seen
-	}
-	for _, frame := range frames {
-		if candidate := jsonField(frame, 4, 0); candidate != nil {
-			seen = candidate
-		}
-	}
-	return seen
 }

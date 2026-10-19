@@ -90,6 +90,25 @@ func TestAnArgonProseAnswerIsMadeAgainOnFlashInPlaceOfTheRefusedFirstMessage(t *
 	assertTurnReports(t, diag, "no_video kind=first capability=4 Argon mode=8", "video kind=fallback capability=3.8 Flash mode=1")
 }
 
+func TestAProseAnswerTheStreamLeftUnsettledIsReadBackBeforeTheFallback(t *testing.T) {
+	// Given Argon's prose answer still reading as in progress when the submit stream closes.
+	service, local, fixture, diag := fallbackFixture(t)
+	fixture.mu.Lock()
+	fixture.streamUnsettled = true
+	fixture.mu.Unlock()
+
+	// When a first turn names no video mode.
+	interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`))
+
+	// Then the conversation read settles the refusal and Flash makes the video.
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.fields) != 2 || fixture.fields[1][79] != float64(1) || fixture.fields[1][72] != float64(webRequestEdit) {
+		t.Fatalf("submissions = %d", len(fixture.fields))
+	}
+	assertTurnReports(t, diag, "no_video kind=first capability=4 Argon", "video kind=fallback capability=3.8 Flash")
+}
+
 func TestAnArgonProseAnswerToAnExtensionIsMadeAgainOnFlashFromTheSameParent(t *testing.T) {
 	// Given a first turn Argon made, after which Argon answers in prose.
 	service, local, fixture, diag := fallbackFixture(t)
