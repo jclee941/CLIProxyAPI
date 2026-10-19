@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestAFirstEntrySkipsAccountsPastTheirUsageCeilings(t *testing.T) {
+func TestAFirstEntrySkipsOnlyAccountsPastTheirFiveHourCeiling(t *testing.T) {
 	// Given one account at 80% of its five hours, one at 90% of its week and one
 	// just below both, each with units enough for a room.
 	service, local := continuationFixture(t)
@@ -38,9 +38,10 @@ func TestAFirstEntrySkipsAccountsPastTheirUsageCeilings(t *testing.T) {
 		chosen[pick.AuthID]++
 	}
 
-	// Then only the account below both ceilings takes them.
-	if chosen[below.ID] != 6 {
-		t.Fatalf("a first entry reached an account past its ceilings: %+v", chosen)
+	// Then the account at 80% of its five hours takes none, and the one at 90% of
+	// its week shares them with the account below both.
+	if chosen[local.Target.ID] != 0 || chosen[week.ID] != 3 || chosen[below.ID] != 3 {
+		t.Fatalf("a first entry was not held to the five hour ceiling alone: %+v", chosen)
 	}
 }
 

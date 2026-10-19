@@ -111,12 +111,13 @@ func (service *service) affordsVideos(id string, videos int) bool {
 	return (!roomKnown || snapshot.roomUnits >= need) && (!weekKnown || snapshot.weekUnits >= need)
 }
 
-// A first entry only opens a room on an account below both ceilings: 80% of its
-// five hour window and 90% of its week (operator decision 2026-09-29).
-const (
-	firstEntryRoomCeiling = 0.80
-	firstEntryWeekCeiling = 0.90
-)
+// A first entry only opens a room on an account below 80% of its five hour
+// window (operator decision 2026-09-29). The week has no such ceiling: on
+// 2026-10-19 an account at 91% of its week sat out every new room with its five
+// hours unused and units left for more than a dozen videos, so the operator
+// removed it. A spent week, or one short of the whole room, still holds an
+// account out.
+const firstEntryRoomCeiling = 0.80
 
 // belowFirstEntryCeilings reports whether a new request may go to the account.
 // A window with no reading, or one that has turned over since, counts as below.
@@ -129,8 +130,7 @@ func (service *service) belowFirstEntryCeilings(id string) bool {
 	}
 	now := service.now().Unix()
 	roomFull := snapshot.roomUsedSeen && !turnedOver(snapshot.turnover, now) && snapshot.roomUsed >= firstEntryRoomCeiling
-	weekFull := snapshot.weekUsedSeen && !turnedOver(snapshot.weekTurnover, now) && snapshot.weekUsed >= firstEntryWeekCeiling
-	return !roomFull && !weekFull
+	return !roomFull
 }
 
 func turnedOver(reset, now int64) bool {
