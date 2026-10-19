@@ -50,6 +50,11 @@ type interactionRequest struct {
 		// chat, which the product keeps out of recent chats and personalization. A
 		// continuation inherits its conversation's setting.
 		TemporaryChat bool `json:"temporary_chat,omitempty"`
+		// RoomVideos is this gateway's extension: how many videos the room a new
+		// interaction opens will make, 1 to roomTurns. A caller that films every
+		// clip in a chat of its own sends 1, and the room is admitted on one video's
+		// cost. Absent, a room is held to roomTurns.
+		RoomVideos int `json:"room_videos,omitempty"`
 	} `json:"generation_config,omitempty"`
 }
 
@@ -76,6 +81,10 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 	}
 	if task := request.GenerationConfig.VideoConfig.Task; task != "" && task != interactionExtendTask {
 		return request, nil, failure(400, "interaction_task_unsupported")
+	}
+	// A room's size is known only when it opens; a continuation already has its room.
+	if videos := request.GenerationConfig.RoomVideos; videos < 0 || videos > roomTurns || videos > 0 && request.Previous != "" {
+		return request, nil, failure(400, "interaction_room_videos_unsupported")
 	}
 	var prompt string
 	var references []webMedia

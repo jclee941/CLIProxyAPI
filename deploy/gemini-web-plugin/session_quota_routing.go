@@ -48,7 +48,8 @@ type quotaSnapshot struct {
 }
 
 // roomTurns is how many videos a native room makes on the account that opens
-// it: the clip and the two extensions a scene asks for.
+// it: the clip and the two extensions a scene asks for. A new interaction may
+// declare a smaller room through generation_config.room_videos.
 const roomTurns = 3
 
 // defaultGenerationUnits stands in for the cost of a video until one has been
@@ -87,7 +88,13 @@ func (service *service) generationUnits() float64 {
 // them, since the room stays pinned there. An account with no reading stays
 // eligible, as the rotation treats it.
 func (service *service) affordsARoom(id string) bool {
-	need := roomTurns * service.generationUnits()
+	return service.affordsVideos(id, roomTurns)
+}
+
+// affordsVideos reports whether an account can pay for a room of the given
+// number of videos in both windows.
+func (service *service) affordsVideos(id string, videos int) bool {
+	need := float64(videos) * service.generationUnits()
 	service.quota.mu.RLock()
 	snapshot, found := service.quota.entries[id]
 	service.quota.mu.RUnlock()

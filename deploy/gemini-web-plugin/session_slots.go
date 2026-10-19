@@ -13,6 +13,11 @@ var slotCursor atomic.Uint64
 // whose session is pinned or fenced, and every one of those fails in
 // milliseconds, so the fleet looks intermittent while healthy accounts idle.
 func (service *service) pickServableAccount(model string, candidates []struct{ ID, Provider string }) continuationPick {
+	return service.pickRoomAccount(model, candidates, roomTurns)
+}
+
+// pickRoomAccount is pickServableAccount for a video room of the given size.
+func (service *service) pickRoomAccount(model string, candidates []struct{ ID, Provider string }, roomVideos int) continuationPick {
 	store := service.localStore()
 	if store == nil || len(candidates) == 0 {
 		return continuationPick{}
@@ -47,7 +52,7 @@ func (service *service) pickServableAccount(model string, candidates []struct{ I
 	// A video room stays on the account that opens it, so it only opens where the
 	// whole room is paid for; with no such account there is no room to open.
 	if video {
-		eligible = slices.DeleteFunc(eligible, func(id string) bool { return !service.affordsARoom(id) })
+		eligible = slices.DeleteFunc(eligible, func(id string) bool { return !service.affordsVideos(id, roomVideos) })
 	}
 	var idle, busy, reserved []string
 	for _, id := range eligible {

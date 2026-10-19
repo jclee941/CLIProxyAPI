@@ -5,10 +5,16 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 )
 
 const continuationHeader = "X-Gemini-Web-Continuation"
+
+// roomVideosHeader carries the room size the interceptor read from a new
+// interaction's generation_config.room_videos to the scheduler, which receives
+// headers but not the body. A caller-supplied copy is always cleared.
+const roomVideosHeader = "X-Gemini-Web-Room-Videos"
 
 func (service *service) interceptContinuation(raw []byte) requestInterceptResponse {
 	var request struct {
@@ -29,7 +35,7 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 	}
 	// A research continuation goes to the account holding its conversation.
 	if request.Model == webResearchModel && request.SourceFormat == "interactions" {
-		response := requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader}}
+		response := requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader, roomVideosHeader}}
 		var research struct {
 			Previous string `json:"previous_interaction_id"`
 		}
@@ -40,8 +46,10 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 	}
 	if request.Model != interactionOmniModel && request.RequestedModel != interactionOmniModel {
 		response := interceptRequest(raw)
-		if request.Headers.Get(continuationHeader) != "" {
-			response.ClearHeaders = []string{continuationHeader}
+		for _, header := range []string{continuationHeader, roomVideosHeader} {
+			if request.Headers.Get(header) != "" {
+				response.ClearHeaders = append(response.ClearHeaders, header)
+			}
 		}
 		return response
 	}
@@ -62,18 +70,30 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 		if err != nil {
 			return interactionRejection(err)
 		}
-		return requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader}, Headers: http.Header{continuationHeader: {body.ID}, interactionRetrieveHeader: {"true"}}}
+		return requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader, roomVideosHeader}, Headers: http.Header{continuationHeader: {body.ID}, interactionRetrieveHeader: {"true"}}}
 	}
 	body, _, err := parseInteraction(request.Body)
 	if err != nil {
 		return interactionRejection(err)
 	}
-	response := requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader}}
+	response := requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader, roomVideosHeader}}
 	// Continuations prefer the account that owns the conversation.
 	if body.Previous != "" {
 		response.Headers = http.Header{continuationHeader: {body.Previous}}
+	} else if videos := body.GenerationConfig.RoomVideos; videos > 0 {
+		response.Headers = http.Header{roomVideosHeader: {strconv.Itoa(videos)}}
 	}
 	return response
+}
+
+// roomVideos is the room size the interceptor derived for a new interaction,
+// or a whole room when it derived none.
+func roomVideos(header string) int {
+	videos, err := strconv.Atoi(header)
+	if err != nil || videos < 1 || videos > roomTurns {
+		return roomTurns
+	}
+	return videos
 }
 
 func interactionRejection(err error) requestInterceptResponse {
@@ -173,7 +193,7 @@ func (service *service) pickContinuation(raw []byte) (picked continuationPick, e
 				return !service.belowFirstEntryCeilings(candidate.ID)
 			})
 		}
-		pick := service.pickServableAccount(request.Model, candidates)
+		pick := service.pickRoomAccount(request.Model, candidates, roomVideos(request.Options.Headers.Get(roomVideosHeader)))
 		if !pick.Handled && video {
 			return continuationPick{}, failure(409, "account_unavailable")
 		}
