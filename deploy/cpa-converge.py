@@ -303,7 +303,24 @@ def swap(settings: Settings, change: PluginChange, commit: str) -> pathlib.Path:
         if old != target:
             old.rename(old.with_name(f"{old.name}.prev-g{commit}"))
     os.replace(staged, target)
+    prune_replaced(settings.plugin_dir, change.id)
     return target
+
+
+REPLACED_KEPT = 3
+
+
+def prune_replaced(plugin_dir: pathlib.Path, plugin_id: str) -> None:
+    """Keeps the newest replaced files of a plugin and deletes the older ones.
+
+    Nothing loads a replaced file and the converger never restores one, so
+    every swap used to leave one more plugin-sized file behind for good.
+    """
+    pattern = re.escape(plugin_id) + r"(-v[0-9][0-9A-Za-z.+-]*)?\.so\.prev.*"
+    replaced = [path for path in plugin_dir.iterdir() if path.is_file() and re.fullmatch(pattern, path.name)]
+    replaced.sort(key=lambda path: path.stat().st_mtime_ns, reverse=True)
+    for path in replaced[REPLACED_KEPT:]:
+        path.unlink()
 
 
 def wait_until(settings: Settings, check) -> bool:

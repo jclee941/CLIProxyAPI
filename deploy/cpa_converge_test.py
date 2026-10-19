@@ -304,6 +304,24 @@ class ConvergeTest(unittest.TestCase):
         self.assertEqual([path.read_bytes() for path in converge_module.loadable(fixture.plugins, "gw")], [b"gw-new"])
         self.assertEqual((fixture.plugins / f"gw-v0.1.0.1.so.prev-g{fixture.commit}").read_bytes(), b"gw-old")
 
+    def test_a_swap_keeps_only_the_newest_replaced_files_of_its_plugin(self) -> None:
+        fixture = host(self)
+        fixture.live("gw", b"gw-old")
+        for age in range(5):
+            older = fixture.plugins / f"gw-v0.1.0.0.g000000{age}.so.prev-g111111{age}"
+            older.write_bytes(b"gw-older")
+            os.utime(older, ns=(age * 10**9, age * 10**9))
+        other = fixture.plugins / "cw-v0.1.0.0.g0000000.so.prev-g1111110"
+        other.write_bytes(b"cw-older")
+        os.utime(other, ns=(0, 0))
+
+        self.assertEqual(converge_module.converge(fixture.settings), 0)
+
+        kept = sorted(path.name for path in fixture.plugins.iterdir() if path.name.startswith("gw-") and ".so.prev" in path.name)
+        self.assertEqual(kept, sorted([f"gw-v0.1.0.1.so.prev-g{fixture.commit}", "gw-v0.1.0.0.g0000004.so.prev-g1111114", "gw-v0.1.0.0.g0000003.so.prev-g1111113"]))
+        self.assertEqual(other.read_bytes(), b"cw-older")
+        self.assertEqual([path.read_bytes() for path in converge_module.loadable(fixture.plugins, "gw")], [b"gw-new"])
+
     def test_a_host_that_does_not_come_back_gets_one_restart_and_no_rollback(self) -> None:
         fixture = host(self)
         fixture.live("gw", b"gw-old")
