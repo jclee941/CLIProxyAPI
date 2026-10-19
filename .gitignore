@@ -60,6 +60,8 @@ _bmad/*
 _bmad-output/*
 .gocache/
 .gitnexus/
+.omo/
+.qa/
 
 # macOS
 .DS_Store
