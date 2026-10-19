@@ -175,10 +175,6 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		if turn.Model == omniModel {
 			newTurnID = webVideoTurnID
 		}
-		nonce, err := newTurnID()
-		if err != nil {
-			return nil, err
-		}
 		sources, err := service.mediaSources(ctx, media, execution.request.Metadata.CallerScope)
 		if err != nil {
 			return nil, err
@@ -187,96 +183,128 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		if err != nil {
 			return nil, err
 		}
-		fields := webGenerationFields(prompt, model.Mode, webThinkingDefault, nonce, attachments)
-		if turn.Model == omniModel {
-			turn.VideoWire = turn.wireMode(service.settings().VideoWireMode).variant(execution.key, account.CapacityFlags)
-			session.videoWire = turn.VideoWire
-			fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing(), options.thinking(), language, attachments)
-			fields = turn.VideoWire.fields(fields)
-			if options.VideoTool {
-				fields = webMentionVideoTool(fields)
-			}
-			if turn.TemporaryChat {
-				fields[45] = 1
-			}
-		}
-		if turn.Parent != "" {
-			var metadata []any
-			if json.Unmarshal([]byte(turn.Parent), &metadata) != nil {
-				return nil, failure(503, "continuation_store_corrupt")
-			}
-			latest, edit, errEdit := continuationEdit(execution.turns, execution.key, metadata)
-			if errEdit != nil {
-				return nil, errEdit
-			}
-			diagKind = "extension"
-			if edit {
-				diagKind = "edit"
-				if latest != "" {
-					metadata[9] = latest
-				}
-				fields[72] = webRequestEdit
-			}
-			fields[2] = metadata
-		}
-		if turn.Model == omniModel {
-			diag = newVideoTurnDiag(service.recordAccountName(execution.local.Target), diagKind, account, model, options.framing(), options.thinking(), language)
-			session.diag = diag
-		}
-		encoded, err := json.Marshal(fields)
-		if err != nil {
-			return nil, err
-		}
-		turn.State, turn.StartedAt = "submitting", service.now().Unix()
-		turn.Summary = webTurnSummary(prompt, attachments)
-		execution.local.State, execution.local.ContinuationActive = localSubmitting, execution.key
-		execution.turns[execution.key] = turn
-		if err := service.saveContinuations(execution.local, execution.turns); err != nil {
-			return nil, err
-		}
-		session.generationFrame = func(raw []byte) error {
-			lines, shapes = lines+1, frameShapes(shapes, raw)
-			diag.observeFrame(raw)
-			updated, err := continuationFrame(turn, raw)
+		// refused is the attempt the configured mode answered in prose; the turn's
+		// one resend on the standard mode replaces it (see standardModeFallback).
+		var refused *continuationTurn
+		for {
+			nonce, err := newTurnID()
 			if err != nil {
-				return err
+				return nil, err
 			}
-			if updated == turn {
-				return nil
-			}
-			turn = updated
-			execution.turns[execution.key] = turn
-			return service.saveContinuations(execution.local, execution.turns)
-		}
-		named := nonce
-		if turn.Model == omniModel {
-			named = ""
-		}
-		_, submitErr := session.postGeneration(ctx, string(encoded), account, model, language, named, 0)
-		session.generationFrame = nil
-		if submitErr != nil {
-			view.State, view.Error = "pending", safeCredentialCode(submitErr)
-			if turn.Conversation == "" || turn.Reply == "" {
-				// The stream died before it named an operation, so there is
-				// nothing for recovery to find and nothing to protect. An
-				// operation is named by its conversation and its reply alone:
-				// recovery matches the reply and reads whichever candidate the
-				// reply currently carries, so a candidate that had not arrived
-				// before the stream closed is not a missing operation. Holding
-				// the account until the generation budget expires only takes it
-				// out of rotation for ten minutes on a turn already known to be
-				// unobservable, which is how a healthy fleet runs out of accounts.
-				view.State = "outcome_unknown"
-				service.reportUnnamed(view.Error, turn, lines, shapes)
-				service.reportVideoTurn(diag, view.Error)
-				if releaseErr := service.releaseAfter(execution, turn, "no_operation"); releaseErr != nil {
-					return nil, releaseErr
+			fields := webGenerationFields(prompt, model.Mode, webThinkingDefault, nonce, attachments)
+			if turn.Model == omniModel {
+				turn.VideoWire = turn.wireMode(service.settings().VideoWireMode).variant(execution.key, account.CapacityFlags)
+				session.videoWire = turn.VideoWire
+				fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing(), options.thinking(), language, attachments)
+				fields = turn.VideoWire.fields(fields)
+				if options.VideoTool {
+					fields = webMentionVideoTool(fields)
+				}
+				if turn.TemporaryChat {
+					fields[45] = 1
 				}
 			}
-			if view.State == "pending" {
-				service.stashVideoDiag(execution.key, diag)
+			if turn.Parent != "" {
+				var metadata []any
+				if json.Unmarshal([]byte(turn.Parent), &metadata) != nil {
+					return nil, failure(503, "continuation_store_corrupt")
+				}
+				latest, edit, errEdit := continuationEdit(execution.turns, execution.key, metadata)
+				if errEdit != nil {
+					return nil, errEdit
+				}
+				diagKind = "extension"
+				if edit {
+					diagKind = "edit"
+					if latest != "" {
+						metadata[9] = latest
+					}
+					fields[72] = webRequestEdit
+				}
+				fields[2] = metadata
 			}
-			return continuationResponse(turn.Model, view, nil)
+			if refused != nil {
+				address, errAddress := fallbackAddress(turn.Parent, *refused)
+				if errAddress != nil {
+					return nil, errAddress
+				}
+				fields[2], fields[72] = address, webRequestEdit
+				diagKind = "fallback"
+			}
+			if turn.Model == omniModel {
+				diag = newVideoTurnDiag(service.recordAccountName(execution.local.Target), diagKind, account, model, options.framing(), options.thinking(), language)
+				session.diag = diag
+			}
+			encoded, err := json.Marshal(fields)
+			if err != nil {
+				return nil, err
+			}
+			turn.State, turn.StartedAt = "submitting", service.now().Unix()
+			turn.Summary = webTurnSummary(prompt, attachments)
+			execution.local.State, execution.local.ContinuationActive = localSubmitting, execution.key
+			execution.turns[execution.key] = turn
+			if err := service.saveContinuations(execution.local, execution.turns); err != nil {
+				return nil, err
+			}
+			lines, shapes = 0, nil
+			var answered any
+			session.generationFrame = func(raw []byte) error {
+				lines, shapes = lines+1, frameShapes(shapes, raw)
+				diag.observeFrame(raw)
+				answered = lastFrameCandidate(raw, answered)
+				updated, err := continuationFrame(turn, raw)
+				if err != nil {
+					return err
+				}
+				if updated == turn {
+					return nil
+				}
+				turn = updated
+				execution.turns[execution.key] = turn
+				return service.saveContinuations(execution.local, execution.turns)
+			}
+			named := nonce
+			if turn.Model == omniModel {
+				named = ""
+			}
+			_, submitErr := session.postGeneration(ctx, string(encoded), account, model, language, named, 0)
+			session.generationFrame = nil
+			if submitErr != nil {
+				view.State, view.Error = "pending", safeCredentialCode(submitErr)
+				if turn.Conversation == "" || turn.Reply == "" {
+					// The stream died before it named an operation, so there is
+					// nothing for recovery to find and nothing to protect. An
+					// operation is named by its conversation and its reply alone:
+					// recovery matches the reply and reads whichever candidate the
+					// reply currently carries, so a candidate that had not arrived
+					// before the stream closed is not a missing operation. Holding
+					// the account until the generation budget expires only takes it
+					// out of rotation for ten minutes on a turn already known to be
+					// unobservable, which is how a healthy fleet runs out of accounts.
+					view.State = "outcome_unknown"
+					service.reportUnnamed(view.Error, turn, lines, shapes)
+					service.reportVideoTurn(diag, view.Error)
+					if releaseErr := service.releaseAfter(execution, turn, "no_operation"); releaseErr != nil {
+						return nil, releaseErr
+					}
+				}
+				if view.State == "pending" {
+					service.stashVideoDiag(execution.key, diag)
+				}
+				return continuationResponse(turn.Model, view, nil)
+			}
+			var refusal error
+			if answered != nil {
+				_, refusal = webParseVideoCandidate(answered)
+			}
+			standard, again := standardModeFallback(options.VideoMode, model, account, diag, refusal)
+			if refused != nil || !again || turn.Conversation == "" || turn.Reply == "" {
+				break
+			}
+			service.reportVideoTurn(diag, videoOutcome(refusal))
+			attempt := turn
+			refused, model = &attempt, standard
+			turn.Conversation, turn.Reply, turn.Candidate, turn.Metadata = "", "", "", ""
 		}
 	}
 	if turn.Conversation == "" || turn.Reply == "" {

@@ -45,6 +45,13 @@ type continuationWebFixture struct {
 	wrongReply     bool
 	// answer is the prose a non-video candidate carries; empty keeps "answer".
 	answer string
+	// argon advertises 4 Argon (mode 8) beside 3.8 Flash.
+	argon bool
+	// refuseMode answers a turn sent on that mode in prose whatever video says;
+	// zero refuses no mode.
+	refuseMode float64
+	// replyLanguage is what slot 9 of a prose candidate carries; empty leaves it unset.
+	replyLanguage string
 	// usage and budget are the jSf9Qc and CheckGxuBudget bodies a turn reads
 	// after it ends; nil answers with no windows and no cap.
 	usage        []any
@@ -119,7 +126,11 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 				answer = fixture.answer
 			}
 			candidate := slots(13, map[int]any{0: fmt.Sprintf("rc_%d", n), 1: []any{answer}, 8: []any{2}})
-			if fixture.video {
+			if fixture.replyLanguage != "" {
+				candidate[9] = fixture.replyLanguage
+			}
+			refused := fixture.refuseMode != 0 && len(fields) > 79 && fields[79] == fixture.refuseMode
+			if fixture.video && !refused {
 				candidate = videoCandidate(origin+"/video", false).([]any)
 				candidate[0] = fmt.Sprintf("rc_%d", n)
 			}
@@ -151,7 +162,11 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 				if fixture.duringModels != nil {
 					fixture.duringModels()
 				}
-				writeFixture(t, writer, rpcEnvelope(t, accountCapabilityRPC, slots(17, map[int]any{14: 1000, 15: []any{slots(18, map[int]any{0: "cap-flash", 11: "3.8 Flash", 17: 1})}, 16: fixture.capacityFlags})))
+				rows := []any{slots(18, map[int]any{0: "cap-flash", 11: "3.8 Flash", 17: 1})}
+				if fixture.argon {
+					rows = append(rows, slots(18, map[int]any{0: "cap-argon", 11: "4 Argon", 17: 8}))
+				}
+				writeFixture(t, writer, rpcEnvelope(t, accountCapabilityRPC, slots(17, map[int]any{14: 1000, 15: rows, 16: fixture.capacityFlags})))
 				return
 			}
 			switch request.URL.Query().Get("rpcids") {

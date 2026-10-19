@@ -181,6 +181,11 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 		return httpResponse{}, err
 	}
 	video, err := session.generateVideo(ctx, prompt, account, model, options.framing(), options.thinking(), options.language(), attachments)
+	if standard, again := standardModeFallback(options.VideoMode, model, account, session.diag, err); again {
+		service.reportVideoTurn(session.diag, videoOutcome(err))
+		session.diag = newVideoTurnDiag(service.recordAccountName(record), "fallback", account, standard, options.framing(), options.thinking(), options.language())
+		video, err = session.generateVideo(ctx, prompt, account, standard, options.framing(), options.thinking(), options.language(), attachments)
+	}
 	if err != nil {
 		service.noteVideoRefusal(record.ID, err)
 		if safeCredentialCode(err) == "no_video_generated" {
