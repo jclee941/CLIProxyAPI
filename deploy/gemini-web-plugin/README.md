@@ -11,7 +11,9 @@ make check
 ```
 
 Requires Go 1.26+, a C compiler, and a compatible libc. The gate runs race-enabled
-tests, `go vet`, builds `gemini-web.so`, and exercises the shared-library ABI.
+tests and `go vet`, then builds a throwaway `abi-smoke.so` and exercises the
+shared-library ABI. It leaves the committed `gemini-web.so` alone: that artifact
+is the Debian bookworm build the NAS container loads.
 Build `web/index.html` separately using the commands in [web/README.md](web/README.md).
 
 ## Configuration

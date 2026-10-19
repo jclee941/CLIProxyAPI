@@ -5,10 +5,10 @@ CC ?= cc
 test:
 	$(GO) test -race -shuffle=on -count=1 ./...
 build:
-	CGO_ENABLED=1 $(GO) build -trimpath -buildmode=c-shared -o flow2api.so .
+	CGO_ENABLED=1 $(GO) build -trimpath -buildmode=c-shared -o abi-smoke.so .
 smoke: build
 	$(CC) -Wall -Wextra -Werror -o abi-smoke smoke/load.c -ldl
-	./abi-smoke ./flow2api.so
+	./abi-smoke ./abi-smoke.so
 check: test
 	$(GO) vet ./...
 	$(MAKE) smoke

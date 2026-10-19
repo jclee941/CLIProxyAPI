@@ -2,3 +2,5 @@ abi-smoke
 coverage.out
 gemini-web-plugin
 .qa/
+abi-smoke.so
+abi-smoke.h
