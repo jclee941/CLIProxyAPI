@@ -87,6 +87,7 @@ class PluginChange:
     reload: str
     artifact: pathlib.Path
     live: list[pathlib.Path]
+    gate: str = ""
 
 
 @dataclasses.dataclass
@@ -210,6 +211,16 @@ def idle(settings: Settings, key: str) -> bool:
     return True
 
 
+def omni_idle(settings: Settings, key: str) -> bool:
+    """No Omni turn running, which a hot reload of the session-holding plugin waits for.
+
+    Its replaced instance drains running calls before handing the session store
+    over and refuses new ones meanwhile, so a reload started under a video turn
+    would keep the plugin refusing calls until the turn ends.
+    """
+    return not inflight(settings) and not generating(settings, key)
+
+
 def ready(settings: Settings, key: str) -> int:
     return sum(1 for account in accounts(settings, key) if account.get("status") == "ready")
 
@@ -272,10 +283,12 @@ def plan(settings: Settings, manifest: dict[str, Any]) -> tuple[list[tuple[pathl
     for entry in manifest.get("plugins", []):
         if entry["reload"] not in ("hot", "restart"):
             raise ConvergeError(f"plugin {entry['id']} has unknown reload {entry['reload']!r}")
+        if entry.get("gate", "") not in ("", "omni"):
+            raise ConvergeError(f"plugin {entry['id']} has unknown gate {entry['gate']!r}")
         artifact = settings.clone / entry["artifact"]
         live = loadable(settings.plugin_dir, entry["id"])
         if len(live) != 1 or digest(live[0]) != digest(artifact):
-            plugins.append(PluginChange(entry["id"], entry["reload"], artifact, live))
+            plugins.append(PluginChange(entry["id"], entry["reload"], artifact, live, entry.get("gate", "")))
     core = core_plan(settings, manifest["core"]) if "core" in manifest else None
     return files, plugins, core
 
@@ -371,10 +384,15 @@ def reapply(settings: Settings, key: str, plugin_id: str, check) -> bool:
         call(settings, key, "PATCH", path, {"priority": priority})
 
 
-def restart_until(settings: Settings, key: str, check, reason: str) -> None:
-    """One container restart for a host that did not come back, then give up."""
+def restart_until(settings: Settings, key: str, check, reason: str, gate=None) -> None:
+    """One container restart for a host that did not come back, then give up.
+
+    A gate, when given, is waited for (at most the health wait) before the restart.
+    """
     if wait_until(settings, check):
         return
+    if gate is not None:
+        wait_until(settings, gate)
     log(f"{reason}; restarting the container once")
     run("docker", "restart", "-t", "240", settings.container)
     if not wait_until(settings, check):
@@ -401,13 +419,21 @@ def converge(settings: Settings) -> int:
         replace_file(artifact, target)
     key = management_key(settings)
 
+    deferred = False
     for change in (change for change in plugins if change.reload == "hot"):
+        if change.gate == "omni" and not omni_idle(settings, key):
+            log(f"{change.id} (hot) waits for a moment with no Omni turn; the reload waits for the next tick")
+            deferred = True
+            continue
         installed = swap(settings, change, commit)
         check = functools.partial(hot_loaded, settings, change.id, installed)
         call(settings, key, "PATCH", f"/v0/management/plugins/{change.id}/enabled", {"enabled": True})
         if not reapply(settings, key, change.id, check):
-            restart_until(settings, key, check, f"{change.id} did not load {installed.name}")
+            gate = functools.partial(omni_idle, settings, key) if change.gate == "omni" else None
+            restart_until(settings, key, check, f"{change.id} did not load {installed.name}", gate)
         log(f"{change.id} loaded {installed.name}")
+    if deferred:
+        return 0
 
     restarts = [change for change in plugins if change.reload == "restart"]
     if restarts or core is not None:

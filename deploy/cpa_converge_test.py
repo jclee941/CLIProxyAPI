@@ -217,6 +217,14 @@ def host(test: unittest.TestCase) -> Host:
     return fixture
 
 
+def gate(fixture: Host, plugin_id: str) -> None:
+    manifest = json.loads(fixture.settings.manifest.read_text())
+    for entry in manifest["plugins"]:
+        if entry["id"] == plugin_id:
+            entry["gate"] = "omni"
+    fixture.settings.manifest.write_text(json.dumps(manifest))
+
+
 class ConvergeTest(unittest.TestCase):
     def test_in_sync_touches_nothing(self) -> None:
         fixture = host(self)
@@ -253,6 +261,39 @@ class ConvergeTest(unittest.TestCase):
         self.assertEqual(fixture.lifecycle(), ["restart"])
         self.assertEqual(json.loads((fixture.state / "loaded.json").read_text())["cw"], converge_module.loadable(fixture.plugins, "cw")[0].name)
         self.assertEqual(json.loads((fixture.state / "config.json").read_text())["cw"], {"enabled": True})
+
+    def test_a_gated_hot_plugin_waits_for_a_picked_turn_that_has_not_answered(self) -> None:
+        fixture = host(self)
+        gate(fixture, "cw")
+        fixture.live("cw", b"cw-old")
+        (fixture.state / "main.log").write_text(PICK.format("01:55:00", "0123abcd"))
+
+        self.assertEqual(converge_module.converge(fixture.settings), 0)
+
+        self.assertEqual(fixture.lifecycle(), [])
+        self.assertEqual((fixture.plugins / "cw-v0.1.0.1.so").read_bytes(), b"cw-old")
+        self.assertFalse((fixture.state / "patches.log").exists())
+
+    def test_a_gated_hot_plugin_reloads_without_a_restart_when_no_omni_turn_runs(self) -> None:
+        fixture = host(self)
+        gate(fixture, "cw")
+        fixture.live("cw", b"cw-old")
+
+        self.assertEqual(converge_module.converge(fixture.settings), 0)
+
+        installed = converge_module.loadable(fixture.plugins, "cw")
+        self.assertEqual([path.read_bytes() for path in installed], [b"cw-new"])
+        self.assertEqual(fixture.lifecycle(), [])
+
+    def test_a_gated_hot_plugin_the_host_does_not_load_gets_one_restart(self) -> None:
+        fixture = host(self)
+        gate(fixture, "cw")
+        fixture.live("cw", b"cw-old")
+        (fixture.state / "stuck").write_text("")
+
+        self.assertEqual(converge_module.converge(fixture.settings), 0)
+
+        self.assertEqual(fixture.lifecycle(), ["restart"])
 
     def test_a_restart_waits_while_an_account_generates(self) -> None:
         fixture = host(self)

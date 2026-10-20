@@ -100,16 +100,26 @@ func newService(host hostCall) *service {
 
 func (service *service) handle(ctx context.Context, method string, raw []byte) []byte {
 	var result interface{}
-	err := service.lifecycle.enter()
-	if err == nil {
-		defer service.lifecycle.leave()
-	}
-	if err == nil && (method == "plugin.register" || method == "plugin.reconfigure") {
-		service.mu.Lock()
-		result, err = service.register(raw)
-		service.mu.Unlock()
-	} else if err == nil {
-		result, err = service.dispatch(ctx, method, raw)
+	var err error
+	registering := method == "plugin.register" || method == "plugin.reconfigure"
+	if method == "plugin.quiesce" {
+		// The quiesce is not a running call, or the drain it waits for could
+		// never reach zero.
+		result, err = struct{}{}, service.quiesce()
+	} else {
+		if registering {
+			service.resumeQuiesced()
+		}
+		if err = service.lifecycle.enter(); err == nil {
+			defer service.lifecycle.leave()
+			if registering {
+				service.mu.Lock()
+				result, err = service.register(raw)
+				service.mu.Unlock()
+			} else {
+				result, err = service.dispatch(ctx, method, raw)
+			}
+		}
 	}
 	response := envelope{OK: err == nil}
 	if err != nil {
