@@ -97,7 +97,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 		if err != nil {
 			return nil, err
 		}
-		prompt, options, err = omniRequest(normalized)
+		prompt, options, err = omniRequestWithin(normalized, service.tuning().omniRequestBytes())
 		if err != nil {
 			return nil, err
 		}

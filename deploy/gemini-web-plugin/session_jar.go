@@ -83,7 +83,7 @@ func (service *service) updateCredential(reference string, update func(*webCrede
 // upstream call, including the upload host, inside the fixture.
 func (service *service) newSession(credential webCredential) *webSession {
 	session := newWebSession(service.client, credential, service.webOriginOverride)
-	session.textThinking = service.tuning().textThinkingSlot()
+	session.tuned = service.tuning()
 	if service.webUploadOverride != "" {
 		session.uploadOrigin = service.webUploadOverride
 	}

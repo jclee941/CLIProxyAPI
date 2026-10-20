@@ -8226,8 +8226,7 @@
           "room_videos": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 3,
-            "description": "Gateway extension, not in the official API: how many videos the room a new interaction opens will make. A caller that films each clip in a chat of its own sends 1, and the gateway admits the room on one video's cost instead of three. Omitted holds the room to three. Sending it with previous_interaction_id, or outside 1 to 3, returns interaction_room_videos_unsupported."
+            "description": "Gateway extension, not in the official API: how many videos the room a new interaction opens will make, from 1 to the gateway's room size (3 unless the operator sets room_turns). A caller that films each clip in a chat of its own sends 1, and the gateway admits the room on one video's cost instead of a whole room's. Omitted holds the room to the room size. Sending it with previous_interaction_id, or outside 1 to the room size, returns interaction_room_videos_unsupported."
           }
         }
       },

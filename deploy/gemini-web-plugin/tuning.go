@@ -49,6 +49,23 @@ type tuning struct {
 	// TextThinkingSlot overrides webThinkingDefault, slot 17 of a text turn
 	// (0-4).
 	TextThinkingSlot int `yaml:"text_thinking_slot,omitempty"`
+	// MaintenanceAuthCooldownSeconds overrides maintenanceAuthCooldown.
+	MaintenanceAuthCooldownSeconds int `yaml:"maintenance_auth_cooldown_seconds,omitempty"`
+	// MaintenanceReadyIntervalSeconds overrides maintenanceReadyInterval.
+	MaintenanceReadyIntervalSeconds int `yaml:"maintenance_ready_interval_seconds,omitempty"`
+	// CredentialFenceSeconds overrides credentialFenceDuration.
+	CredentialFenceSeconds int `yaml:"credential_fence_seconds,omitempty"`
+	// OmniRequestBytes lowers omniRequestLimit for native Omni requests.
+	OmniRequestBytes int `yaml:"omni_request_bytes,omitempty"`
+	// ResearchLimitSeconds overrides webResearchLimit.
+	ResearchLimitSeconds int `yaml:"research_limit_seconds,omitempty"`
+	// UploadLimitBytes lowers webUploadLimit for new uploads; stored file
+	// metadata keeps the built-in bound.
+	UploadLimitBytes int `yaml:"upload_limit_bytes,omitempty"`
+	// VideoBudgetSeconds overrides webVideoBudget.
+	VideoBudgetSeconds int `yaml:"video_budget_seconds,omitempty"`
+	// VideoPollSeconds overrides webVideoPollInterval.
+	VideoPollSeconds int `yaml:"video_poll_seconds,omitempty"`
 }
 
 func (tuned tuning) valid() bool {
@@ -58,7 +75,7 @@ func (tuned tuning) valid() bool {
 			return false
 		}
 	}
-	return tuned.RouteRoomCeilingPercent <= 100 && tuned.TextThinkingSlot <= 4
+	return tuned.RouteRoomCeilingPercent <= 100 && tuned.TextThinkingSlot <= 4 && tuned.OmniRequestBytes <= omniRequestLimit && tuned.UploadLimitBytes <= webUploadLimit
 }
 
 func tunedCount(configured, fallback int) int {
@@ -142,6 +159,36 @@ func (tuned tuning) videoDiagStash() int {
 
 func (tuned tuning) textThinkingSlot() int {
 	return tunedCount(tuned.TextThinkingSlot, webThinkingDefault)
+}
+
+func (tuned tuning) maintenanceAuthCooldown() time.Duration {
+	return tunedSeconds(tuned.MaintenanceAuthCooldownSeconds, maintenanceAuthCooldown)
+}
+
+func (tuned tuning) maintenanceReadyInterval() time.Duration {
+	return tunedSeconds(tuned.MaintenanceReadyIntervalSeconds, maintenanceReadyInterval)
+}
+
+func (tuned tuning) credentialFence() time.Duration {
+	return tunedSeconds(tuned.CredentialFenceSeconds, credentialFenceDuration)
+}
+
+func (tuned tuning) omniRequestBytes() int {
+	return tunedCount(tuned.OmniRequestBytes, omniRequestLimit)
+}
+
+func (tuned tuning) researchLimit() time.Duration {
+	return tunedSeconds(tuned.ResearchLimitSeconds, webResearchLimit)
+}
+
+func (tuned tuning) uploadLimitBytes() int { return tunedCount(tuned.UploadLimitBytes, webUploadLimit) }
+
+func (tuned tuning) videoBudget() time.Duration {
+	return tunedSeconds(tuned.VideoBudgetSeconds, webVideoBudget)
+}
+
+func (tuned tuning) videoPoll() time.Duration {
+	return tunedSeconds(tuned.VideoPollSeconds, webVideoPollInterval)
 }
 
 // tuning is the tuning the last successful register applied. It is read

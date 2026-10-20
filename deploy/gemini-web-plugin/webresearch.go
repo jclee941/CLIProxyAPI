@@ -152,7 +152,7 @@ func (session *webSession) sendResearchTurn(ctx context.Context, prompt string, 
 	if err != nil {
 		return nil, err
 	}
-	fields := webGenerationFields(prompt, model.Mode, session.textThinking, turn, attachments)
+	fields := webGenerationFields(prompt, model.Mode, session.tuned.textThinkingSlot(), turn, attachments)
 	if metadata != nil {
 		fields[2] = metadata
 	}
@@ -691,18 +691,14 @@ func (service *service) saveResearch(lease *credentialLease, reference, key stri
 	}
 	if fresh {
 		turn.Sequence = 1
-		oldestKey, oldest := "", ^uint64(0)
-		for other, previous := range turns {
+		for _, previous := range turns {
 			if previous.Sequence >= turn.Sequence {
 				turn.Sequence = previous.Sequence + 1
 			}
-			if previous.State != "researching" && previous.Sequence < oldest {
-				oldestKey, oldest = other, previous.Sequence
-			}
 		}
-		if len(turns) >= service.tuning().continuationRetention() && oldestKey != "" {
-			delete(turns, oldestKey)
-		}
+		pruneTurns(turns, service.tuning().continuationRetention(), func(_ string, previous continuationTurn) bool {
+			return previous.State != "researching"
+		})
 	}
 	if result != nil {
 		encoded, err := json.Marshal(result)
@@ -777,7 +773,7 @@ func (service *service) retrieveResearch(ctx context.Context, request executorRe
 		service.report(map[string]any{"provider": provider, "state": "research_read_failed", "reason": safeCredentialCode(err)}, "gemini-web: a research conversation could not be read")
 	}
 	if !ready {
-		if service.now().Sub(time.Unix(turn.StartedAt, 0)) < webResearchLimit {
+		if service.now().Sub(time.Unix(turn.StartedAt, 0)) < service.tuning().researchLimit() {
 			return service.renderResearch(record.ID, token, "in_progress", "", "", "")
 		}
 		turn.State, turn.Error, turn.ErrorMessage = "failed", "research_timed_out", "the report did not arrive within 90 minutes of the start"

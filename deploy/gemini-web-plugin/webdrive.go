@@ -252,11 +252,11 @@ func (service *service) driveMetadata(ctx context.Context, endpoint, bearer stri
 func (service *service) driveDownload(ctx context.Context, endpoint, bearer string) ([]byte, error) {
 	// One byte past the attachment bound, so an oversized file is refused rather
 	// than silently truncated into a corrupt upload.
-	content, err := service.driveGet(ctx, endpoint, bearer, webUploadLimit+1)
+	content, err := service.driveGet(ctx, endpoint, bearer, int64(service.tuning().uploadLimitBytes())+1)
 	if err != nil {
 		return nil, err
 	}
-	if len(content) > webUploadLimit {
+	if len(content) > service.tuning().uploadLimitBytes() {
 		return nil, failure(400, "attachment_size_rejected")
 	}
 	return content, nil

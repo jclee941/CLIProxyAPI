@@ -144,7 +144,7 @@ func filesValidMIME(value string) bool {
 	return err == nil && strings.Contains(mediaType, "/") && !strings.Contains(mediaType, "*")
 }
 
-func filesStartMetadata(request filesHTTPRequest) (fileResource, error) {
+func filesStartMetadata(request filesHTTPRequest, limit int64) (fileResource, error) {
 	var body struct {
 		File struct {
 			Name         string          `json:"name"`
@@ -163,7 +163,7 @@ func filesStartMetadata(request filesHTTPRequest) (fileResource, error) {
 	if err != nil || size < 0 {
 		return fileResource{}, failure(400, "file_size_invalid")
 	}
-	if size > filesMaxBytes {
+	if size > limit {
 		return fileResource{}, failure(413, "file_exceeds_100_mib_limit")
 	}
 	mimeType := request.Headers.Get("X-Goog-Upload-Header-Content-Type")
@@ -215,7 +215,7 @@ func filesStartMetadata(request filesHTTPRequest) (fileResource, error) {
 }
 
 func (service *service) filesStart(ctx context.Context, store *sessionStore, request filesHTTPRequest) (httpResponse, error) {
-	resource, err := filesStartMetadata(request)
+	resource, err := filesStartMetadata(request, int64(service.tuning().uploadLimitBytes()))
 	if err != nil {
 		return httpResponse{}, err
 	}

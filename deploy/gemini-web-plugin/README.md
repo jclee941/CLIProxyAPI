@@ -97,6 +97,14 @@ every key.
 | `interaction_input_bytes` | 4194304 | Largest interaction or research request. |
 | `video_diag_stash_limit` | 256 | Video turn diagnostics kept. |
 | `text_thinking_slot` | 0 | Slot 17 of a text turn (0-4); the web app sends 0, and the 4 sent until 2026-10-15 broke 3.1 Pro on every account. |
+| `maintenance_auth_cooldown_seconds` | 1800 | How long an account waits after an authentication failure before maintenance retries it. |
+| `maintenance_ready_interval_seconds` | 1800 | Interval between maintenance checks of a ready account. |
+| `credential_fence_seconds` | 70 | How long a credential renewal or inspection may take; an uncertain one fences the account this long. |
+| `omni_request_bytes` | 5242880 | Largest native Omni request; can only be lowered. |
+| `research_limit_seconds` | 5400 | How long a Deep Research report is awaited. |
+| `upload_limit_bytes` | 104857600 | Largest new upload; can only be lowered, stored files keep the built-in bound. |
+| `video_budget_seconds` | 600 | How long a video turn is awaited. |
+| `video_poll_seconds` | 10 | Interval between video status polls. |
 
 `delete_chats` (default `false`) deletes the web conversation a text or music
 turn opened once it has answered, keeping generated chats out of the account's

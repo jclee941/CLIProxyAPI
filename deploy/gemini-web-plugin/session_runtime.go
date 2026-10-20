@@ -382,7 +382,7 @@ func (service *service) maintainLocalAccount(ctx context.Context, target mainten
 		if err != nil {
 			var authentication *AuthenticationFailure
 			if errors.As(err, &authentication) {
-				lease.set(credentialState{state: maintenanceCooldown, nextDue: service.now().Add(maintenanceAuthCooldown), errCode: safeCredentialCode(err)})
+				lease.set(credentialState{state: maintenanceCooldown, nextDue: service.now().Add(service.tuning().maintenanceAuthCooldown()), errCode: safeCredentialCode(err)})
 				return maintenanceStateResult(record.ID, lease.snapshot())
 			}
 			latest, readErr := service.localStore().read(record.TokenRef)
@@ -404,6 +404,6 @@ func (service *service) maintainLocalAccount(ctx context.Context, target mainten
 		result.Error = "session_store_corrupt"
 		return result
 	}
-	lease.set(credentialState{state: maintenanceReady, nextDue: service.now().Add(maintenanceReadyInterval)})
+	lease.set(credentialState{state: maintenanceReady, nextDue: service.now().Add(service.tuning().maintenanceReadyInterval())})
 	return maintenanceStateResult(record.ID, lease.snapshot())
 }

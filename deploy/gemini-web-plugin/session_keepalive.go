@@ -138,7 +138,7 @@ func (service *service) refreshSession(ctx context.Context, local localSession) 
 		}
 		var authentication *AuthenticationFailure
 		if errors.As(err, &authentication) {
-			lease.set(credentialState{state: maintenanceCooldown, nextDue: service.now().Add(maintenanceAuthCooldown), errCode: safeCredentialCode(err)})
+			lease.set(credentialState{state: maintenanceCooldown, nextDue: service.now().Add(service.tuning().maintenanceAuthCooldown()), errCode: safeCredentialCode(err)})
 		}
 		return
 	}
@@ -150,5 +150,5 @@ func (service *service) refreshSession(ctx context.Context, local localSession) 
 		return
 	}
 	service.refreshQuota(ctx, current.Target, renewed)
-	lease.set(credentialState{state: maintenanceReady, nextDue: service.now().Add(maintenanceReadyInterval)})
+	lease.set(credentialState{state: maintenanceReady, nextDue: service.now().Add(service.tuning().maintenanceReadyInterval())})
 }

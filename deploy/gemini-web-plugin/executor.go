@@ -57,7 +57,7 @@ func (service *service) executeRequest(ctx context.Context, method string, reque
 		if stream {
 			return nil, failure(400, "omni_native_nonstreaming_only")
 		}
-		prompt, options, promptErr := omniRequest(request.Payload)
+		prompt, options, promptErr := omniRequestWithin(request.Payload, service.tuning().omniRequestBytes())
 		if promptErr != nil {
 			return nil, promptErr
 		}
@@ -207,7 +207,15 @@ func hasOmniStopRules(rules []stopRule) bool {
 // safety thresholds are accepted because the host's OpenAI-to-Gemini translation
 // adds them; they are dropped rather than forwarded, since the upstream body is
 // rebuilt from the prompt and those options alone.
+// omniRequestLimit bounds a native Omni request body.
+const omniRequestLimit = 5 * 1024 * 1024
+
 func omniRequest(raw []byte) (string, omniOptions, error) {
+	return omniRequestWithin(raw, omniRequestLimit)
+}
+
+// omniRequestWithin parses a native Omni request no larger than limit.
+func omniRequestWithin(raw []byte, limit int) (string, omniOptions, error) {
 	var body struct {
 		Model    string `json:"model"`
 		Contents []struct {
@@ -226,7 +234,7 @@ func omniRequest(raw []byte) (string, omniOptions, error) {
 		GenerationConfig map[string]json.RawMessage `json:"generationConfig"`
 		SafetySettings   json.RawMessage            `json:"safetySettings"`
 	}
-	if len(raw) > 5*1024*1024 || strictJSON(raw, &body) != nil || body.Model != "" && body.Model != omniModel || len(body.Contents) != 1 {
+	if len(raw) > limit || strictJSON(raw, &body) != nil || body.Model != "" && body.Model != omniModel || len(body.Contents) != 1 {
 		return "", omniOptions{}, failure(400, "unsupported_omni_request")
 	}
 	options, optionsErr := parseOmniOptions(body.GenerationConfig)

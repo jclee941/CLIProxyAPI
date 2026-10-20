@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -60,5 +61,31 @@ func TestRegisterAppliesTuningWithoutReplacingTheSessionStore(t *testing.T) {
 	}
 	if svc.tuning().roomTurns() != 4 {
 		t.Fatalf("a rejected config changed room turns to %d", svc.tuning().roomTurns())
+	}
+}
+
+func TestLoweringRetentionPrunesTheOldestReceipts(t *testing.T) {
+	turns := map[string]continuationTurn{}
+	for sequence := uint64(1); sequence <= 16; sequence++ {
+		turns[strconv.FormatUint(sequence, 10)] = continuationTurn{Sequence: sequence, State: "complete"}
+	}
+	turns["2"] = continuationTurn{Sequence: 2, State: "researching"}
+	pruneTurns(turns, 4, func(_ string, turn continuationTurn) bool { return turn.State != "researching" })
+	if len(turns) != 3 {
+		t.Fatalf("%d receipts kept, want 3 to leave room for the next one", len(turns))
+	}
+	for _, kept := range []string{"2", "15", "16"} {
+		if _, ok := turns[kept]; !ok {
+			t.Fatalf("receipt %s was evicted; kept %v", kept, turns)
+		}
+	}
+}
+
+func TestByteLimitsCanOnlyBeLowered(t *testing.T) {
+	if !(tuning{OmniRequestBytes: 1024, UploadLimitBytes: 1024}).valid() {
+		t.Fatal("lowered byte limits were rejected")
+	}
+	if (tuning{OmniRequestBytes: omniRequestLimit + 1}).valid() || (tuning{UploadLimitBytes: webUploadLimit + 1}).valid() {
+		t.Fatal("a byte limit above its built-in bound was accepted")
 	}
 }

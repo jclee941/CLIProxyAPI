@@ -45,15 +45,9 @@ func (service *service) prepareContinuation(execution continuationExecution) (in
 		}
 	}
 	sequence := uint64(0)
-	oldestKey := ""
-	oldest := ^uint64(0)
-	for key, turn := range execution.turns {
+	for _, turn := range execution.turns {
 		if turn.Sequence > sequence {
 			sequence = turn.Sequence
-		}
-		// A research still running keeps its receipt until its report is read.
-		if key != execution.key && turn.State != "researching" && turn.Sequence < oldest {
-			oldestKey, oldest = key, turn.Sequence
 		}
 	}
 	if sequence == ^uint64(0) {
@@ -61,9 +55,10 @@ func (service *service) prepareContinuation(execution continuationExecution) (in
 	}
 	// A bounded receipt history does not bound conversation length. Evicted
 	// receipts fail closed; their prompts are never treated as new submissions.
-	if len(execution.turns) >= service.tuning().continuationRetention() {
-		delete(execution.turns, oldestKey)
-	}
+	pruneTurns(execution.turns, service.tuning().continuationRetention(), func(key string, turn continuationTurn) bool {
+		// A research still running keeps its receipt until its report is read.
+		return key != execution.key && turn.State != "researching"
+	})
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
 		return nil, failure(500, "continuation_token_failed")
@@ -83,4 +78,22 @@ func (service *service) prepareContinuation(execution continuationExecution) (in
 		return nil, err
 	}
 	return continuationResponse(execution.request.Model, continuationView{Token: token, State: "prepared"}, nil)
+}
+
+// pruneTurns evicts the oldest receipts evictable allows until fewer than
+// retain remain, so a lowered continuation_retention also shrinks an existing
+// history instead of only holding it at its old size.
+func pruneTurns(turns map[string]continuationTurn, retain int, evictable func(string, continuationTurn) bool) {
+	for len(turns) >= retain {
+		oldestKey, oldest := "", ^uint64(0)
+		for key, turn := range turns {
+			if evictable(key, turn) && turn.Sequence < oldest {
+				oldestKey, oldest = key, turn.Sequence
+			}
+		}
+		if oldestKey == "" {
+			return
+		}
+		delete(turns, oldestKey)
+	}
 }

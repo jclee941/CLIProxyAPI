@@ -180,7 +180,7 @@ func (service *service) credentialFailure(reference string, err error) {
 		if state.state != maintenanceFenced {
 			state.afterFence = state.state
 		}
-		state.state, state.nextDue, state.errCode = maintenanceFenced, service.now().Add(credentialFenceDuration), "credential_transport_outcome_unknown"
+		state.state, state.nextDue, state.errCode = maintenanceFenced, service.now().Add(service.tuning().credentialFence()), "credential_transport_outcome_unknown"
 		lease.set(state)
 	case "secret_write_outcome_unknown":
 		lease.set(credentialState{state: maintenanceOperator, errCode: "secret_write_outcome_unknown"})

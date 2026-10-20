@@ -82,7 +82,7 @@ type webSource struct {
 // bytes and finalises. The reply body is the contrib_service path the
 // generation request references.
 func (session *webSession) upload(ctx context.Context, name, mimeType string, size int64, content io.Reader) (webAttachment, error) {
-	if size <= 0 || size > webUploadLimit {
+	if size <= 0 || size > int64(session.tuned.uploadLimitBytes()) {
 		return webAttachment{}, failure(400, "attachment_size_rejected")
 	}
 	start, err := http.NewRequestWithContext(ctx, http.MethodPost, session.uploadOrigin+"/upload/", strings.NewReader("File name: "+name))
@@ -200,7 +200,7 @@ func (session *webSession) uploadSources(ctx context.Context, sources []webSourc
 		if !supported {
 			return nil, failure(400, "attachment_type_unsupported")
 		}
-		if source.Size <= 0 || source.Size > webUploadLimit {
+		if source.Size <= 0 || source.Size > int64(session.tuned.uploadLimitBytes()) {
 			return nil, failure(400, "attachment_size_rejected")
 		}
 		attachment, err := session.uploadSource(ctx, "attachment-"+strconv.Itoa(index+1)+kind.extension, mimeType, source)

@@ -86,7 +86,7 @@ func (service *service) releaseInterruptedSession(ctx context.Context, record st
 		// whatever it answered, so nothing is waiting on it. Holding the account
 		// for a recovery that can only confirm the same thing is how a restart
 		// used to strand an account until someone noticed and clicked.
-		if found && turn.StartedAt > 0 && service.now().Sub(time.Unix(turn.StartedAt, 0)) > webVideoBudget {
+		if found && turn.StartedAt > 0 && service.now().Sub(time.Unix(turn.StartedAt, 0)) > service.tuning().videoBudget() {
 			observable = false
 		}
 		if automatic && observable {
@@ -130,9 +130,9 @@ func (service *service) releaseInterruptedSession(ctx context.Context, record st
 	state, credential := maintenanceReady, "valid"
 	if rejected {
 		state, credential = maintenanceCooldown, safeCredentialCode(probe)
-		lease.set(credentialState{state: state, nextDue: service.now().Add(maintenanceAuthCooldown), errCode: credential})
+		lease.set(credentialState{state: state, nextDue: service.now().Add(service.tuning().maintenanceAuthCooldown()), errCode: credential})
 	} else {
-		lease.set(credentialState{state: state, nextDue: service.now().Add(maintenanceReadyInterval)})
+		lease.set(credentialState{state: state, nextDue: service.now().Add(service.tuning().maintenanceReadyInterval())})
 	}
 	return state, credential, nil
 }

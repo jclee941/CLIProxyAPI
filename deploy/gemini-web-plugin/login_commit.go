@@ -362,7 +362,7 @@ func (service *service) syncLocalHost(ctx context.Context, callbackID string, lo
 			return view, err
 		}
 	}
-	service.leases.get(local.Target.TokenRef).set(credentialState{state: maintenanceReady, nextDue: service.now().Add(maintenanceReadyInterval)})
+	service.leases.get(local.Target.TokenRef).set(credentialState{state: maintenanceReady, nextDue: service.now().Add(service.tuning().maintenanceReadyInterval())})
 	view.Status = loginSaved
 	account, err := service.accountModels(ctx, local.Target.TokenRef, sessionToken{local.Token})
 	if err != nil {

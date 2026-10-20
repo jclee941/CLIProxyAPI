@@ -149,7 +149,7 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	if err != nil {
 		return httpResponse{}, err
 	}
-	base, options, err := omniRequest(payload)
+	base, options, err := omniRequestWithin(payload, service.tuning().omniRequestBytes())
 	if err != nil {
 		return httpResponse{}, err
 	}

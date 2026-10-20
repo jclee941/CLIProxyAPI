@@ -320,7 +320,7 @@ func (service *service) finishInteraction(ctx context.Context, native executorRe
 			return nil, err
 		}
 		if deadline.IsZero() {
-			deadline = service.now().Add(webVideoBudget)
+			deadline = service.now().Add(service.tuning().videoBudget())
 		}
 		if receipt.View.State != "pending" || receipt.View.Error != "" || !service.now().Before(deadline) {
 			break
@@ -349,7 +349,7 @@ func (service *service) waitInteraction(ctx context.Context) error {
 	if service.continuationWait != nil {
 		return service.continuationWait(ctx)
 	}
-	timer := time.NewTimer(webVideoPollInterval)
+	timer := time.NewTimer(service.tuning().videoPoll())
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():

@@ -291,7 +291,7 @@ func (service *service) saveGeneratedFile(ctx context.Context, caller, key, mime
 	if err != nil {
 		return fileResource{}, err
 	}
-	if key == "" || len(key) > 4096 || len(content) == 0 || len(content) > filesMaxBytes {
+	if key == "" || len(key) > 4096 || len(content) == 0 || len(content) > service.tuning().uploadLimitBytes() {
 		return fileResource{}, failure(413, "generated_file_size_or_key_rejected")
 	}
 	if !filesValidMIME(mimeType) {

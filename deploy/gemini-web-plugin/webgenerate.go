@@ -124,7 +124,7 @@ func (session *webSession) sendTurn(ctx context.Context, prompt string, account 
 	if err != nil {
 		return nil, err
 	}
-	layout := webGenerationFields(prompt, model.Mode, session.textThinking, conversationID, attachments)
+	layout := webGenerationFields(prompt, model.Mode, session.tuned.textThinkingSlot(), conversationID, attachments)
 	if thinkingLevel > 0 {
 		layout[80] = thinkingLevel
 	}

@@ -372,7 +372,7 @@ func (session *webSession) generateVideo(ctx context.Context, prompt string, acc
 	if err != nil {
 		return nil, err
 	}
-	deadline := time.Now().Add(webVideoBudget)
+	deadline := time.Now().Add(session.tuned.videoBudget())
 	for time.Now().Before(deadline) {
 		if state.Ready {
 			status, content, downloadErr := session.downloadVideo(ctx, state.URL)
@@ -389,7 +389,7 @@ func (session *webSession) generateVideo(ctx context.Context, prompt string, acc
 		select {
 		case <-ctx.Done():
 			return nil, failure(499, "caller_disconnected")
-		case <-time.After(webVideoPollInterval):
+		case <-time.After(session.tuned.videoPoll()):
 		}
 		turns, err := session.rpc(ctx, webVideoTurnsRPC, []any{conversation, 1, nil, 1, []any{1}, []any{4}, nil, 1})
 		if err != nil {

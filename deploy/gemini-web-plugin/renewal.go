@@ -10,7 +10,7 @@ import (
 // Credential upkeep talks to Google per account, so a failure is attributed to
 // the credential it belongs to.
 func (service *service) renewCredential(ctx context.Context, reference string, token sessionToken) (sessionToken, credentialInspection, error) {
-	credentialContext, cancel := context.WithTimeout(ctx, credentialFenceDuration)
+	credentialContext, cancel := context.WithTimeout(ctx, service.tuning().credentialFence())
 	defer cancel()
 	renewed, identity, err := service.nativeRenew(credentialContext, reference, token)
 	if err != nil && reference != "" {
@@ -25,7 +25,7 @@ func (*AuthenticationFailure) Error() string { return "auth_error" }
 func (*AuthenticationFailure) Unwrap() error { return failure(401, "auth_error") }
 
 func (service *service) inspectCredential(ctx context.Context, reference string, token sessionToken) (credentialInspection, error) {
-	credentialContext, cancel := context.WithTimeout(ctx, credentialFenceDuration)
+	credentialContext, cancel := context.WithTimeout(ctx, service.tuning().credentialFence())
 	defer cancel()
 	identity, err := service.nativeInspect(credentialContext, reference, token)
 	if err != nil {
