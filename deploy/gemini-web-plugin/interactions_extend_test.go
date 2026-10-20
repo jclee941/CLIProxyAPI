@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-// The documented extension is prompt syntax rather than a request field, so a
-// turn that continues its own conversation extends only when the prompt names
-// the previous video. Measured on one account and one conversation, the same
-// chain ran 10.005s -> 20.010s -> 30.016s with the declaration written, where
-// undeclared follow-ups extended only occasionally.
+// The documented extension is prompt syntax rather than a request field;
+// extend_declaration writes it for a turn that continues its own conversation.
+// Measured on one account and one conversation, the chain ran 10.005s ->
+// 20.010s -> 30.016s with the declaration written, and on 2026-10-20 a turn
+// without it extended as well (10.006s -> 20.011s), so it is off by default.
 func TestExtensionNamesThePreviousVideo(t *testing.T) {
 	_, payload, err := (tuning{}).parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":"keep the shot going","previous_interaction_id":"prev","generation_config":{"video_config":{"task":"extend"}}}`))
 	if err != nil {

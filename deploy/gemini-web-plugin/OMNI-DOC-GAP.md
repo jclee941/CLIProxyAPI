@@ -42,7 +42,7 @@ one.
 | Image to video | live | an image attachment is treated as the starting frame without being asked |
 | First and last frame interpolation | reachable, undocumented | `<FIRST_FRAME>`/`<LAST_FRAME>` in the prompt; nothing in the plugin blocks it. NOT yet measured here |
 | Subject reference | reachable, undocumented | `<IMAGE_REF_N>` in the prompt; images are uploaded in the order sent, which the tags index from 0. NOT yet measured here |
-| Tasks parameter (`generation_config.video_config.task`) | live for `extend` | the wire has no task slot, so `extend` is carried as the product's own `[# Sources <PREVIOUS_VIDEO>@Video1]` declaration; other tasks stay refused |
+| Tasks parameter (`generation_config.video_config.task`) | live for `extend` | the wire has no task slot: `extend` continues the named interaction in its original conversation with the prompt sent as written (10.006s -> 20.011s, measured 2026-10-20), and a carried or uploaded video is declared `[# Sources <VIDEO_0>@Video1]`; `extend_declaration: true` adds the product's `[# Sources <PREVIOUS_VIDEO>@Video1]` to same-conversation turns; other tasks stay refused |
 | Stateful editing across turns | live | `previous_interaction_id` stays on the original account and conversation while it can serve; a blocked owner hands the stored video to another account, which extends it (10.005s -> 20.010s, measured 2026-09-27) |
 | Editing an uploaded video | tried, failed | `[# Sources <VIDEO_0>@Video1]` measured to spend the full budget and answer no video |
 | Extending an uploaded video | live | `[# Sources <VIDEO_0>@Video1]` with `task=extend`: 10.005s -> 20.000s cumulative, measured 2026-09-27; `[# References <VIDEO_REF_0>@Video1]` instead makes a new 10s clip |

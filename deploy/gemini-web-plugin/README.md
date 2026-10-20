@@ -28,6 +28,7 @@ video_wire_mode: legacy
 video_mode: 0
 video_thinking_level: 0
 delete_chats: false
+extend_declaration: false
 ```
 
 The plugin speaks to the Gemini web product directly; there is no sidecar path.
@@ -70,10 +71,22 @@ with the slot empty came back as the product's canned text answer. Set it with
 the same PATCH, for example `{"video_thinking_level":2}`; it does not drain
 sessions, and `video_turn_diag` reports the level sent as `thinking=<n>`.
 
+`extend_declaration` (`false` by default) makes a `task=extend` turn that
+continues its own conversation start with the web app's
+`[# Sources <PREVIOUS_VIDEO>@Video1]` declaration. Left off, the turn still
+continues in its original conversation, with the prompt sent as the caller
+wrote it; measured 2026-10-20, one conversation went 10.006s -> 20.011s. A role
+the caller wrote is never changed. Set it with the same PATCH; it does not
+drain sessions.
+
 The plugin's other limits are flat, non-negative integer keys that override a
 built-in default; `0` or an absent key keeps the default, and PATCHing a key
 with `null` removes it. Each value is read where it is used, so the same PATCH
-applies it without draining sessions and logs `state=tuning reason=keys changed`.
+applies it without draining sessions and logs `state=tuning reason=keys changed`
+when the host's config reload reaches the plugin. A PATCH sent while an earlier
+reload is still running (the host reloads its clients, measured 8-33 s) is
+applied when that reload finishes, together with any others sent meanwhile, as
+their final state; a PATCH that leaves every value as it was logs nothing.
 A negative value, `route_room_ceiling_percent` above 100 or `text_thinking_slot`
 above 4 rejects the whole configuration. The Manager's plugin settings list
 every key.
