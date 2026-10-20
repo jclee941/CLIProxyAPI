@@ -25,7 +25,7 @@ func TestSDKUserInputStepUploadsAndExtendsVideo(t *testing.T) {
 	}
 	prompt, _ := jsonField(fixture.fields[0], 0, 0).(string)
 	if !strings.Contains(prompt, "Continue the scene") || strings.Contains(prompt, "<VIDEO_REF_0>") {
-		t.Fatalf("SDK input lost its source role: %q", prompt)
+		t.Fatalf("SDK input declared its extension source a reference: %q", prompt)
 	}
 }
 

@@ -80,3 +80,25 @@ func TestVideoAttachmentDoesNotOverrideSourceFraming(t *testing.T) {
 		})
 	}
 }
+
+func TestUploadedVideoWithoutExtendIsDeclaredAReference(t *testing.T) {
+	// Given: a video uploaded without a caller-written media role.
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{video: true}
+	continuationWeb(t, service, fixture)
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+
+	// When: a fresh interaction uses it without task=extend.
+	interactionID(t, interactionCall(t, service, local,
+		`{"model":"gemini-omni-1.1-flash","input":[{"type":"video","mime_type":"video/mp4","data":"AAAA"},{"type":"text","text":"A dog runs like this"}]}`))
+
+	// Then: the wire prompt declares it a reference.
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.fields) != 1 {
+		t.Fatalf("submissions = %d, want 1", len(fixture.fields))
+	}
+	if prompt, _ := jsonField(fixture.fields[0], 0, 0).(string); !strings.Contains(prompt, "[# References <VIDEO_REF_0>@Video1]") {
+		t.Fatalf("a non-extension upload lost its reference role: %q", prompt)
+	}
+}

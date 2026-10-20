@@ -46,8 +46,8 @@ one.
 | Stateful editing across turns | live | `previous_interaction_id` stays on the original account and conversation while it can serve; a blocked owner hands the stored video to another account, which extends it (10.005s -> 20.010s, measured 2026-09-27; 20.011s -> 30.016s with no declaration, measured 2026-10-20) |
 | Editing an uploaded video | tried, failed | `[# Sources <VIDEO_0>@Video1]` measured to spend the full budget and answer no video |
 | Extending an uploaded video | live | `task=extend` attaches it undeclared as the source by default, as the carried 20.011s -> 30.016s turn measured 2026-10-20; `[# Sources <VIDEO_0>@Video1]` (`extend_source_declaration: true`): 10.005s -> 20.000s cumulative, measured 2026-09-27; `[# References <VIDEO_REF_0>@Video1]` instead makes a new 10s clip |
-| Video extension | live | declared in its own conversation: 10.005s -> 20.010s -> 30.016s -> 40.000s, four for four, measured 2026-09-21 |
-| Cross-account attachment continuation | removed | prior clips are no longer uploaded to another account as a fallback |
+| Video extension | live | declared in its own conversation: 10.005s -> 20.010s -> 30.016s -> 40.000s, four for four, measured 2026-09-21; undeclared on 2026-10-20: 10.006s -> 20.011s -> 30.016s (another account) -> 40.0s |
+| Cross-account attachment continuation | live | when the owner cannot serve, the stored clip is uploaded to another account and extended there (10.005s -> 20.010s, 2026-09-27; 20.011s -> 30.016s undeclared, 2026-10-20) |
 | URI delivery (`delivery:"uri"`) | refused | the download URL opens only with the session cookie, and there is no route here to serve it from |
 | Retrieval by id | live | 200 completed with the stored mp4, replayed after a restart |
 | Background execution | refused | the web product has no detached job handle |
@@ -60,14 +60,18 @@ one.
   (`previous_interaction_id`)". It names no ceiling for the multi-turn case, so
   the real limit is empirical. Measured here with the declaration written into
   the prompt: 10.005s -> 20.010s -> 30.016s -> 40.000s, ten seconds a turn, four
-  turns out of four. Testing ended at 40s; no longer extension was attempted,
-  so this does not establish a web-session ceiling or guaranteed success.
+  turns out of four. On 2026-10-20 the same growth held with nothing written:
+  10.006s -> 20.011s -> 30.016s (on another account) -> 40.0s. The one attempt
+  past 40s hit the account's usage limit, and testing ended at 40s, so this
+  does not establish a web-session ceiling or guaranteed success.
 - **Payload size.** The guide recommends `delivery="uri"` above 4MB to avoid
   payload limits. This surface returns inline base64 only and has produced an
   8.5MB video, well past that line. The recommendation cannot be followed here.
-- **Video references.** Historical cross-account attachment experiments did
-  not establish reliable continuation. That fallback has been removed; normal
-  continuation uses the original account and conversation.
+- **Video references.** A clip carried to another account is uploaded there
+  and, sent as an extension, continued: 20.011s -> 30.016s measured 2026-10-20
+  without a declaration, past the 10 second cap the guide puts on uploaded
+  input. Normal continuation still stays on the original account and
+  conversation.
 
 ## What is worth doing, in order
 

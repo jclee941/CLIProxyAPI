@@ -117,3 +117,14 @@ func TestRegistrationRejectsDisabledNativeGeneration_becauseTheSidecarWasRemoved
 		t.Fatalf("native_generation: false accepted or unclear: %+v", result)
 	}
 }
+
+func TestRegistrationReadsTheExtendDeclarationKeys(t *testing.T) {
+	// Given: production-shaped configuration that turns both declarations on.
+	service, result := registerConfig(t, productionShapedConfig(t, "extend_declaration: true\nextend_source_declaration: true\n"))
+
+	// Then: the strict decoder accepts both keys and they apply.
+	settings := service.settings()
+	if !result.OK || !settings.ExtendDeclaration || !settings.ExtendSourceDeclaration {
+		t.Fatalf("extend declaration keys not applied: %+v", result.Error)
+	}
+}

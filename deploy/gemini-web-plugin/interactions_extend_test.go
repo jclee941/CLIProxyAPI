@@ -136,6 +136,29 @@ func TestInteractionExtendSendsThePromptAsWrittenByDefault(t *testing.T) {
 	}
 }
 
+func TestSameChatExtendKeepsAnAttachedVideoAReference(t *testing.T) {
+	// Given: a stored interaction in its own conversation.
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{video: true}
+	continuationWeb(t, service, fixture)
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+	first := interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`))
+
+	// When: it is extended there with another video attached.
+	interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":[{"type":"video","mime_type":"video/mp4","data":"AAAA"},{"type":"text","text":"continue like this"}],"previous_interaction_id":"`+first+`","generation_config":{"video_config":{"task":"extend"}}}`))
+
+	// Then: the turn stays in its conversation, and the attached video, which
+	// is not the extension's source, is declared a reference.
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.fields) != 2 || jsonField(fixture.fields[1][2], 0) != "c_chat" {
+		t.Fatalf("submissions = %d, conversation = %v", len(fixture.fields), jsonField(fixture.fields[len(fixture.fields)-1][2], 0))
+	}
+	if prompt, _ := jsonField(fixture.fields[1][0], 0).(string); !strings.Contains(prompt, "[# References <VIDEO_REF_0>@Video1]") {
+		t.Fatalf("the attached video lost its reference role: %q", prompt)
+	}
+}
+
 func interactionPrompt(t *testing.T, payload []byte) string {
 	t.Helper()
 	var content struct {

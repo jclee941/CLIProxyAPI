@@ -246,7 +246,9 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 			return nil, err
 		}
 	}
-	native.extendSource = extend
+	// Only an extension whose source video is attached - carried here or
+	// uploaded by the caller - sends that video undeclared.
+	native.extendSource = extend && previous == ""
 	native.retryRefused = previous != "" && body.GenerationConfig.VideoConfig.Task != interactionExtendTask
 	native.Payload, err = json.Marshal(map[string]any{continuationField: continuationControl{Action: "prepare", Token: previous}})
 	if err != nil {

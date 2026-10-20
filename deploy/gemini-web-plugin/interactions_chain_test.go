@@ -11,7 +11,21 @@ import (
 )
 
 func TestABlockedOwnerHandsTheChainToAnotherAccount(t *testing.T) {
+	blockedOwnerHandsTheChain(t, false)
+}
+
+func TestABlockedOwnerHandsTheChainToAnotherAccountDeclared(t *testing.T) {
+	blockedOwnerHandsTheChain(t, true)
+}
+
+// blockedOwnerHandsTheChain runs the hand-over with extend_source_declaration
+// set to declare.
+func blockedOwnerHandsTheChain(t *testing.T, declare bool) {
+	t.Helper()
 	service, source := continuationFixture(t)
+	service.mu.Lock()
+	service.config.ExtendSourceDeclaration = declare
+	service.mu.Unlock()
 	target := localRecordFixture(t)
 	target.Target = recordFixture(t, "b")
 	target.Token, target.State = encodedToken("target-cookie"), localReady
@@ -102,8 +116,12 @@ func TestABlockedOwnerHandsTheChainToAnotherAccount(t *testing.T) {
 		t.Fatal("the source video was not uploaded with the target account")
 	}
 	carried := fixture.fields[1]
+	carriedPrompt := "continue"
+	if declare {
+		carriedPrompt = uploadedVideoDeclaration + "continue"
+	}
 	if jsonField(carried, 2, 0) != "" || jsonField(carried, 0, 3, 0, 0, 0) != "/uploaded/video" ||
-		jsonField(carried, 0, 0) != "continue" {
+		jsonField(carried, 0, 0) != carriedPrompt {
 		t.Fatalf("the carried turn did not extend the uploaded video: prompt=%v conversation=%v", jsonField(carried, 0, 0), jsonField(carried, 2, 0))
 	}
 	continued := fixture.fields[2]

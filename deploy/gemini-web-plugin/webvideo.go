@@ -114,6 +114,9 @@ func webRoleDeclared(prompt string) bool {
 // needs nothing, because the tool already takes one as the starting frame, and a
 // caller who wrote their own declaration is left alone. Only the first video is
 // named; the docs state that referencing across several videos is unsupported.
+// An extension's source is the exception: sent undeclared with an extension
+// prompt it was continued (measured 2026-10-20), so webVideoFields skips this
+// for extension turns.
 //
 // It is declared as a reference rather than an edit source. Naming it as the
 // source is the truer reading of "here is a video, work from it", and it is what
@@ -133,8 +136,8 @@ func webReferenceDeclaration(prompt string, attachments []webAttachment) string 
 	// use it as an initial frame, which is the opposite of what already works.
 	//
 	// A video is ambiguous between an edit source, an extension target and a
-	// reference, and an undeclared one is uploaded, accepted and then ignored:
-	// the generation answers no_video_generated.
+	// reference, and an undeclared one outside an extension is uploaded,
+	// accepted and then ignored: the generation answers no_video_generated.
 	for _, attachment := range attachments {
 		if strings.HasPrefix(attachment.MIMEType, "video/") {
 			return "[# References <VIDEO_REF_0>@Video1] " + prompt +
