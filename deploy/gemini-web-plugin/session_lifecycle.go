@@ -6,13 +6,15 @@ import (
 )
 
 type sessionLifecycle struct {
-	mu        sync.Mutex
-	active    int
-	closing   bool
-	quiesced  bool
-	closingCh chan struct{}
-	drained   chan struct{}
-	closeErr  error
+	mu         sync.Mutex
+	active     int
+	closing    bool
+	quiesced   bool
+	closingCh  chan struct{}
+	stopping   bool
+	stoppingCh chan struct{}
+	drained    chan struct{}
+	closeErr   error
 }
 
 func (lifecycle *sessionLifecycle) enter() error {
@@ -46,6 +48,24 @@ func (lifecycle *sessionLifecycle) closingSignal() <-chan struct{} {
 	return lifecycle.closingCh
 }
 
+// stoppingSignal closes when the instance shuts down. A hot reload's quiesce
+// closes closingSignal but not this one, so work that may already have reached
+// Google, such as a session exchange, runs to its end under a quiesce.
+func (lifecycle *sessionLifecycle) stoppingSignal() <-chan struct{} {
+	lifecycle.mu.Lock()
+	defer lifecycle.mu.Unlock()
+	if lifecycle.stoppingCh == nil {
+		lifecycle.stoppingCh = make(chan struct{})
+	}
+	return lifecycle.stoppingCh
+}
+
+func (lifecycle *sessionLifecycle) isQuiesced() bool {
+	lifecycle.mu.Lock()
+	defer lifecycle.mu.Unlock()
+	return lifecycle.quiesced
+}
+
 func (lifecycle *sessionLifecycle) reconfigure(apply func() error) error {
 	lifecycle.mu.Lock()
 	defer lifecycle.mu.Unlock()
@@ -57,6 +77,13 @@ func (lifecycle *sessionLifecycle) reconfigure(apply func() error) error {
 
 func (service *service) shutdownSessions() error {
 	service.lifecycle.mu.Lock()
+	if !service.lifecycle.stopping {
+		service.lifecycle.stopping = true
+		if service.lifecycle.stoppingCh == nil {
+			service.lifecycle.stoppingCh = make(chan struct{})
+		}
+		close(service.lifecycle.stoppingCh)
+	}
 	if !service.lifecycle.closing {
 		service.lifecycle.closing = true
 		service.lifecycle.drained = make(chan struct{})

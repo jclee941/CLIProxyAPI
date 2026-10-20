@@ -43,11 +43,13 @@ func (service *service) beginSessionExchange(ctx context.Context, key sessionExc
 		service.sessionExchangesMu.Unlock()
 	}
 	// Shutdown closes this signal before draining the handles that hold the
-	// credential leases. This also cancels exchanges without a caller ID.
-	closing := service.lifecycle.closingSignal()
+	// credential leases. This also cancels exchanges without a caller ID. A hot
+	// reload's quiesce leaves it open and waits for the exchange instead,
+	// because the request may already be a Flow submission.
+	stopping := service.lifecycle.stoppingSignal()
 	go func() {
 		select {
-		case <-closing:
+		case <-stopping:
 			cancel()
 		case <-owned.Done():
 		}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -144,5 +145,57 @@ func TestAQuiescedInstanceDefersTheHostRoutingHooks(t *testing.T) {
 	}
 	if reply := invoke(t, svc, "quota.describe", nil); reply.OK {
 		t.Fatal("a quiesced instance answered a call")
+	}
+}
+
+func TestAQuiescedInstanceAnswersSessionExchangesBusy(t *testing.T) {
+	// Given: an instance a hot reload has quiesced.
+	svc := filesTestService(t, filepath.Join(t.TempDir(), "sessions"))
+	if reply := invoke(t, svc, "plugin.quiesce", nil); !reply.OK {
+		t.Fatalf("quiesce: %+v", reply.Error)
+	}
+
+	// When: Flow asks for a session exchange, and the account listing is asked for.
+	exchange := invoke(t, svc, "management.handle", managementRequest{Method: "POST", Path: sessionExchangePath, Body: []byte(`{}`)})
+	listing := invoke(t, svc, "management.handle", managementRequest{Method: "GET", Path: accountsPath})
+
+	// Then: the exchange is refused as busy, which Flow waits out, and other
+	// calls are refused as before.
+	var response httpResponse
+	var body struct {
+		Error string `json:"error"`
+	}
+	if !exchange.OK || json.Unmarshal(exchange.Result, &response) != nil || json.Unmarshal(response.Body, &body) != nil || response.StatusCode != 409 || body.Error != "session_exchange_busy" {
+		t.Fatalf("exchange answered %+v %d %s", exchange.Error, response.StatusCode, response.Body)
+	}
+	if listing.OK || listing.Error.Code != "plugin_shutdown" {
+		t.Fatalf("listing answered %+v", listing)
+	}
+}
+
+func TestQuiesceLetsARunningSessionExchangeFinish(t *testing.T) {
+	// Given: a session exchange waiting for Flow's answer.
+	fixture := newExchangeCancelFixture(t, false)
+	request := sessionExchangeRequest{AuthID: fixture.record.ID, Method: "GET", URL: "https://flow.google.com/projects"}
+	done := startExchangeManagement(t, fixture.service, managementRequest{
+		Method: "POST", Path: sessionExchangePath, HostCallbackID: "scope-list", Body: jsonFixture(t, request),
+	})
+	pending := awaitExchangeSignal(t, fixture.started)
+
+	// When: a hot reload quiesces the instance, then Flow answers.
+	closing := fixture.service.lifecycle.closingSignal()
+	quiesced := make(chan []byte, 1)
+	go func() { quiesced <- fixture.service.handle(context.Background(), "plugin.quiesce", nil) }()
+	awaitExchangeSignal(t, closing)
+	close(pending.release)
+
+	// Then: the exchange returned Flow's answer instead of being cancelled,
+	// and the quiesce finished once it had.
+	if response := exchangeManagementResponse(t, done); response.StatusCode != 200 {
+		t.Fatalf("exchange = %d %s", response.StatusCode, response.Body)
+	}
+	var reply envelope
+	if err := json.Unmarshal(awaitExchangeSignal(t, quiesced), &reply); err != nil || !reply.OK {
+		t.Fatalf("quiesce: %v %+v", err, reply.Error)
 	}
 }

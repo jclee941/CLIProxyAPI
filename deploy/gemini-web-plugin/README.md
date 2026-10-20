@@ -105,6 +105,9 @@ every key.
 | `upload_limit_bytes` | 104857600 | Largest new upload; can only be lowered, stored files keep the built-in bound. |
 | `video_budget_seconds` | 600 | How long a video turn is awaited. |
 | `video_poll_seconds` | 10 | Interval between video status polls. |
+| `keep_alive_interval_seconds` | 480 | Interval between keep-alive sweeps when `GEMINI_WEB_KEEPALIVE=on`; a change applies from the next sweep. |
+| `keep_alive_workers` | 4 | Sessions one keep-alive sweep rotates at once. |
+| `keep_alive_age_seconds` | 1200 | Cookie age below which a keep-alive sweep leaves a session alone. |
 
 `delete_chats` (default `false`) deletes the web conversation a text or music
 turn opened once it has answered, keeping generated chats out of the account's

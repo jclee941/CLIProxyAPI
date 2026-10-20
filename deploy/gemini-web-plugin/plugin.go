@@ -128,6 +128,14 @@ func (service *service) handle(ctx context.Context, method string, raw []byte) [
 			}
 		} else if answer, declined := closingRoutingAnswer(method); declined {
 			result, err = answer, nil
+		} else if service.lifecycle.isQuiesced() && isSessionExchange(method, raw) {
+			// Nothing was sent upstream, so the exchange is refused as busy,
+			// like one that meets a held credential lease: Flow asks again
+			// and reaches the replacement once the host has loaded it.
+			busy := sessionExchangeError(409, "busy")
+			result, err = managementJSON(busy.HTTPStatus, struct {
+				Error string `json:"error"`
+			}{busy.Code})
 		}
 	}
 	response := envelope{OK: err == nil}
@@ -159,6 +167,14 @@ func (service *service) handle(ctx context.Context, method string, raw []byte) [
 // other providers' requests while a hot reload drained this instance. The pick
 // defers to the host's own scheduler, and the interceptor still strips the
 // internal routing headers a caller must not supply.
+func isSessionExchange(method string, raw []byte) bool {
+	if method != "management.handle" {
+		return false
+	}
+	var request managementRequest
+	return json.Unmarshal(raw, &request) == nil && request.Method == "POST" && request.Path == sessionExchangePath
+}
+
 func closingRoutingAnswer(method string) (interface{}, bool) {
 	switch method {
 	case "scheduler.pick":

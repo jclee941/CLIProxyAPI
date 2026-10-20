@@ -776,7 +776,7 @@ func (service *service) retrieveResearch(ctx context.Context, request executorRe
 		if service.now().Sub(time.Unix(turn.StartedAt, 0)) < service.tuning().researchLimit() {
 			return service.renderResearch(record.ID, token, "in_progress", "", "", "")
 		}
-		turn.State, turn.Error, turn.ErrorMessage = "failed", "research_timed_out", "the report did not arrive within 90 minutes of the start"
+		turn.State, turn.Error, turn.ErrorMessage = "failed", "research_timed_out", fmt.Sprintf("the report did not arrive within %s of the start", service.tuning().researchLimit())
 		if err := service.saveResearch(lease, record.TokenRef, key, turn, nil, false); err != nil {
 			return nil, err
 		}
