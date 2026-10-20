@@ -19,10 +19,17 @@ import (
 )
 
 // flowBrowserPage is a page on Flow's origin that loads without a Google
-// session. Flow's own scripts do not run on it: on Flow's pages they rewrite a
-// token request that does not come from their code to the action
-// extension_hijack_detected, which Flow refuses.
+// session. Flow's own scripts must not run on it: on Flow's pages they replace
+// grecaptcha.enterprise.execute with a wrapper that turns every token request
+// not made by their code into the action extension_hijack_detected, which Flow
+// refuses as PUBLIC_ERROR_UNUSUAL_ACTIVITY. Until 2026-10-20 the 404 page did
+// not load that code; the Flow build released at 03:10 KST that day moved it
+// into the script every page loads, so the page now opens with
+// flowBrowserBlockedScripts blocked.
 const flowBrowserPage = "https://flow.google.com/404"
+
+// flowBrowserBlockedScripts are Flow's own application scripts.
+var flowBrowserBlockedScripts = []string{"*/_/mss/boq-labs-ai-sandbox/*", "*://flow.google.com/_/*/_/js/*"}
 
 const flowBrowserMessageLimit = 8 << 20
 
@@ -136,6 +143,12 @@ func (browser *flowBrowser) openLocked(ctx context.Context, client *http.Client)
 	if _, err := browser.callLocked("Page.setBypassCSP", map[string]any{"enabled": true}); err != nil {
 		return err
 	}
+	if _, err := browser.callLocked("Network.enable", nil); err != nil {
+		return err
+	}
+	if _, err := browser.callLocked("Network.setBlockedURLs", map[string]any{"urls": flowBrowserBlockedScripts}); err != nil {
+		return err
+	}
 	if _, err := browser.callLocked("Page.navigate", map[string]any{"url": flowBrowserPage}); err != nil {
 		return err
 	}
@@ -150,7 +163,9 @@ func (browser *flowBrowser) openLocked(ctx context.Context, client *http.Client)
 	const script = document.createElement("script");
 	script.src = "https://www.google.com/recaptcha/enterprise.js?render=` + flowRecaptchaKey + `";
 	script.onerror = () => reject("reCAPTCHA script failed to load");
-	script.onload = () => grecaptcha.enterprise.ready(() => resolve(navigator.userAgent));
+	script.onload = () => grecaptcha.enterprise.ready(() => String(grecaptcha.enterprise.execute).includes("extension_hijack_detected")
+		? reject("Flow's page wrapped grecaptcha.enterprise.execute")
+		: resolve(navigator.userAgent));
 	(document.head || document.documentElement).appendChild(script);
 })`
 	return browser.evaluateLocked(loader, &browser.userAgent)

@@ -28,6 +28,8 @@ type devtoolsFixture struct {
 	pages       int
 	closed      []string
 	cleared     int
+	methods     []string
+	blocked     []string
 	expressions []string
 }
 
@@ -105,9 +107,10 @@ func (fixture *devtoolsFixture) socket(writer http.ResponseWriter, request *http
 			ID     int    `json:"id"`
 			Method string `json:"method"`
 			Params struct {
-				URL        string `json:"url"`
-				Expression string `json:"expression"`
-				Name       string `json:"name"`
+				URL        string   `json:"url"`
+				Expression string   `json:"expression"`
+				Name       string   `json:"name"`
+				URLs       []string `json:"urls"`
 			} `json:"params"`
 		}
 		if err := json.Unmarshal(raw, &command); err != nil {
@@ -115,8 +118,15 @@ func (fixture *devtoolsFixture) socket(writer http.ResponseWriter, request *http
 			return
 		}
 		result := map[string]any{}
+		fixture.mu.Lock()
+		fixture.methods = append(fixture.methods, command.Method)
+		fixture.mu.Unlock()
 		switch command.Method {
-		case "Page.enable", "Page.setBypassCSP":
+		case "Page.enable", "Page.setBypassCSP", "Network.enable":
+		case "Network.setBlockedURLs":
+			fixture.mu.Lock()
+			fixture.blocked = append(fixture.blocked, command.Params.URLs...)
+			fixture.mu.Unlock()
 		case "Network.deleteCookies":
 			if command.Params.Name != "_GRECAPTCHA" {
 				t.Errorf("deleted cookie %q", command.Params.Name)
@@ -276,5 +286,28 @@ func TestFlowUnusualActivityTriesAFreshIdentityThenTheSessionToken(t *testing.T)
 	devtools.mu.Unlock()
 	if mime != "video/mp4" || fixture.count("YhhmEf") != flowTokenAttempts+2 || cleared != 1 || expressions != flowTokenAttempts+1 || native == nil {
 		t.Fatalf("video %s after %d submissions, %d cookie deletions, %d browser tokens, native %v", mime, fixture.count("YhhmEf"), cleared, expressions, native != nil)
+	}
+}
+
+func TestFlowBrowserBlocksFlowScriptsBeforeOpeningThePage(t *testing.T) {
+	// Given: a browser minting tokens on Flow's origin.
+	fixture := newFlowFixture(t)
+	devtools := newDevtoolsFixture(t)
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("ogiZ0b", rpcEnvelope(t, "ogiZ0b", []any{[]any{[]any{flowTestMedia, fixture.link("image")}}}))
+	service, record := flowService(t, fixture)
+	service.config.FlowCaptchaProvider, service.config.FlowCaptchaBaseURL = "browser", devtools.server.URL
+	t.Cleanup(func() { service.captchaBrowser.close(service.client) })
+
+	// When: an image is requested.
+	flowInlineMedia(t, flowExecute(t, service, record, "flow-nano-banana-2", `{"contents":[{"parts":[{"text":"a fox"}]}]}`))
+
+	// Then: Flow's own scripts, which wrap reCAPTCHA on Flow's pages, were
+	// blocked before the page was opened.
+	devtools.mu.Lock()
+	defer devtools.mu.Unlock()
+	blockedAt, openedAt := slices.Index(devtools.methods, "Network.setBlockedURLs"), slices.Index(devtools.methods, "Page.navigate")
+	if blockedAt < 0 || openedAt < blockedAt || !slices.Equal(devtools.blocked, flowBrowserBlockedScripts) {
+		t.Fatalf("methods %q, blocked %q", devtools.methods, devtools.blocked)
 	}
 }
