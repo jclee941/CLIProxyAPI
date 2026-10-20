@@ -52,7 +52,12 @@ session needs a new login, not that the API key is wrong. `429 flow_rate_limited
 means Google is throttling the linked account for too much traffic; retry after a
 few minutes, not at once. `429 flow_credit_floor_reached` means a `low` priority
 request was refused and the account holds fewer than 5,000 credits, so it was not
-run at `normal` priority (see `priority` below).
+run at `normal` priority (see `priority` below). `429 flow_unusual_activity_hold`
+means Flow refused the linked account for unusual activity: its requests are
+answered at once, without reaching Flow, until the plugin's own health check
+finds Flow accepting the account again, and the message names the time of the
+next check. The first hold lasts 30 minutes and each further refusal doubles it,
+up to 4 hours.
 
 A non-streaming request that outlasts the server's keep-alive interval has
 already answered HTTP 200 and sent blank keep-alive lines when a late failure
@@ -419,6 +424,14 @@ plugins:
       session_broker_url: http://127.0.0.1:8317
       captcha_provider: native
 ```
+
+Optional keys:
+
+| Key | Meaning |
+| --- | --- |
+| `health_check_project` | Flow project the health check of a held account generates in: one Nano Banana 2 image, which costs no credits. When unset, the account's project titled `CLIProxyAPI health check` is used, and created if missing, so health checks never land in callers' projects. |
+| `unusual_activity_hold_seconds` | First hold after Flow refuses the account for unusual activity. Default 1800. |
+| `unusual_activity_hold_cap_seconds` | Longest hold after repeated refusals. Default 14400. |
 
 Register a `flow2api` auth file through the existing management auth-file API:
 
