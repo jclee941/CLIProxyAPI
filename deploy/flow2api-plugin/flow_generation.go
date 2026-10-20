@@ -43,10 +43,12 @@ func (service *service) pauseLowPriority(account string) {
 // and a recaptured session alike, while the Flow app still worked in the
 // operator's browser. Each refused request is one more automated attempt on
 // the flagged account, so a refusal at normal priority holds the account: its
-// requests are answered here, and when the hold ends the plugin's own health
-// check (flowHealthCheck) finds out whether the flag has cleared, so no
-// caller's request is spent finding out. Consecutive refusals double the hold
-// up to the cap, and an accepted submission resets it.
+// requests are answered here until the plugin's own health check (holdCheck),
+// run when the hold's time is up, has an image accepted, so no caller's
+// request is spent finding out. The time only schedules the check: the account
+// stays held through it and through a check that could not tell, which is
+// retried after healthCheckRetry. Each refusal in a row doubles the hold up to
+// the cap; an accepted submission ends the hold and its escalation.
 const (
 	flowUnusualActivityHold    = 30 * time.Minute
 	flowUnusualActivityHoldCap = 4 * time.Hour
@@ -65,42 +67,81 @@ func (service *service) unusualActivityHoldLimits() (time.Duration, time.Duratio
 	return first, max(first, limit)
 }
 
+// flowHold is a held account. until is when its next check runs; generation
+// names that check, so a check that was replaced while it waited or ran
+// changes nothing.
+type flowHold struct {
+	until      time.Time
+	refusals   int
+	generation uint64
+	timer      *time.Timer
+}
+
 func (service *service) unusualActivityHeld(account string) (time.Time, bool) {
 	service.flowMu.Lock()
 	defer service.flowMu.Unlock()
-	until := service.unusualHeldUntil[account]
-	return until, service.now().Before(until)
+	hold := service.holds[account]
+	if hold == nil {
+		return time.Time{}, false
+	}
+	return hold.until, true
 }
 
-// noteUnusualActivity holds the account after a submission Flow refused for
-// unusual activity and resets the escalation after an accepted one. It returns
-// the hold it started, or zero.
-func (service *service) noteUnusualActivity(account string, err error) time.Duration {
-	var public *publicError
-	refused := errors.As(err, &public) && public.Code == "flow_captcha_rejected" && strings.Contains(public.Message, "UNUSUAL_ACTIVITY")
+// noteUnusualActivity records a submission's outcome. A refusal for unusual
+// activity holds the account and schedules its check, the hold doubling for
+// each refusal in a row; an accepted submission ends the hold. Both happen in
+// one critical section with the check's timer. It returns the hold it started,
+// or zero.
+func (service *service) noteUnusualActivity(record storageRecord, err error) time.Duration {
+	account := record.SourceAuthID
 	first, limit := service.unusualActivityHoldLimits()
 	service.flowMu.Lock()
 	defer service.flowMu.Unlock()
-	if !refused {
-		if err == nil {
-			delete(service.unusualHolds, account)
-			if service.flowAccepted == nil {
-				service.flowAccepted = map[string]time.Time{}
+	if err == nil {
+		if hold := service.holds[account]; hold != nil {
+			if hold.timer != nil {
+				hold.timer.Stop()
 			}
-			service.flowAccepted[account] = service.now()
+			delete(service.holds, account)
 		}
+		if service.flowAccepted == nil {
+			service.flowAccepted = map[string]time.Time{}
+		}
+		service.flowAccepted[account] = service.now()
 		return 0
 	}
-	if service.unusualHeldUntil == nil {
-		service.unusualHeldUntil, service.unusualHolds = map[string]time.Time{}, map[string]int{}
+	if !flowUnusualActivity(err) {
+		return 0
 	}
-	hold := first
-	for range service.unusualHolds[account] {
-		hold = min(2*hold, limit)
+	if service.holds == nil {
+		service.holds = map[string]*flowHold{}
 	}
-	service.unusualHolds[account]++
-	service.unusualHeldUntil[account] = service.now().Add(hold)
-	return hold
+	hold := service.holds[account]
+	if hold == nil {
+		hold = &flowHold{}
+		service.holds[account] = hold
+	}
+	delay := first
+	for range hold.refusals {
+		delay = min(2*delay, limit)
+	}
+	hold.refusals++
+	service.scheduleCheckLocked(record, hold, delay)
+	return delay
+}
+
+// scheduleCheckLocked replaces the hold's pending check with one after delay.
+func (service *service) scheduleCheckLocked(record storageRecord, hold *flowHold, delay time.Duration) {
+	if hold.timer != nil {
+		hold.timer.Stop()
+	}
+	hold.generation++
+	hold.until, hold.timer = service.now().Add(delay), nil
+	if service.lifetime.Err() != nil {
+		return
+	}
+	generation := hold.generation
+	hold.timer = service.afterFunc(delay, func() { service.holdCheck(record, generation) })
 }
 
 // A daily model quota Flow names stays spent until a reset the refusal does not
@@ -254,9 +295,8 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 			}
 		}
 	}
-	if hold := service.noteUnusualActivity(record.SourceAuthID, err); hold > 0 {
+	if hold := service.noteUnusualActivity(record, err); hold > 0 {
 		service.report(map[string]any{"provider": provider, "state": "flow_unusual_activity_hold", "reason": model.id + " " + hold.String()}, "flow2api: generation")
-		service.scheduleHealthCheck(record, hold)
 		service.markHealth(record.SourceAuthID, flowHealthBlocked, "PUBLIC_ERROR_UNUSUAL_ACTIVITY", service.now().Add(hold))
 	} else if err == nil {
 		service.markHealth(record.SourceAuthID, flowHealthOK, "", time.Time{})

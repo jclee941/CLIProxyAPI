@@ -200,8 +200,12 @@ func (service *service) telegramTarget() (string, string) {
 // sendTelegram delivers a card in the background; a failure is reported by
 // code only, since the bot token is part of the request address.
 func (service *service) sendTelegram(card string) {
+	token, chat := service.telegramTarget()
+	if token == "" || chat == "" {
+		return
+	}
 	go func() {
-		if err := service.deliverTelegram(service.lifetime, card); err != nil && safeCredentialCode(err) != "flow_telegram_unconfigured" {
+		if err := service.deliverTelegramTo(service.lifetime, token, chat, card); err != nil {
 			service.report(map[string]any{"provider": provider, "state": safeCredentialCode(err)}, "flow2api: telegram")
 		}
 	}()
@@ -212,6 +216,10 @@ func (service *service) deliverTelegram(ctx context.Context, card string) error 
 	if token == "" || chat == "" {
 		return failure(409, "flow_telegram_unconfigured")
 	}
+	return service.deliverTelegramTo(ctx, token, chat, card)
+}
+
+func (service *service) deliverTelegramTo(ctx context.Context, token, chat, card string) error {
 	origin := "https://api.telegram.org"
 	if service.telegramOrigin != "" {
 		origin = service.telegramOrigin

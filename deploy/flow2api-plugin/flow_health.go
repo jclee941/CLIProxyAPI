@@ -30,20 +30,15 @@ const flowHealthEvery = time.Hour
 // flowHealthTick is how often the accounts are looked at for a periodic check.
 const flowHealthTick = time.Minute
 
-// scheduleHealthCheck checks the held account when its hold ends.
-func (service *service) scheduleHealthCheck(record storageRecord, hold time.Duration) {
-	service.flowMu.Lock()
-	defer service.flowMu.Unlock()
-	if service.lifetime.Err() != nil {
-		return
+// flowHealthRetry is the wait before a held account's check that could not
+// tell, for example because the project lookup failed, runs again.
+const flowHealthRetry = 5 * time.Minute
+
+func (service *service) healthCheckRetry() time.Duration {
+	if seconds := service.settings().HealthCheckRetrySeconds; seconds > 0 {
+		return time.Duration(seconds) * time.Second
 	}
-	if service.healthChecks == nil {
-		service.healthChecks = map[string]*time.Timer{}
-	}
-	if pending := service.healthChecks[record.SourceAuthID]; pending != nil {
-		pending.Stop()
-	}
-	service.healthChecks[record.SourceAuthID] = service.afterFunc(hold, func() { service.flowHealthCheck(record, true) })
+	return flowHealthRetry
 }
 
 // healthCheckInterval is how often an idle account is checked, or zero when
@@ -86,12 +81,9 @@ func (service *service) periodicHealthChecks() {
 		if service.lifetime.Err() != nil {
 			return
 		}
-		if _, held := service.unusualActivityHeld(account); held {
-			continue
-		}
 		now := service.now()
 		service.flowMu.Lock()
-		due := service.healthChecks[account] == nil && now.Sub(service.flowAccepted[account]) >= every && now.Sub(service.healthChecked[account]) >= every
+		due := service.holds[account] == nil && now.Sub(service.flowAccepted[account]) >= every && now.Sub(service.healthChecked[account]) >= every
 		if due {
 			if service.healthChecked == nil {
 				service.healthChecked = map[string]time.Time{}
@@ -100,43 +92,55 @@ func (service *service) periodicHealthChecks() {
 		}
 		service.flowMu.Unlock()
 		if due {
-			service.flowHealthCheck(storageRecord{ID: account, SourceAuthID: account}, false)
+			_ = service.runHealthCheck(storageRecord{ID: account, SourceAuthID: account}, "periodic") // The outcome is recorded and reported.
 		}
 	}
 }
 
-// flowHealthCheck generates one image for the account in the health check
-// project. A check at the end of a hold keeps the account held while it runs:
-// Flow accepting the image, or answering anything but unusual activity, ends
-// the hold, and another unusual-activity refusal doubles it and flowGenerate
-// schedules the next check. A periodic check leaves callers alone; its
-// unusual-activity refusal starts a hold like any other.
-func (service *service) flowHealthCheck(record storageRecord, held bool) {
+// holdCheck runs the check a hold scheduled, unless a newer hold replaced it.
+// An accepted image ends the hold and a refusal reschedules it, both through
+// noteUnusualActivity; a check that could not tell keeps the hold and runs
+// again after healthCheckRetry, unless the hold changed meanwhile.
+func (service *service) holdCheck(record storageRecord, generation uint64) {
 	account := record.SourceAuthID
-	kind := "periodic"
-	if held {
-		kind = "hold"
-		service.flowMu.Lock()
-		delete(service.healthChecks, account)
-		service.unusualHeldUntil[account] = service.now().Add(flowHealthWindow)
-		service.flowMu.Unlock()
+	service.flowMu.Lock()
+	hold := service.holds[account]
+	current := hold != nil && hold.generation == generation
+	if current {
+		hold.until, hold.timer = service.now().Add(flowHealthWindow), nil
 	}
+	service.flowMu.Unlock()
+	if !current {
+		return
+	}
+	err := service.runHealthCheck(record, "hold")
+	if err == nil || flowUnusualActivity(err) {
+		return
+	}
+	retry := service.healthCheckRetry()
+	service.flowMu.Lock()
+	defer service.flowMu.Unlock()
+	if hold := service.holds[account]; hold != nil && hold.generation == generation {
+		service.scheduleCheckLocked(record, hold, retry)
+	}
+}
+
+// runHealthCheck generates one image for the account in the health check
+// project and records the outcome; a failure other than an unusual-activity
+// refusal marks the account failing.
+func (service *service) runHealthCheck(record storageRecord, kind string) error {
+	account := record.SourceAuthID
 	err := service.flowHealthGenerate(service.lifetime, record)
 	state := "flow_health_check_passed"
 	if err != nil {
 		state = safeCredentialMessage(err)
 	}
-	refused := flowUnusualActivity(err)
-	if held && !refused {
-		service.flowMu.Lock()
-		delete(service.unusualHeldUntil, account)
-		service.flowMu.Unlock()
-	}
 	service.noteHealthCheck(account, kind, err)
-	if err != nil && !refused && service.lifetime.Err() == nil {
+	if err != nil && !flowUnusualActivity(err) && service.lifetime.Err() == nil {
 		service.markHealth(account, flowHealthFailing, safeCredentialCode(err), time.Time{})
 	}
 	service.report(map[string]any{"provider": provider, "state": state, "reason": flowHealthModel + " " + kind}, "flow2api: health check")
+	return err
 }
 
 func (service *service) flowHealthGenerate(ctx context.Context, record storageRecord) error {

@@ -241,3 +241,95 @@ func TestFlowTelegramTestCardAndHealthListing(t *testing.T) {
 		t.Fatalf("unconfigured test card answered %+v", unconfigured.Error)
 	}
 }
+
+func TestFlowInconclusiveHealthCheckKeepsTheHold(t *testing.T) {
+	// Given: a held account whose checks cannot tell: first the project lookup
+	// fails, then the health model's daily quota is spent.
+	fixture := newFlowFixture(t)
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", flowUnusualRefusal(t, "YhhmEf"))
+	fixture.reply("UpteDb", rpcEnvelope(t, "UpteDb", "not a project list"))
+	service, record := flowService(t, fixture)
+	delays, checks := flowCaptureChecks(service)
+	video := `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`
+	flowExecute(t, service, record, "flow-veo-3.1-lite", video)
+
+	// When: both checks run.
+	(*checks)[0]()
+	service.config.HealthCheckProject = flowTestHealthProject
+	service.holdDailyQuota(record.SourceAuthID, flowHealthModel, &publicError{Code: "flow_quota_exhausted", Message: "flow_quota_exhausted: PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED"})
+	(*checks)[1]()
+	held := flowExecute(t, service, record, "flow-veo-3.1-lite", video)
+
+	// Then: each kept the hold and scheduled the next check after the retry
+	// wait, nothing reached Flow, and the caller is still held.
+	_, stillHeld := service.unusualActivityHeld(record.SourceAuthID)
+	if !slices.Equal(*delays, []time.Duration{flowUnusualActivityHold, flowHealthRetry, flowHealthRetry}) || fixture.count("ogiZ0b") != 0 || !stillHeld ||
+		held.OK || held.Error.Code != "flow_unusual_activity_hold" || fixture.count("YhhmEf") != flowTokenAttempts {
+		t.Fatalf("checks after %v, %d images, held %v, caller %+v", *delays, fixture.count("ogiZ0b"), stillHeld, held.Error)
+	}
+}
+
+func TestFlowReplacedHealthCheckChangesNothing(t *testing.T) {
+	// Given: a held account whose scheduled check was replaced by a later
+	// refusal before it ran, as when an earlier caller's request is refused late.
+	fixture := newFlowFixture(t)
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", flowUnusualRefusal(t, "YhhmEf"))
+	fixture.reply("ogiZ0b", rpcEnvelope(t, "ogiZ0b", []any{[]any{[]any{flowTestMedia, fixture.link("image")}}}))
+	service, record := flowService(t, fixture)
+	service.config.HealthCheckProject = flowTestHealthProject
+	clock := time.Unix(1700000000, 0)
+	service.now = func() time.Time { return clock }
+	_, checks := flowCaptureChecks(service)
+	refusal := &publicError{Code: "flow_captcha_rejected", Message: "flow_captcha_rejected: PUBLIC_ERROR_UNUSUAL_ACTIVITY"}
+	flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`)
+	later := service.noteUnusualActivity(record, refusal)
+
+	// When: the replaced check runs.
+	(*checks)[0]()
+
+	// Then: it sent nothing and the later hold stands.
+	until, held := service.unusualActivityHeld(record.SourceAuthID)
+	if later != 2*flowUnusualActivityHold || fixture.count("ogiZ0b") != 0 || !held || !until.Equal(clock.Add(later)) {
+		t.Fatalf("later hold %v, %d images, held %v until %v", later, fixture.count("ogiZ0b"), held, until)
+	}
+
+	// When: the current check runs.
+	(*checks)[1]()
+
+	// Then: its accepted image ends the hold.
+	if _, held := service.unusualActivityHeld(record.SourceAuthID); held || fixture.count("ogiZ0b") != 1 {
+		t.Fatalf("held %v after %d images", held, fixture.count("ogiZ0b"))
+	}
+}
+
+func TestFlowHoldRecordedDuringACheckOutlivesIt(t *testing.T) {
+	// Given: a held account whose check cannot tell, and a later refusal
+	// recorded while that check is waiting for Flow.
+	fixture := newFlowFixture(t)
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", flowUnusualRefusal(t, "YhhmEf"))
+	fixture.reply("UpteDb", rpcEnvelope(t, "UpteDb", "not a project list"))
+	service, record := flowService(t, fixture)
+	clock := time.Unix(1700000000, 0)
+	service.now = func() time.Time { return clock }
+	delays, checks := flowCaptureChecks(service)
+	refusal := &publicError{Code: "flow_captcha_rejected", Message: "flow_captcha_rejected: PUBLIC_ERROR_UNUSUAL_ACTIVITY"}
+	flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`)
+	fixture.onRPC = func(rpcID string) {
+		if rpcID == "UpteDb" {
+			service.noteUnusualActivity(record, refusal)
+		}
+	}
+
+	// When: the check runs and finishes without an answer.
+	(*checks)[0]()
+
+	// Then: the later hold and its own check stand; the finished check
+	// scheduled no retry over them.
+	until, held := service.unusualActivityHeld(record.SourceAuthID)
+	if !held || !until.Equal(clock.Add(2*flowUnusualActivityHold)) || !slices.Equal(*delays, []time.Duration{flowUnusualActivityHold, 2 * flowUnusualActivityHold}) {
+		t.Fatalf("held %v until %v, checks after %v", held, until, *delays)
+	}
+}
