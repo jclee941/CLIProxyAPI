@@ -253,6 +253,13 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	current.ExtendDeclaration = config.ExtendDeclaration
 	current.ExtendSourceDeclaration = config.ExtendSourceDeclaration
 	current.SessionExchangeAccounts = config.SessionExchangeAccounts
+	// Drive credentials are read where they are used, and the cached access
+	// token is their only state, so rotating one never waits for a drain: a
+	// reconfigure refused while any call is in flight takes the plugin off the
+	// host.
+	driveChanged := current.DriveAPIKey != config.DriveAPIKey || current.DriveClientID != config.DriveClientID || current.DriveClientSecret != config.DriveClientSecret || current.DriveRefreshToken != config.DriveRefreshToken
+	current.DriveAPIKey, current.DriveClientID = config.DriveAPIKey, config.DriveClientID
+	current.DriveClientSecret, current.DriveRefreshToken = config.DriveClientSecret, config.DriveRefreshToken
 	unchanged := reflect.DeepEqual(current, config) && (config.SessionDir == "" || service.sessions != nil && service.sessionKeyHash == sha256.Sum256([]byte(os.Getenv("GEMINI_WEB_SESSION_KEY"))))
 	if unchanged {
 		// These policies are read at submission; they do not replace session
@@ -266,6 +273,8 @@ func (service *service) register(raw []byte) (interface{}, error) {
 		service.config.ExtendDeclaration = config.ExtendDeclaration
 		service.config.ExtendSourceDeclaration = config.ExtendSourceDeclaration
 		service.config.SessionExchangeAccounts = config.SessionExchangeAccounts
+		service.config.DriveAPIKey, service.config.DriveClientID = config.DriveAPIKey, config.DriveClientID
+		service.config.DriveClientSecret, service.config.DriveRefreshToken = config.DriveClientSecret, config.DriveRefreshToken
 	} else {
 		if err := service.lifecycle.reconfigure(func() error {
 			if err := service.reconfigureCredentials(config); err != nil {
@@ -274,17 +283,17 @@ func (service *service) register(raw []byte) (interface{}, error) {
 			if err := service.configureSessions(config); err != nil {
 				return err
 			}
-			if current.DriveClientID != config.DriveClientID || current.DriveClientSecret != config.DriveClientSecret || current.DriveRefreshToken != config.DriveRefreshToken {
-				service.driveAccess.mu.Lock()
-				service.driveAccess.value, service.driveAccess.scopes = "", ""
-				service.driveAccess.expires = time.Time{}
-				service.driveAccess.mu.Unlock()
-			}
 			service.config = config
 			return nil
 		}); err != nil {
 			return nil, err
 		}
+	}
+	if driveChanged {
+		service.driveAccess.mu.Lock()
+		service.driveAccess.value, service.driveAccess.scopes = "", ""
+		service.driveAccess.expires = time.Time{}
+		service.driveAccess.mu.Unlock()
 	}
 	tuned := service.config.Tuning
 	service.tuned.Store(&tuned)
