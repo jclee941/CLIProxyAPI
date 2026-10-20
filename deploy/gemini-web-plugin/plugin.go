@@ -126,6 +126,8 @@ func (service *service) handle(ctx context.Context, method string, raw []byte) [
 			} else {
 				result, err = service.dispatch(ctx, method, raw)
 			}
+		} else if answer, declined := closingRoutingAnswer(method); declined {
+			result, err = answer, nil
 		}
 	}
 	response := envelope{OK: err == nil}
@@ -150,6 +152,21 @@ func (service *service) handle(ctx context.Context, method string, raw []byte) [
 		return []byte(`{"ok":false,"error":{"code":"response_encoding_failed","message":"response_encoding_failed","http_status":500}}`)
 	}
 	return encoded
+}
+
+// closingRoutingAnswer is what a closing instance answers the routing hooks the
+// host runs for every request, whatever its provider: a refusal there failed
+// other providers' requests while a hot reload drained this instance. The pick
+// defers to the host's own scheduler, and the interceptor still strips the
+// internal routing headers a caller must not supply.
+func closingRoutingAnswer(method string) (interface{}, bool) {
+	switch method {
+	case "scheduler.pick":
+		return continuationPick{}, true
+	case "request.intercept_before", "request.intercept_after":
+		return requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader, roomVideosHeader}}, true
+	}
+	return nil, false
 }
 
 func (service *service) settings() pluginConfig {

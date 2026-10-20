@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -123,5 +124,25 @@ func TestRegisterResumesAQuiescedInstanceTheHostKept(t *testing.T) {
 	}
 	if reply := invoke(t, svc, "quota.describe", nil); !reply.OK {
 		t.Fatalf("the kept instance refused a call: %+v", reply.Error)
+	}
+}
+
+func TestAQuiescedInstanceDefersTheHostRoutingHooks(t *testing.T) {
+	svc := filesTestService(t, filepath.Join(t.TempDir(), "sessions"))
+	if reply := invoke(t, svc, "plugin.quiesce", nil); !reply.OK {
+		t.Fatalf("quiesce: %+v", reply.Error)
+	}
+	pick := invoke(t, svc, "scheduler.pick", map[string]any{"Model": "gemini-flash", "Candidates": []map[string]string{{"ID": "other", "Provider": "antigravity"}}})
+	var picked continuationPick
+	if !pick.OK || json.Unmarshal(pick.Result, &picked) != nil || picked.Handled {
+		t.Fatalf("a quiesced instance refused or took a pick: %+v", pick)
+	}
+	intercepted := invoke(t, svc, "request.intercept_before", map[string]any{})
+	var response requestInterceptResponse
+	if !intercepted.OK || json.Unmarshal(intercepted.Result, &response) != nil || !slices.Contains(response.ClearHeaders, continuationHeader) {
+		t.Fatalf("a quiesced instance did not strip the routing headers: %+v", intercepted)
+	}
+	if reply := invoke(t, svc, "quota.describe", nil); reply.OK {
+		t.Fatal("a quiesced instance answered a call")
 	}
 }
