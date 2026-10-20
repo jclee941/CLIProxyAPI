@@ -53,7 +53,7 @@ func TestInteractionLanguageAndVideoModeReachTheVideoFields(t *testing.T) {
 		if mode == 0 {
 			mode = 1
 		}
-		fields := webVideoFields("a wave", mode, "conversation", options.framing(), options.thinking(), options.language(), nil)
+		fields := webVideoFields("a wave", mode, "conversation", options.framing(), options.thinking(0), options.language(), nil)
 		slot, ok := fields[1].([]any)
 		if !ok || len(slot) != 1 || slot[0] != want.language {
 			t.Fatalf("%s: slot 1 = %#v, want [%s]", config, fields[1], want.language)

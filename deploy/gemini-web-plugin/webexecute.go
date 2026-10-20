@@ -169,7 +169,7 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	if err != nil {
 		return httpResponse{}, err
 	}
-	session.diag = newVideoTurnDiag(service.recordAccountName(record), "first", account, model, options.framing(), options.thinking(), options.language())
+	session.diag = newVideoTurnDiag(service.recordAccountName(record), "first", account, model, options.framing(), options.thinking(service.settings().VideoThinkingLevel), options.language())
 	session.videoWire = service.settings().VideoWireMode
 	defer func() { service.reportVideoTurn(session.diag, videoOutcome(err)) }()
 	sources, err := service.mediaSources(ctx, media, "")
@@ -180,11 +180,11 @@ func (service *service) nativeVideo(ctx context.Context, record storageRecord, t
 	if err != nil {
 		return httpResponse{}, err
 	}
-	video, err := session.generateVideo(ctx, prompt, account, model, options.framing(), options.thinking(), options.language(), attachments)
+	video, err := session.generateVideo(ctx, prompt, account, model, options.framing(), options.thinking(service.settings().VideoThinkingLevel), options.language(), attachments)
 	if standard, again := standardModeFallback(account, err); again && proseFallbackEligible(options.VideoMode, model, session.diag) {
 		service.reportVideoTurn(session.diag, videoOutcome(err))
-		session.diag = newVideoTurnDiag(service.recordAccountName(record), "fallback", account, standard, options.framing(), options.thinking(), options.language())
-		video, err = session.generateVideo(ctx, prompt, account, standard, options.framing(), options.thinking(), options.language(), attachments)
+		session.diag = newVideoTurnDiag(service.recordAccountName(record), "fallback", account, standard, options.framing(), options.thinking(service.settings().VideoThinkingLevel), options.language())
+		video, err = session.generateVideo(ctx, prompt, account, standard, options.framing(), options.thinking(service.settings().VideoThinkingLevel), options.language(), attachments)
 	}
 	if err != nil {
 		service.noteVideoRefusal(record.ID, err)

@@ -34,6 +34,10 @@ type pluginConfig struct {
 	// names none; zero keeps the account's standard mode, and so does an
 	// account that does not advertise the configured one.
 	VideoMode int `yaml:"video_mode,omitempty"`
+	// VideoThinkingLevel is the slot 80 thinking level a video turn is sent with
+	// when its request names none, numbered as omniThinkingLevels; zero keeps
+	// webVideoThinkingLevel.
+	VideoThinkingLevel int `yaml:"video_thinking_level,omitempty"`
 	// DeleteChats deletes the web conversation a text, image or music turn opens
 	// once it has answered, keeping generated chats out of the account history.
 	DeleteChats             bool     `yaml:"delete_chats,omitempty"`
@@ -180,7 +184,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	default:
 		return nil, failure(400, "invalid_plugin_config")
 	}
-	if config.VideoMode < 0 {
+	if config.VideoMode < 0 || config.VideoThinkingLevel < 0 || config.VideoThinkingLevel > 4 {
 		return nil, failure(400, "invalid_plugin_config")
 	}
 	if len(config.SessionExchangeAccounts) == 0 {
@@ -192,6 +196,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	current.VideoWireMode = config.VideoWireMode
 	modeChanged := current.VideoMode != config.VideoMode
 	current.VideoMode = config.VideoMode
+	current.VideoThinkingLevel = config.VideoThinkingLevel
 	deleteChanged := current.DeleteChats != config.DeleteChats
 	current.DeleteChats = config.DeleteChats
 	current.SessionExchangeAccounts = config.SessionExchangeAccounts
@@ -202,6 +207,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 		// been selected.
 		service.config.VideoWireMode = config.VideoWireMode
 		service.config.VideoMode = config.VideoMode
+		service.config.VideoThinkingLevel = config.VideoThinkingLevel
 		service.config.DeleteChats = config.DeleteChats
 		service.config.SessionExchangeAccounts = config.SessionExchangeAccounts
 	} else {

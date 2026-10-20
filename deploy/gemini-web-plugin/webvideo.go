@@ -30,15 +30,18 @@ const webVideoTurnsRPC = "hNvQHb"
 const webVideoChipMarker = "googleusercontent.com/video_gen_chip/"
 
 // webVideoThinkingLevel is the thinking level a video turn is sent with unless the
-// caller names one in generationConfig.thinkingLevel. The web
+// caller names one in generationConfig.thinkingLevel or the plugin config sets
+// video_thinking_level. The web
 // app's StreamGenerate builder writes a set level to slot 80 as 1-4 for STANDARD,
 // EXTENDED, DEEP_THINK and MEDIUM; it never leaves the slot empty. The operator
 // turned Extended thinking off on 2026-09-29, so video turns send the standard
 // level again. Leaving the slot unset instead ended every video turn sent in the
 // next fifteen minutes in the product's canned text-model answer. On 2026-10-02 the
 // operator turned Extended back on: on standard, about a third of video attempts
-// still came back as that canned answer.
-const webVideoThinkingLevel = 2
+// still came back as that canned answer. On 2026-10-20, with the standard (Flash)
+// capability mode as the video default, the operator moved video turns back to
+// the standard level.
+const webVideoThinkingLevel = 1
 
 // webVideoFields turns the text request into a video submission. The overrides
 // are what distinguishes a video turn from a text one.

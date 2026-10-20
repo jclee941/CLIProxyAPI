@@ -73,10 +73,14 @@ func (options omniOptions) language() string {
 // builder numbers them in slot 80.
 var omniThinkingLevels = map[string]int{"STANDARD": 1, "EXTENDED": 2, "DEEP_THINK": 3, "MEDIUM": 4}
 
-// thinking is the slot 80 value the turn is sent with.
-func (options omniOptions) thinking() int {
+// thinking is the slot 80 value the turn is sent with: the request's level, else
+// the configured one, else webVideoThinkingLevel.
+func (options omniOptions) thinking(configured int) int {
 	if level, ok := omniThinkingLevels[options.ThinkingLevel]; ok {
 		return level
+	}
+	if configured > 0 {
+		return configured
 	}
 	return webVideoThinkingLevel
 }

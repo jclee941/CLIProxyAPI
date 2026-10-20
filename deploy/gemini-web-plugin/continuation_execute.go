@@ -195,7 +195,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			if turn.Model == omniModel {
 				turn.VideoWire = turn.wireMode(service.settings().VideoWireMode).variant(execution.key, account.CapacityFlags)
 				session.videoWire = turn.VideoWire
-				fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing(), options.thinking(), language, attachments)
+				fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing(), options.thinking(service.settings().VideoThinkingLevel), language, attachments)
 				fields = turn.VideoWire.fields(fields)
 				if options.VideoTool {
 					fields = webMentionVideoTool(fields)
@@ -232,7 +232,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 				diagKind = "fallback"
 			}
 			if turn.Model == omniModel {
-				diag = newVideoTurnDiag(service.recordAccountName(execution.local.Target), diagKind, account, model, options.framing(), options.thinking(), language)
+				diag = newVideoTurnDiag(service.recordAccountName(execution.local.Target), diagKind, account, model, options.framing(), options.thinking(service.settings().VideoThinkingLevel), language)
 				session.diag = diag
 			}
 			encoded, err := json.Marshal(fields)
