@@ -30,13 +30,14 @@ func (service *service) startKeepAlive() {
 }
 
 func (service *service) keepSessionsAlive(closing <-chan struct{}) {
-	ticker := time.NewTicker(keepAliveInterval)
+	ticker := time.NewTicker(service.tuning().keepAliveSweep())
 	defer ticker.Stop()
 	for {
 		select {
 		case <-closing:
 			return
 		case <-ticker.C:
+			ticker.Reset(service.tuning().keepAliveSweep())
 			ctx, cancel := context.WithCancel(context.Background())
 			go func() {
 				select {
@@ -65,7 +66,7 @@ func (service *service) refreshIdleSessions(ctx context.Context) {
 	}
 	work := make(chan localSession)
 	done := make(chan struct{})
-	workers := keepAliveWorkers
+	workers := service.tuning().keepAliveWorkerCount()
 	if len(records) < workers {
 		workers = len(records)
 	}
@@ -119,7 +120,7 @@ func (service *service) refreshSession(ctx context.Context, local localSession) 
 	if err != nil || current.State != localReady || current.Token != local.Token {
 		return
 	}
-	if service.now().Unix()-current.RotatedAt < int64(keepAliveAge/time.Second) {
+	if service.now().Unix()-current.RotatedAt < int64(service.tuning().keepAliveRotationAge()/time.Second) {
 		return
 	}
 	// Google invalidates the old cookie the moment it issues a new one, so the

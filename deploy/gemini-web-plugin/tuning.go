@@ -66,6 +66,12 @@ type tuning struct {
 	VideoBudgetSeconds int `yaml:"video_budget_seconds,omitempty"`
 	// VideoPollSeconds overrides webVideoPollInterval.
 	VideoPollSeconds int `yaml:"video_poll_seconds,omitempty"`
+	// KeepAliveIntervalSeconds overrides keepAliveInterval, from the next sweep.
+	KeepAliveIntervalSeconds int `yaml:"keep_alive_interval_seconds,omitempty"`
+	// KeepAliveWorkers overrides keepAliveWorkers.
+	KeepAliveWorkers int `yaml:"keep_alive_workers,omitempty"`
+	// KeepAliveAgeSeconds overrides keepAliveAge.
+	KeepAliveAgeSeconds int `yaml:"keep_alive_age_seconds,omitempty"`
 }
 
 func (tuned tuning) valid() bool {
@@ -189,6 +195,18 @@ func (tuned tuning) videoBudget() time.Duration {
 
 func (tuned tuning) videoPoll() time.Duration {
 	return tunedSeconds(tuned.VideoPollSeconds, webVideoPollInterval)
+}
+
+func (tuned tuning) keepAliveSweep() time.Duration {
+	return tunedSeconds(tuned.KeepAliveIntervalSeconds, keepAliveInterval)
+}
+
+func (tuned tuning) keepAliveWorkerCount() int {
+	return tunedCount(tuned.KeepAliveWorkers, keepAliveWorkers)
+}
+
+func (tuned tuning) keepAliveRotationAge() time.Duration {
+	return tunedSeconds(tuned.KeepAliveAgeSeconds, keepAliveAge)
 }
 
 // tuning is the tuning the last successful register applied. It is read
