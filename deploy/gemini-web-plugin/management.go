@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 )
 
 func managementJSON(status int, value interface{}) (httpResponse, error) {
@@ -60,7 +59,11 @@ func (service *service) management(ctx context.Context, raw []byte) (httpRespons
 }
 
 func (service *service) managementOperation(ctx context.Context, request managementRequest) (interface{}, error) {
-	if request.Method == "POST" {
+	// A Flow session exchange borrows a credential and a refresh reads one
+	// account; neither changes an account. Exchanges run many times a minute,
+	// and emptying the listing cache on each one sent every dashboard read back
+	// to inspecting all accounts.
+	if request.Method == "POST" && request.Path != sessionExchangePath && request.Path != sessionExchangeCancelPath && request.Path != refreshPath {
 		defer service.dropAccountsCache()
 	}
 	switch {
@@ -71,32 +74,24 @@ func (service *service) managementOperation(ctx context.Context, request managem
 		if err != nil {
 			return nil, err
 		}
-		// The host opens a fresh callback id for every call, so the listing is
-		// cached under the set of accounts it covers instead.
 		scope := accountsScope(entries)
-		if cached, fresh := service.cachedAccounts(scope); fresh {
+		cached, fresh, found := service.cachedAccounts(scope)
+		if found && fresh {
 			return accountListResponse{cached, provider, service.generationUnits()}, nil
 		}
-		// Accounts are inspected concurrently because each one costs two
-		// independent upstream round trips; the indexed slice keeps the response
-		// in host entry order.
-		accounts := make([]accountView, len(entries))
-		var inspections sync.WaitGroup
-		for index, entry := range entries {
-			inspections.Add(1)
-			go func() {
-				defer inspections.Done()
-				record, enabled, errRecord := service.getRecord(request.HostCallbackID, entry)
-				if errRecord != nil {
-					accounts[index] = failedAccount(accountView{ID: entry.ID, Label: "Unavailable account", Enabled: !entry.Disabled, Models: []accountModelView{}, ObservedAt: float64(service.now().UnixMilli()) / 1000}, errRecord)
-					return
-				}
-				accounts[index] = service.inspectAccount(ctx, record, enabled)
-			}()
+		refresh := service.refreshAccounts(scope, service.listedAccounts(request.HostCallbackID, entries))
+		if found {
+			return accountListResponse{cached, provider, service.generationUnits()}, nil
 		}
-		inspections.Wait()
-		service.storeAccounts(scope, accounts)
-		return accountListResponse{accounts, provider, service.generationUnits()}, nil
+		select {
+		case <-refresh.done:
+		case <-ctx.Done():
+			return nil, failure(499, "accounts_listing_cancelled")
+		}
+		if refresh.views == nil {
+			return nil, failure(503, "plugin_shutdown")
+		}
+		return accountListResponse{refresh.views, provider, service.generationUnits()}, nil
 	case request.Method == "POST" && request.Path == sessionExchangePath:
 		return service.sessionExchange(ctx, request)
 	case request.Method == "POST" && request.Path == sessionExchangeCancelPath:
@@ -122,7 +117,9 @@ func (service *service) managementOperation(ctx context.Context, request managem
 		if err != nil {
 			return nil, err
 		}
-		return service.inspectAccount(ctx, record, enabled), nil
+		view := service.inspectAccount(ctx, record, enabled)
+		service.updateCachedAccount(view)
+		return view, nil
 	default:
 		return nil, failure(404, "management_route_not_found")
 	}

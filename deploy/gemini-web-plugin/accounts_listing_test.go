@@ -122,20 +122,90 @@ func TestAccountsListReusesRecentResults_untilAWriteOrExpiry(t *testing.T) {
 		t.Fatalf("reused listing lost content: %+v", second)
 	}
 
+	// A card's refresh reads that account live and updates the cached listing.
 	refresh := invoke(t, service, "management.handle", managementRequest{Method: "POST", Path: refreshPath, HostCallbackID: "scope-list", Body: jsonFixture(t, struct {
 		ID string `json:"id"`
 	}{records[0].ID})})
 	if !refresh.OK {
 		t.Fatalf("refresh failed: %+v", refresh.Error)
 	}
+	listAccountViews(t, service, "call-3")
+	if upstream.Load() != 2 {
+		t.Fatalf("a refresh emptied the listing: upstream=%d want 2", upstream.Load())
+	}
+
+	// A write route empties it, even one that refused the write.
+	invoke(t, service, "management.handle", managementRequest{Method: "POST", Path: resolvePath, HostCallbackID: "scope-list", Body: []byte(`{}`)})
 	listAccountViews(t, service, "call-4")
 	if upstream.Load() != 3 {
 		t.Fatalf("a write left a stale listing cached: upstream=%d want 3", upstream.Load())
 	}
 
+	// An expired listing answers at once and is refreshed behind the read.
+	var queued []func()
+	service.background = func(run func()) { queued = append(queued, run) }
 	clock.Add(int64(accountsCacheTTL/time.Second) + 1)
-	listAccountViews(t, service, "call-5")
+	stale := listAccountViews(t, service, "call-5")
+	if upstream.Load() != 3 || len(stale) != 1 || len(queued) != 1 {
+		t.Fatalf("expired listing: upstream=%d, %d views, %d refreshes queued", upstream.Load(), len(stale), len(queued))
+	}
+	queued[0]()
+	listAccountViews(t, service, "call-6")
+	if upstream.Load() != 4 || len(queued) != 1 {
+		t.Fatalf("expired listing was not refreshed once: upstream=%d, %d refreshes", upstream.Load(), len(queued))
+	}
+}
+
+func TestAccountsListSurvivesFlowSessionExchanges(t *testing.T) {
+	// Given: a cached listing.
+	var upstream atomic.Int64
+	service, _ := listingFixture(t, []string{"a"}, func(writer http.ResponseWriter, request *http.Request) {
+		if nativeRPCID(request) == accountCapabilityRPC {
+			upstream.Add(1)
+		}
+		writeAccountFixture(t, writer, request)
+	})
+	listAccountViews(t, service, "call-1")
+
+	// When: Flow asks for a session exchange and cancels one, as it does many
+	// times a minute.
+	invoke(t, service, "management.handle", managementRequest{Method: "POST", Path: sessionExchangePath, HostCallbackID: "scope-list", Body: []byte(`{}`)})
+	invoke(t, service, "management.handle", managementRequest{Method: "POST", Path: sessionExchangeCancelPath, HostCallbackID: "scope-list", Body: []byte(`{}`)})
+	listAccountViews(t, service, "call-2")
+
+	// Then: the listing was still answered from the cache.
+	if upstream.Load() != 1 {
+		t.Fatalf("session exchanges emptied the listing: upstream=%d want 1", upstream.Load())
+	}
+}
+
+func TestAccountsListSharesOneRefreshAcrossExpiredReads(t *testing.T) {
+	// Given: an expired listing.
+	var upstream atomic.Int64
+	service, _ := listingFixture(t, []string{"a", "b"}, func(writer http.ResponseWriter, request *http.Request) {
+		if nativeRPCID(request) == accountCapabilityRPC {
+			upstream.Add(1)
+		}
+		writeAccountFixture(t, writer, request)
+	})
+	var clock atomic.Int64
+	clock.Store(1700000000)
+	service.now = func() time.Time { return time.Unix(clock.Load(), 0) }
+	listAccountViews(t, service, "call-1")
+	var queued []func()
+	service.background = func(run func()) { queued = append(queued, run) }
+	clock.Add(int64(accountsCacheTTL/time.Second) + 1)
+
+	// When: two reads arrive before the refresh has run.
+	listAccountViews(t, service, "call-2")
+	listAccountViews(t, service, "call-3")
+
+	// Then: they share one refresh, which inspects each account once.
+	if len(queued) != 1 {
+		t.Fatalf("expired reads queued %d refreshes, want 1", len(queued))
+	}
+	queued[0]()
 	if upstream.Load() != 4 {
-		t.Fatalf("expired listing was not refetched: upstream=%d want 4", upstream.Load())
+		t.Fatalf("the shared refresh queried upstream %d time(s) in all, want 4", upstream.Load())
 	}
 }

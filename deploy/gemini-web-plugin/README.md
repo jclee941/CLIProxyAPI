@@ -86,7 +86,7 @@ every key.
 | `default_generation_units` | 5000 | Stand-in cost of a video until one has been measured. |
 | `generation_samples` | 8 | Measured video costs remembered, so a price change reaches the scheduler within a few videos. |
 | `same_window_slack_seconds` | 600 | How far two readings of one five-hour window may disagree about when it turns over. |
-| `accounts_cache_seconds` | 60 | How long an account listing is served from cache. |
+| `accounts_cache_seconds` | 60 | How long an account listing counts as fresh. A read of an older listing answers from it at once and refreshes it in the background; Flow session exchanges and a card's refresh leave it cached. |
 | `credential_wait_seconds` | 90 | How long a turn waits for its account's slot. |
 | `quiesce_drain_seconds` | 90 | How long a hot reload waits for running calls before the old instance keeps serving. |
 | `trapped_release_seconds` | 300 | Pace of the plugin's own release of accounts trapped by an interrupted submission; applies when the loop next starts. |

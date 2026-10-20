@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,22 +26,28 @@ type cachedAccountList struct {
 	expiresAt time.Time
 }
 
-// cachedAccounts returns a listing that is still inside its freshness window.
-// Listing one account costs two upstream round trips to Google, so repeated
-// dashboard reads reuse the last result instead of re-querying every account.
-func (service *service) cachedAccounts(scope string) ([]accountView, bool) {
+// cachedAccounts returns the scope's last listing and whether it is still
+// inside its freshness window. Listing one account costs two upstream round
+// trips to Google, so a dashboard read answers from the last listing and an
+// expired one is refreshed behind it.
+func (service *service) cachedAccounts(scope string) ([]accountView, bool, bool) {
 	service.accountsMu.Lock()
 	defer service.accountsMu.Unlock()
 	cached, exists := service.accountsCache[scope]
-	if !exists || !service.now().Before(cached.expiresAt) {
-		return nil, false
+	if !exists {
+		return nil, false, false
 	}
-	return cached.views, true
+	return cached.views, service.now().Before(cached.expiresAt), true
 }
 
-func (service *service) storeAccounts(scope string, views []accountView) {
+// storeAccounts keeps a listing unless an account write emptied the cache
+// after its inspection began, which would make it stale on arrival.
+func (service *service) storeAccounts(scope string, views []accountView, epoch uint64) {
 	service.accountsMu.Lock()
 	defer service.accountsMu.Unlock()
+	if epoch != service.accountsEpoch {
+		return
+	}
 	if service.accountsCache == nil {
 		service.accountsCache = map[string]cachedAccountList{}
 	}
@@ -49,4 +58,127 @@ func (service *service) dropAccountsCache() {
 	service.accountsMu.Lock()
 	defer service.accountsMu.Unlock()
 	service.accountsCache = nil
+	service.accountsEpoch++
+}
+
+// updateCachedAccount puts one account's live reading into every cached
+// listing that shows it, so reading one card does not send the next dashboard
+// read back to inspecting every account.
+func (service *service) updateCachedAccount(view accountView) {
+	service.accountsMu.Lock()
+	defer service.accountsMu.Unlock()
+	for scope, cached := range service.accountsCache {
+		for index, listed := range cached.views {
+			if listed.ID == view.ID {
+				cached.views = slices.Clone(cached.views)
+				cached.views[index] = view
+				service.accountsCache[scope] = cached
+				break
+			}
+		}
+	}
+}
+
+type listedAccount struct {
+	entry   hostEntry
+	record  storageRecord
+	enabled bool
+	err     error
+}
+
+// listedAccounts reads the records behind the host entries. They come through
+// the listing call's host callback, which ends with the call, so they are read
+// before an inspection that may outlive it.
+func (service *service) listedAccounts(callbackID string, entries []hostEntry) []listedAccount {
+	listed := make([]listedAccount, len(entries))
+	for index, entry := range entries {
+		record, enabled, err := service.getRecord(callbackID, entry)
+		listed[index] = listedAccount{entry, record, enabled, err}
+	}
+	return listed
+}
+
+// inspectListed inspects the accounts concurrently, because each costs two
+// independent upstream round trips; the indexed slice keeps the host entry
+// order.
+func (service *service) inspectListed(ctx context.Context, listed []listedAccount) []accountView {
+	accounts := make([]accountView, len(listed))
+	var inspections sync.WaitGroup
+	for index, item := range listed {
+		inspections.Add(1)
+		go func() {
+			defer inspections.Done()
+			if item.err != nil {
+				accounts[index] = failedAccount(accountView{ID: item.entry.ID, Label: "Unavailable account", Enabled: !item.entry.Disabled, Models: []accountModelView{}, ObservedAt: float64(service.now().UnixMilli()) / 1000}, item.err)
+				return
+			}
+			accounts[index] = service.inspectAccount(ctx, item.record, item.enabled)
+		}()
+	}
+	inspections.Wait()
+	return accounts
+}
+
+// accountsRefresh is one inspection of a scope's accounts. views is set before
+// done closes, and stays nil when a quiesce or shutdown cut the inspection short.
+type accountsRefresh struct {
+	done  chan struct{}
+	views []accountView
+}
+
+// refreshAccounts inspects a scope's accounts once, shared by every read that
+// arrives while it runs. It does not end with the read that started it: a
+// caller that gives up still leaves the listing cached for the next read. It
+// joins the lifecycle so a quiesce or shutdown waits for it, and their closing
+// signal cancels its upstream reads.
+func (service *service) refreshAccounts(scope string, listed []listedAccount) *accountsRefresh {
+	service.accountsMu.Lock()
+	if running := service.accountsRefreshing[scope]; running != nil {
+		service.accountsMu.Unlock()
+		return running
+	}
+	refresh := &accountsRefresh{done: make(chan struct{})}
+	if service.accountsRefreshing == nil {
+		service.accountsRefreshing = map[string]*accountsRefresh{}
+	}
+	service.accountsRefreshing[scope] = refresh
+	epoch := service.accountsEpoch
+	service.accountsMu.Unlock()
+	finish := func(views []accountView) {
+		service.accountsMu.Lock()
+		delete(service.accountsRefreshing, scope)
+		refresh.views = views
+		service.accountsMu.Unlock()
+		close(refresh.done)
+	}
+	if service.lifecycle.enter() != nil {
+		finish(nil)
+		return refresh
+	}
+	closing := service.lifecycle.closingSignal()
+	run := func() {
+		defer service.lifecycle.leave()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			select {
+			case <-closing:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		views := service.inspectListed(ctx, listed)
+		if ctx.Err() != nil {
+			finish(nil)
+			return
+		}
+		service.storeAccounts(scope, views, epoch)
+		finish(views)
+	}
+	if service.background != nil {
+		service.background(run)
+	} else {
+		go run()
+	}
+	return refresh
 }

@@ -75,8 +75,12 @@ type service struct {
 	lifecycle          sessionLifecycle
 	accountsMu         sync.Mutex
 	accountsCache      map[string]cachedAccountList
-	accountNamesMu     sync.RWMutex
-	accountNames       map[string]string
+	accountsEpoch      uint64
+	accountsRefreshing map[string]*accountsRefresh
+	// background starts a listing refresh; nil runs it on its own goroutine.
+	background     func(func())
+	accountNamesMu sync.RWMutex
+	accountNames   map[string]string
 	// webOriginOverride redirects the native web calls; it is set only by tests,
 	// which cannot reach the real product.
 	webOriginOverride string
