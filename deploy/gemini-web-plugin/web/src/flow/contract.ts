@@ -1,6 +1,21 @@
 import { z } from 'zod';
 import { accountIdSchema } from '../contract';
 
+export const healthSchema = z.object({
+  status: z.string().default('unknown'),
+  since: z.number().int().nonnegative().optional(),
+  detail: z.string().optional(),
+  held_until: z.number().int().nonnegative().optional(),
+  checked_at: z.number().int().nonnegative().optional(),
+  check_kind: z.string().optional(),
+  check_result: z.string().optional(),
+  check_error: z.string().optional(),
+  accepted_at: z.number().int().nonnegative().optional(),
+  next_check: z.number().int().nonnegative().optional(),
+}).readonly();
+
+export type Health = z.infer<typeof healthSchema>;
+
 export const accountSchema = z.object({
   id: accountIdSchema,
   label: z.string().optional(),
@@ -10,6 +25,7 @@ export const accountSchema = z.object({
   status: z.enum(['ready', 'busy', 'expired', 'error', 'unknown']).default('unknown'),
   tier: z.number().int().positive().optional(),
   observed_at: z.number().int().nonnegative().optional(),
+  health: healthSchema.optional(),
 }).readonly();
 
 export type Account = z.infer<typeof accountSchema>;
@@ -23,6 +39,11 @@ export const accountsResponseSchema = z.object({
     ID: z.string(),
     DisplayName: z.string().optional(),
   }).readonly()).readonly().default([]),
+  health_checks: z.object({
+    interval_seconds: z.number().int(),
+    telegram: z.boolean(),
+  }).readonly().optional(),
 }).readonly();
 
 export type AccountsResponse = z.infer<typeof accountsResponseSchema>;
+export type HealthChecks = NonNullable<AccountsResponse['health_checks']>;

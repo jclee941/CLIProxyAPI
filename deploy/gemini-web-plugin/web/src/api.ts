@@ -57,8 +57,8 @@ const http = ky.create({
   referrerPolicy: 'no-referrer',
 });
 
-export async function request(path: 'accounts' | 'refresh' | 'recover' | `login/${'start' | 'complete' | LoginAction}` | { readonly modelsFor: AccountId },
-  body?: SaveAccount | { readonly id: AccountId } | { readonly id: AccountId; readonly consent: true } | LoginInput | LoginComplete | { readonly state: LoginState },
+export async function request(path: 'accounts' | 'refresh' | 'recover' | 'telegram/test' | `login/${'start' | 'complete' | LoginAction}` | { readonly modelsFor: AccountId },
+  body?: SaveAccount | { readonly id: AccountId } | { readonly id: AccountId; readonly consent: true } | LoginInput | LoginComplete | { readonly state: LoginState } | Record<string, never>,
   transport: ReturnType<typeof readHostRequest> | null = readHostRequest() ?? null,
   pluginID: 'gemini-web' | 'flow2api' = 'gemini-web'): Promise<Response> {
   try {

@@ -23,6 +23,13 @@ const flowHealthWindow = 10 * time.Minute
 // flowHealthPage is the page size the health check project is looked up with.
 const flowHealthPage = 100
 
+// flowHealthEvery is how often an account is checked when Flow accepted
+// nothing from it in that time; health_check_interval_seconds replaces it.
+const flowHealthEvery = time.Hour
+
+// flowHealthTick is how often the accounts are looked at for a periodic check.
+const flowHealthTick = time.Minute
+
 // scheduleHealthCheck checks the held account when its hold ends.
 func (service *service) scheduleHealthCheck(record storageRecord, hold time.Duration) {
 	service.flowMu.Lock()
@@ -36,30 +43,100 @@ func (service *service) scheduleHealthCheck(record storageRecord, hold time.Dura
 	if pending := service.healthChecks[record.SourceAuthID]; pending != nil {
 		pending.Stop()
 	}
-	service.healthChecks[record.SourceAuthID] = service.afterFunc(hold, func() { service.flowHealthCheck(record) })
+	service.healthChecks[record.SourceAuthID] = service.afterFunc(hold, func() { service.flowHealthCheck(record, true) })
 }
 
-// flowHealthCheck generates one image for the held account in the health
-// check project. Flow accepting it, or answering anything but unusual
-// activity, ends the hold. Another unusual-activity refusal doubles the hold,
-// and flowGenerate schedules the next check.
-func (service *service) flowHealthCheck(record storageRecord) {
+// healthCheckInterval is how often an idle account is checked, or zero when
+// periodic checks are off.
+func (service *service) healthCheckInterval() time.Duration {
+	switch seconds := service.settings().HealthCheckIntervalSeconds; {
+	case seconds < 0:
+		return 0
+	case seconds == 0:
+		return flowHealthEvery
+	default:
+		return time.Duration(seconds) * time.Second
+	}
+}
+
+// runPeriodicHealthChecks looks at the accounts every flowHealthTick until the
+// host shuts the plugin down.
+func (service *service) runPeriodicHealthChecks() {
+	for {
+		timer := time.NewTimer(flowHealthTick)
+		select {
+		case <-service.lifetime.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		service.periodicHealthChecks()
+	}
+}
+
+// periodicHealthChecks checks each configured account that is not held, has
+// no check scheduled, and had neither an accepted request nor a check within
+// the interval, so an account callers are using is never checked.
+func (service *service) periodicHealthChecks() {
+	every := service.healthCheckInterval()
+	if every == 0 {
+		return
+	}
+	for _, account := range service.settings().FlowAccounts {
+		if service.lifetime.Err() != nil {
+			return
+		}
+		if _, held := service.unusualActivityHeld(account); held {
+			continue
+		}
+		now := service.now()
+		service.flowMu.Lock()
+		due := service.healthChecks[account] == nil && now.Sub(service.flowAccepted[account]) >= every && now.Sub(service.healthChecked[account]) >= every
+		if due {
+			if service.healthChecked == nil {
+				service.healthChecked = map[string]time.Time{}
+			}
+			service.healthChecked[account] = now
+		}
+		service.flowMu.Unlock()
+		if due {
+			service.flowHealthCheck(storageRecord{ID: account, SourceAuthID: account}, false)
+		}
+	}
+}
+
+// flowHealthCheck generates one image for the account in the health check
+// project. A check at the end of a hold keeps the account held while it runs:
+// Flow accepting the image, or answering anything but unusual activity, ends
+// the hold, and another unusual-activity refusal doubles it and flowGenerate
+// schedules the next check. A periodic check leaves callers alone; its
+// unusual-activity refusal starts a hold like any other.
+func (service *service) flowHealthCheck(record storageRecord, held bool) {
 	account := record.SourceAuthID
-	service.flowMu.Lock()
-	delete(service.healthChecks, account)
-	service.unusualHeldUntil[account] = service.now().Add(flowHealthWindow)
-	service.flowMu.Unlock()
+	kind := "periodic"
+	if held {
+		kind = "hold"
+		service.flowMu.Lock()
+		delete(service.healthChecks, account)
+		service.unusualHeldUntil[account] = service.now().Add(flowHealthWindow)
+		service.flowMu.Unlock()
+	}
 	err := service.flowHealthGenerate(service.lifetime, record)
 	state := "flow_health_check_passed"
 	if err != nil {
 		state = safeCredentialMessage(err)
 	}
-	if !flowUnusualActivity(err) {
+	refused := flowUnusualActivity(err)
+	if held && !refused {
 		service.flowMu.Lock()
 		delete(service.unusualHeldUntil, account)
 		service.flowMu.Unlock()
 	}
-	service.report(map[string]any{"provider": provider, "state": state, "reason": flowHealthModel}, "flow2api: health check")
+	service.noteHealthCheck(account, kind, err)
+	if err != nil && !refused && service.lifetime.Err() == nil {
+		service.markHealth(account, flowHealthFailing, safeCredentialCode(err), time.Time{})
+	}
+	service.report(map[string]any{"provider": provider, "state": state, "reason": flowHealthModel + " " + kind}, "flow2api: health check")
 }
 
 func (service *service) flowHealthGenerate(ctx context.Context, record storageRecord) error {

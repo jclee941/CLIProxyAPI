@@ -122,6 +122,7 @@ func (service *service) executeFlow(ctx context.Context, method string, request 
 	if err != nil {
 		return nil, err
 	}
+	service.rememberLabel(record.SourceAuthID, record.Label, false)
 	started := time.Now()
 	body, err := service.flowGenerate(ctx, record, model, input)
 	outcome := "flow_generation_delivered"

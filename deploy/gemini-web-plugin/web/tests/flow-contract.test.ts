@@ -36,3 +36,18 @@ test('failed lookups preserve stale observations until fresh success', () => {
   expect(recovered.stale.size).toBe(0);
   expect(reconcileAccounts(recovered.accounts, []).accounts).toEqual([]);
 });
+
+test('Flow health keeps the hold and check times and tolerates new states', () => {
+  const account = accountSchema.parse({ id: 'a', status: 'ready', credits: 5, health: {
+    status: 'blocked', held_until: 1700001800, checked_at: 1700000000, check_kind: 'hold',
+    check_result: 'refused', check_error: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY', next_check: 1700001800,
+  } });
+  expect(account.health?.status).toBe('blocked');
+  expect(account.health?.held_until).toBe(1700001800);
+  expect(accountSchema.parse({ id: 'a', health: { status: 'paused' } }).health?.status).toBe('paused');
+  expect(accountSchema.parse({ id: 'a', health: {} }).health?.status).toBe('unknown');
+  expect(accountSchema.safeParse({ id: 'a', health: { held_until: -1 } }).success).toBe(false);
+  const response = accountsResponseSchema.parse({ provider: 'flow2api', accounts: [], health_checks: { interval_seconds: 3600, telegram: true } });
+  expect(response.health_checks?.telegram).toBe(true);
+  expect(accountsResponseSchema.parse({ provider: 'flow2api', accounts: [] }).health_checks).toBeUndefined();
+});

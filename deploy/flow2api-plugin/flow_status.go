@@ -131,14 +131,15 @@ func (service *service) flowReadingCurrent(reading flowReading) bool {
 }
 
 type flowAccountView struct {
-	ID         string `json:"id"`
-	Label      string `json:"label,omitempty"`
-	Status     string `json:"status"`
-	Credits    *int   `json:"credits,omitempty"`
-	Tier       *int   `json:"tier,omitempty"`
-	ObservedAt int64  `json:"observed_at,omitempty"`
-	Project    string `json:"project,omitempty"`
-	Error      string `json:"error,omitempty"`
+	ID         string          `json:"id"`
+	Label      string          `json:"label,omitempty"`
+	Status     string          `json:"status"`
+	Credits    *int            `json:"credits,omitempty"`
+	Tier       *int            `json:"tier,omitempty"`
+	ObservedAt int64           `json:"observed_at,omitempty"`
+	Project    string          `json:"project,omitempty"`
+	Error      string          `json:"error,omitempty"`
+	Health     *flowHealthView `json:"health,omitempty"`
 }
 
 func (service *service) flowStatus(ctx context.Context, request managementRequest) (interface{}, error) {
@@ -201,7 +202,11 @@ func (service *service) flowStatus(ctx context.Context, request managementReques
 		service.flowMu.Lock()
 		view.Project = service.flowProjects[id]
 		service.flowMu.Unlock()
+		service.rememberLabel(id, view.Label, true)
+		view.Health = service.healthView(id)
 		accounts = append(accounts, view)
 	}
-	return map[string]any{"provider": provider, "captcha": service.settings().FlowCaptchaProvider, "models": flowModelInfos(), "accounts": accounts}, nil
+	token, chat := service.telegramTarget()
+	health := map[string]any{"interval_seconds": int64(service.healthCheckInterval() / time.Second), "telegram": token != "" && chat != ""}
+	return map[string]any{"provider": provider, "captcha": service.settings().FlowCaptchaProvider, "models": flowModelInfos(), "accounts": accounts, "health_checks": health}, nil
 }

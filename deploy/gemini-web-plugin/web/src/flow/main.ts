@@ -1,9 +1,9 @@
 import { accountCard } from './account-card';
-import { listAccounts } from './api';
+import { listAccounts, sendTestAlert } from './api';
 import { PluginApiError, userMessage } from '../api';
 import { HostAuthError, saveOperatorKey } from '../auth';
 import { readHostRequest } from '../host-request';
-import type { Account, Model } from './contract';
+import type { Account, HealthChecks, Model } from './contract';
 import type { AccountId } from '../contract';
 import { badge, button, element, icon } from '../dom';
 import { accountIsCurrent, accountMessage, reconcileAccounts } from './state';
@@ -16,21 +16,26 @@ const toolbar = element('div', 'cluster toolbar');
 const refreshAll = button('새로고침', () => void load(), 'primary');
 refreshAll.id = 'refresh-all';
 refreshAll.prepend(icon('refresh'));
-toolbar.append(refreshAll);
+const testAlert = button('테스트 알림', () => void alertTest());
+testAlert.id = 'test-alert';
+toolbar.append(testAlert, refreshAll);
 heading.append(headingText, toolbar);
 const summary = element('div', 'summary cluster');
-const policy = element('p', 'policy-note', '조회 시점의 Google Flow 잔액입니다. 자동 조회하거나 생성을 시작하지 않습니다.');
+const policy = element('p', 'policy-note', '조회 시점의 Google Flow 잔액입니다. 이 화면은 자동 조회하거나 생성을 시작하지 않습니다. 헬스체크 이미지는 플러그인이 헬스체크 전용 프로젝트에만 만듭니다.');
+const checks = element('p', 'caption health-policy');
 const notice = element('p', 'feedback');
 notice.setAttribute('role', 'status');
 notice.setAttribute('aria-live', 'polite');
 const statePanel = element('div', 'state-panel');
 const grid = element('div', 'account-grid');
 const catalogue = element('section', 'card model-section');
-page.append(heading, summary, policy, notice, statePanel, grid, catalogue);
+page.append(heading, summary, policy, checks, notice, statePanel, grid, catalogue);
 document.getElementById('app')?.replaceChildren(page);
 
 let accounts: readonly Account[] = [];
 let models: readonly Model[] = [];
+let healthChecks: HealthChecks | undefined;
+let sendingAlert = false;
 let stale: ReadonlySet<AccountId> = new Set();
 let loading = false;
 let loadError = '';
@@ -43,6 +48,15 @@ function render(): void {
   refreshAll.disabled = loading;
   refreshAll.classList.toggle('is-loading', loading);
   refreshAll.setAttribute('aria-busy', String(loading));
+  testAlert.hidden = !healthChecks?.telegram || authBlocked;
+  testAlert.disabled = sendingAlert;
+  checks.hidden = !healthChecks || authBlocked;
+  if (healthChecks) {
+    const seconds = healthChecks.interval_seconds;
+    const period = seconds % 3600 === 0 ? `${seconds / 3600}시간마다` : `${Math.round(seconds / 60)}분마다`;
+    const every = seconds > 0 ? `${period} (그 사이 생성이 접수된 계정은 건너뜀)` : '정기 확인 꺼짐';
+    checks.textContent = `헬스체크: ${every} · 텔레그램 알림 ${healthChecks.telegram ? '켜짐' : '꺼짐'}`;
+  }
   const current = loadError ? [] : accounts.filter(account => accountIsCurrent(account) && !stale.has(account.id));
   const subtotal = current.reduce((total, account) => total + (account.credits ?? 0), 0);
   summary.replaceChildren(badge(`${accounts.length}개 계정`), badge(`조회 정상 ${current.length}`, 'success'),
@@ -111,6 +125,7 @@ async function load(): Promise<void> {
     accounts = merged.accounts;
     stale = merged.stale;
     models = result.models;
+    healthChecks = result.healthChecks;
     loadError = '';
     authBlocked = false;
     missingHostContext = false;
@@ -125,6 +140,23 @@ async function load(): Promise<void> {
     if (authBlocked) { accounts = []; models = []; stale = new Set(); }
   } finally {
     loading = false;
+    render();
+  }
+}
+
+async function alertTest(): Promise<void> {
+  if (sendingAlert) return;
+  sendingAlert = true;
+  notice.textContent = '테스트 알림을 보내는 중입니다.';
+  render();
+  try {
+    await sendTestAlert();
+    notice.textContent = '텔레그램으로 테스트 알림을 보냈습니다.';
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    notice.textContent = `테스트 알림을 보내지 못했습니다. ${userMessage(error)}`;
+  } finally {
+    sendingAlert = false;
     render();
   }
 }

@@ -84,6 +84,10 @@ func (service *service) noteUnusualActivity(account string, err error) time.Dura
 	if !refused {
 		if err == nil {
 			delete(service.unusualHolds, account)
+			if service.flowAccepted == nil {
+				service.flowAccepted = map[string]time.Time{}
+			}
+			service.flowAccepted[account] = service.now()
 		}
 		return 0
 	}
@@ -253,6 +257,9 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 	if hold := service.noteUnusualActivity(record.SourceAuthID, err); hold > 0 {
 		service.report(map[string]any{"provider": provider, "state": "flow_unusual_activity_hold", "reason": model.id + " " + hold.String()}, "flow2api: generation")
 		service.scheduleHealthCheck(record, hold)
+		service.markHealth(record.SourceAuthID, flowHealthBlocked, "PUBLIC_ERROR_UNUSUAL_ACTIVITY", service.now().Add(hold))
+	} else if err == nil {
+		service.markHealth(record.SourceAuthID, flowHealthOK, "", time.Time{})
 	}
 	if err != nil {
 		service.holdDailyQuota(record.SourceAuthID, model.id, err)

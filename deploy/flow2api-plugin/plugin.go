@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +36,13 @@ type pluginConfig struct {
 	// first unusual-activity hold and its cap; 0 keeps the defaults.
 	UnusualActivityHoldSeconds    int `yaml:"unusual_activity_hold_seconds"`
 	UnusualActivityHoldCapSeconds int `yaml:"unusual_activity_hold_cap_seconds"`
+	// HealthCheckIntervalSeconds replaces how often an idle account is checked;
+	// 0 keeps flowHealthEvery and a negative value turns periodic checks off.
+	HealthCheckIntervalSeconds int `yaml:"health_check_interval_seconds"`
+	// TelegramBotToken and TelegramChatID receive health cards; empty uses the
+	// core's TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.
+	TelegramBotToken string `yaml:"telegram_bot_token"`
+	TelegramChatID   string `yaml:"telegram_chat_id"`
 }
 
 type hostCall func(string, []byte) ([]byte, error)
@@ -61,6 +69,12 @@ type service struct {
 	flowWait                func(context.Context, time.Duration) error
 	healthProjects          map[string]string
 	healthChecks            map[string]*time.Timer
+	healthChecked           map[string]time.Time
+	healthStates            map[string]flowHealthState
+	flowAccepted            map[string]time.Time
+	accountLabels           map[string]string
+	periodicChecks          sync.Once
+	telegramOrigin          string
 	afterFunc               func(time.Duration, func()) *time.Timer
 	// lifetime ends when the host shuts the plugin down, which cancels a
 	// running health check.
@@ -168,7 +182,8 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	default:
 		return nil, failure(400, "invalid_plugin_config")
 	}
-	if config.HealthCheckProject != "" && !flowUUIDPattern.MatchString(config.HealthCheckProject) || config.UnusualActivityHoldSeconds < 0 || config.UnusualActivityHoldCapSeconds < 0 {
+	if config.HealthCheckProject != "" && !flowUUIDPattern.MatchString(config.HealthCheckProject) || config.UnusualActivityHoldSeconds < 0 || config.UnusualActivityHoldCapSeconds < 0 ||
+		config.HealthCheckIntervalSeconds > 0 && config.HealthCheckIntervalSeconds < 60 || strings.ContainsAny(config.TelegramBotToken+config.TelegramChatID, " \r\n/") {
 		return nil, failure(400, "invalid_plugin_config")
 	}
 	broker, err := url.Parse(config.SessionBrokerURL)
@@ -183,7 +198,8 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	service.mu.Lock()
 	service.config = config
 	service.mu.Unlock()
-	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"flow2api","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","ConfigFields":[{"Name":"accounts","Type":"array","Description":"Existing Gemini account IDs allowed for Flow"},{"Name":"session_broker_url","Type":"string","Description":"Local core URL serving the Gemini session exchange"},{"Name":"captcha_provider","Type":"enum","EnumValues":["native","browser","yescaptcha","capsolver"],"Description":"Flow token provider"},{"Name":"captcha_key","Type":"string","Description":"External token provider credential"},{"Name":"health_check_project","Type":"string","Description":"Flow project the health check of a held account generates in; empty uses the account's project titled CLIProxyAPI health check, created when missing"},{"Name":"unusual_activity_hold_seconds","Type":"integer","Description":"First hold after Flow refuses the account for unusual activity; 0 keeps 1800"},{"Name":"unusual_activity_hold_cap_seconds","Type":"integer","Description":"Longest hold after repeated refusals; 0 keeps 14400"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini","openai","openai-response","claude"],"management_api":true,"frontend_http":true,"quota_provider":true}}`), nil
+	service.periodicChecks.Do(func() { go service.runPeriodicHealthChecks() })
+	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"flow2api","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","ConfigFields":[{"Name":"accounts","Type":"array","Description":"Existing Gemini account IDs allowed for Flow"},{"Name":"session_broker_url","Type":"string","Description":"Local core URL serving the Gemini session exchange"},{"Name":"captcha_provider","Type":"enum","EnumValues":["native","browser","yescaptcha","capsolver"],"Description":"Flow token provider"},{"Name":"captcha_key","Type":"string","Description":"External token provider credential"},{"Name":"health_check_project","Type":"string","Description":"Flow project the health check of a held account generates in; empty uses the account's project titled CLIProxyAPI health check, created when missing"},{"Name":"unusual_activity_hold_seconds","Type":"integer","Description":"First hold after Flow refuses the account for unusual activity; 0 keeps 1800"},{"Name":"unusual_activity_hold_cap_seconds","Type":"integer","Description":"Longest hold after repeated refusals; 0 keeps 14400"},{"Name":"health_check_interval_seconds","Type":"integer","Description":"How often an account with no accepted Flow request in that time is health checked; 0 keeps 3600, a negative value turns it off"},{"Name":"telegram_bot_token","Type":"string","Description":"Telegram bot that receives Flow health cards; empty uses the core's TELEGRAM_BOT_TOKEN"},{"Name":"telegram_chat_id","Type":"string","Description":"Telegram chat for Flow health cards; empty uses the core's TELEGRAM_CHAT_ID"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini","openai","openai-response","claude"],"management_api":true,"frontend_http":true,"quota_provider":true}}`), nil
 }
 
 func (service *service) dispatch(ctx context.Context, method string, raw []byte) (interface{}, error) {
@@ -273,7 +289,7 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 	case "executor.count_tokens", "executor.http_request":
 		return nil, failure(400, "flow_operation_unsupported")
 	case "management.register":
-		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/flow2api/accounts"}],"resources":[{"Path":"/index","Menu":"Google Flow","Description":"Flow credits, account connection status, and supported media models"}]}`), nil
+		return json.RawMessage(`{"routes":[{"Method":"GET","Path":"/plugins/flow2api/accounts"},{"Method":"POST","Path":"/plugins/flow2api/telegram/test"}],"resources":[{"Path":"/index","Menu":"Google Flow","Description":"Flow credits, account connection status, and supported media models"}]}`), nil
 	case "management.handle":
 		var request managementRequest
 		if json.Unmarshal(raw, &request) != nil {
@@ -281,6 +297,9 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 		}
 		if request.Method == http.MethodGet && request.Path == flowResourcePath {
 			return service.flowDashboard()
+		}
+		if request.Method == http.MethodPost && request.Path == flowTelegramTestPath {
+			return service.telegramTest(ctx)
 		}
 		if request.Method != "GET" || request.Path != flowPath {
 			return nil, failure(404, "flow_route_not_found")
