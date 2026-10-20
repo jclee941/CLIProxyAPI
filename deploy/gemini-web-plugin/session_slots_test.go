@@ -182,7 +182,7 @@ func TestWaitForSlotTakesTheGuardOnceTheTurnAheadEnds(t *testing.T) {
 	lease := &credentialLease{}
 	lease.guard.Lock()
 	taken := make(chan bool, 1)
-	go func() { taken <- waitForSlot(context.Background(), lease) }()
+	go func() { taken <- (tuning{}).waitForSlot(context.Background(), lease) }()
 
 	lease.guard.Unlock()
 
@@ -199,7 +199,7 @@ func TestWaitForSlotStopsWhenTheCallerIsGone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if waitForSlot(ctx, lease) {
+	if (tuning{}).waitForSlot(ctx, lease) {
 		t.Fatal("a cancelled caller still waited for the slot")
 	}
 }
@@ -220,7 +220,7 @@ func TestWaitForSlotHoldsOffAStreamOfSharedHolders(t *testing.T) {
 		lease.guard.RUnlock()
 	}()
 	taken := make(chan bool, 1)
-	go func() { taken <- waitForSlot(context.Background(), lease) }()
+	go func() { taken <- (tuning{}).waitForSlot(context.Background(), lease) }()
 
 	select {
 	case ok := <-taken:

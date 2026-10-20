@@ -208,7 +208,7 @@ func (service *service) renewLocalSession(ctx context.Context, callbackID string
 	if !sameHostProjection(latest, record) {
 		return sessionToken{}, failure(409, "credential_changed")
 	}
-	if age := service.now().Unix() - local.RotatedAt; age >= 0 && age < int64(turnRotationAge/time.Second) {
+	if age := service.now().Unix() - local.RotatedAt; age >= 0 && age < int64(service.tuning().turnRotation()/time.Second) {
 		return sessionToken{local.Token}, nil
 	}
 	identity, err := service.inspectCredential(ctx, "", sessionToken{local.Token})

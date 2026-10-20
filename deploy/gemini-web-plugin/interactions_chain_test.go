@@ -134,7 +134,7 @@ func TestAChainedReferenceIsOnlyEverOneThePluginWrote(t *testing.T) {
 
 func TestACallerCannotCarryAChainedReference(t *testing.T) {
 	supplied := `{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"continue"},{"type":"video","uri":"interaction:account|key|` + testCallerScope + `"}]}`
-	if _, _, err := parseInteraction([]byte(supplied)); safeCredentialCode(err) != "interaction_uploaded_reference_unsupported" {
+	if _, _, err := (tuning{}).parseInteraction([]byte(supplied)); safeCredentialCode(err) != "interaction_uploaded_reference_unsupported" {
 		t.Fatalf("a caller-written chained reference was accepted: %v", err)
 	}
 	service, _ := continuationFixture(t)

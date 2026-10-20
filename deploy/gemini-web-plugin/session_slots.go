@@ -13,7 +13,7 @@ var slotCursor atomic.Uint64
 // whose session is pinned or fenced, and every one of those fails in
 // milliseconds, so the fleet looks intermittent while healthy accounts idle.
 func (service *service) pickServableAccount(model string, candidates []struct{ ID, Provider string }) continuationPick {
-	return service.pickRoomAccount(model, candidates, roomTurns)
+	return service.pickRoomAccount(model, candidates, service.tuning().roomTurns())
 }
 
 // pickRoomAccount is pickServableAccount for a video room of the given size.
@@ -99,7 +99,7 @@ func (service *service) reserveSlot(id string) {
 	if service.slotReservations == nil {
 		service.slotReservations = make(map[string]time.Time)
 	}
-	service.slotReservations[id] = service.now().Add(slotReservation)
+	service.slotReservations[id] = service.now().Add(service.tuning().slotReservation())
 }
 
 func (service *service) slotReserved(id string) bool {

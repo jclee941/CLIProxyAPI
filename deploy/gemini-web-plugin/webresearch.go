@@ -59,9 +59,9 @@ type researchRequest struct {
 // execution of a stored interaction, with an agent_config of type
 // deep-research. Thinking summaries only shape a stream and this path draws no
 // charts, so those two settings are accepted as given.
-func parseResearch(raw []byte) (researchRequest, string, []webMedia, error) {
+func (tuned tuning) parseResearch(raw []byte) (researchRequest, string, []webMedia, error) {
 	var request researchRequest
-	if len(raw) > interactionInputLimit || strictJSON(raw, &request) != nil || request.Model != webResearchModel {
+	if len(raw) > tuned.interactionInputBytes() || strictJSON(raw, &request) != nil || request.Model != webResearchModel {
 		return request, "", nil, failure(400, "unsupported_research_request")
 	}
 	config := request.AgentConfig
@@ -152,7 +152,7 @@ func (session *webSession) sendResearchTurn(ctx context.Context, prompt string, 
 	if err != nil {
 		return nil, err
 	}
-	fields := webGenerationFields(prompt, model.Mode, webThinkingDefault, turn, attachments)
+	fields := webGenerationFields(prompt, model.Mode, session.textThinking, turn, attachments)
 	if metadata != nil {
 		fields[2] = metadata
 	}
@@ -467,7 +467,7 @@ type researchRun struct {
 }
 
 func (service *service) executeResearch(ctx context.Context, request executorRequest) (interface{}, error) {
-	body, prompt, media, err := parseResearch(request.Payload)
+	body, prompt, media, err := service.tuning().parseResearch(request.Payload)
 	if err != nil {
 		return nil, err
 	}
@@ -700,7 +700,7 @@ func (service *service) saveResearch(lease *credentialLease, reference, key stri
 				oldestKey, oldest = other, previous.Sequence
 			}
 		}
-		if len(turns) >= continuationRetention && oldestKey != "" {
+		if len(turns) >= service.tuning().continuationRetention() && oldestKey != "" {
 			delete(turns, oldestKey)
 		}
 	}

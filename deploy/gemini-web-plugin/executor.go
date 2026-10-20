@@ -42,7 +42,7 @@ func (service *service) executeRequest(ctx context.Context, method string, reque
 		return nil, failure(400, "unsupported_model")
 	}
 	stream := request.Stream || method == "executor.execute_stream"
-	if _, _, chained, err := continuationRequest(request.Payload); chained {
+	if _, _, chained, err := service.tuning().continuationRequest(request.Payload); chained {
 		if err != nil {
 			return nil, executionFailure(omniModel, err)
 		}

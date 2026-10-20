@@ -104,6 +104,8 @@ type webSession struct {
 	generationFrame func([]byte) error
 	rotated         bool
 	onRotate        func(string)
+	// textThinking is slot 17 of the text turns this session sends.
+	textThinking int
 	// flowCookies is never part of cookie, so no Gemini request can carry it.
 	flowCookies  map[string]string
 	onFlowRotate func(map[string]string)

@@ -16,7 +16,7 @@ func videoRequestOptions(t *testing.T, generationConfig string) omniOptions {
 	if generationConfig != "" {
 		body += `,"generation_config":` + generationConfig
 	}
-	_, payload, err := parseInteraction([]byte(body + "}"))
+	_, payload, err := (tuning{}).parseInteraction([]byte(body + "}"))
 	if err != nil {
 		t.Fatalf("%s: %v", generationConfig, err)
 	}
@@ -75,7 +75,7 @@ func TestInteractionRejectsAnUnknownLanguageOrMode(t *testing.T) {
 		`{"video_mode":-1}`: "omni_invalid_video_mode",
 	} {
 		body := `{"model":"` + interactionOmniModel + `","input":"a wave","generation_config":` + config + `}`
-		if _, _, err := parseInteraction([]byte(body)); err == nil || safeCredentialCode(err) != code {
+		if _, _, err := (tuning{}).parseInteraction([]byte(body)); err == nil || safeCredentialCode(err) != code {
 			t.Fatalf("%s = %v, want %s", config, err, code)
 		}
 	}

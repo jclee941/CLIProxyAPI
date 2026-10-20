@@ -314,7 +314,7 @@ func (service *service) stashVideoDiag(key string, diag *videoTurnDiag) {
 	}
 	service.videoDiagMu.Lock()
 	defer service.videoDiagMu.Unlock()
-	if service.videoDiags == nil || len(service.videoDiags) >= videoDiagStashLimit {
+	if service.videoDiags == nil || len(service.videoDiags) >= service.tuning().videoDiagStash() {
 		service.videoDiags = make(map[string]*videoTurnDiag)
 	}
 	service.videoDiags[key] = diag

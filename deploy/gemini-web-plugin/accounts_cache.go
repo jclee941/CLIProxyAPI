@@ -42,7 +42,7 @@ func (service *service) storeAccounts(scope string, views []accountView) {
 	if service.accountsCache == nil {
 		service.accountsCache = map[string]cachedAccountList{}
 	}
-	service.accountsCache[scope] = cachedAccountList{views, service.now().Add(accountsCacheTTL)}
+	service.accountsCache[scope] = cachedAccountList{views, service.now().Add(service.tuning().accountsCache())}
 }
 
 func (service *service) dropAccountsCache() {

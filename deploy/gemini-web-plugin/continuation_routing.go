@@ -29,7 +29,7 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 	if json.Unmarshal(raw, &request) != nil {
 		return interceptRequest(raw)
 	}
-	_, _, custom, _ := continuationRequest(request.Body)
+	_, _, custom, _ := service.tuning().continuationRequest(request.Body)
 	if custom {
 		return interactionRejection(failure(400, "use_official_interactions_surface"))
 	}
@@ -72,7 +72,7 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 		}
 		return requestInterceptResponse{ClearHeaders: []string{continuationHeader, interactionRetrieveHeader, roomVideosHeader}, Headers: http.Header{continuationHeader: {body.ID}, interactionRetrieveHeader: {"true"}}}
 	}
-	body, _, err := parseInteraction(request.Body)
+	body, _, err := service.tuning().parseInteraction(request.Body)
 	if err != nil {
 		return interactionRejection(err)
 	}
@@ -88,10 +88,10 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 
 // roomVideos is the room size the interceptor derived for a new interaction,
 // or a whole room when it derived none.
-func roomVideos(header string) int {
+func (tuned tuning) roomVideos(header string) int {
 	videos, err := strconv.Atoi(header)
-	if err != nil || videos < 1 || videos > roomTurns {
-		return roomTurns
+	if err != nil || videos < 1 || videos > tuned.roomTurns() {
+		return tuned.roomTurns()
 	}
 	return videos
 }
@@ -193,7 +193,7 @@ func (service *service) pickContinuation(raw []byte) (picked continuationPick, e
 				return !service.belowFirstEntryCeilings(candidate.ID)
 			})
 		}
-		pick := service.pickRoomAccount(request.Model, candidates, roomVideos(request.Options.Headers.Get(roomVideosHeader)))
+		pick := service.pickRoomAccount(request.Model, candidates, service.tuning().roomVideos(request.Options.Headers.Get(roomVideosHeader)))
 		if !pick.Handled && video {
 			return continuationPick{}, failure(409, "account_unavailable")
 		}

@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -37,7 +38,8 @@ type pluginConfig struct {
 	// VideoThinkingLevel is the slot 80 thinking level a video turn is sent with
 	// when its request names none, numbered as omniThinkingLevels; zero keeps
 	// webVideoThinkingLevel.
-	VideoThinkingLevel int `yaml:"video_thinking_level,omitempty"`
+	VideoThinkingLevel int    `yaml:"video_thinking_level,omitempty"`
+	Tuning             tuning `yaml:",inline"`
 	// DeleteChats deletes the web conversation a text, image or music turn opens
 	// once it has answered, keeping generated chats out of the account history.
 	DeleteChats             bool     `yaml:"delete_chats,omitempty"`
@@ -54,6 +56,7 @@ type hostCall func(string, []byte) ([]byte, error)
 type service struct {
 	mu                 sync.RWMutex
 	config             pluginConfig
+	tuned              atomic.Pointer[tuning]
 	host               hostCall
 	client             *http.Client
 	now                func() time.Time
@@ -184,7 +187,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	default:
 		return nil, failure(400, "invalid_plugin_config")
 	}
-	if config.VideoMode < 0 || config.VideoThinkingLevel < 0 || config.VideoThinkingLevel > 4 {
+	if config.VideoMode < 0 || config.VideoThinkingLevel < 0 || config.VideoThinkingLevel > 4 || !config.Tuning.valid() {
 		return nil, failure(400, "invalid_plugin_config")
 	}
 	if len(config.SessionExchangeAccounts) == 0 {
@@ -197,6 +200,8 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	modeChanged := current.VideoMode != config.VideoMode
 	current.VideoMode = config.VideoMode
 	current.VideoThinkingLevel = config.VideoThinkingLevel
+	tuningChanged := current.Tuning != config.Tuning
+	current.Tuning = config.Tuning
 	deleteChanged := current.DeleteChats != config.DeleteChats
 	current.DeleteChats = config.DeleteChats
 	current.SessionExchangeAccounts = config.SessionExchangeAccounts
@@ -208,6 +213,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 		service.config.VideoWireMode = config.VideoWireMode
 		service.config.VideoMode = config.VideoMode
 		service.config.VideoThinkingLevel = config.VideoThinkingLevel
+		service.config.Tuning = config.Tuning
 		service.config.DeleteChats = config.DeleteChats
 		service.config.SessionExchangeAccounts = config.SessionExchangeAccounts
 	} else {
@@ -229,6 +235,15 @@ func (service *service) register(raw []byte) (interface{}, error) {
 		}); err != nil {
 			return nil, err
 		}
+	}
+	tuned := service.config.Tuning
+	service.tuned.Store(&tuned)
+	if tuningChanged {
+		service.report(map[string]any{
+			"provider": provider,
+			"state":    "tuning",
+			"reason":   "keys changed",
+		}, "gemini-web: tuning applied")
 	}
 	if wireChanged {
 		service.report(map[string]any{
@@ -252,7 +267,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 		}, "gemini-web: generated chat deletion applied")
 	}
 	registration := json.RawMessage(`{"schema_version":6,"metadata":{"Name":"gemini-web","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","Logo":"","ConfigFields":[{"Name":"dashboard_path","Type":"string","Description":"Absolute path to the separately built static dashboard HTML"},{"Name":"session_dir","Type":"string","Description":"Dedicated 0700 encrypted application-session directory; single process owner"},{"Name":"manager_origin","Type":"string","Description":"Exact HTTPS management portal origin"},{"Name":"browser_extension_id","Type":"string","Description":"Registered 32-character browser companion extension ID"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini","openai-image"],"executor_output_formats":["gemini","openai-image"],"management_api":true,"frontend_http":true,"request_interceptor":true,"quota_provider":true}}`)
-	registration = bytes.Replace(registration, []byte(`"ConfigFields":[`), []byte(`"ConfigFields":[{"Name":"video_wire_mode","Type":"enum","EnumValues":["legacy","web","alternate"],"Description":"Omni account-tier wire profile; legacy by default, alternate stays fixed per conversation"},{"Name":"video_mode","Type":"integer","Description":"Default video capability mode when a request names none; 0 keeps each account's standard mode, which is also used where the mode is not advertised"},{"Name":"delete_chats","Type":"boolean","Description":"Delete the web conversation a text, image or music turn opens once it has answered"},`), 1)
+	registration = bytes.Replace(registration, []byte(`"ConfigFields":[`), []byte(`"ConfigFields":[{"Name":"video_wire_mode","Type":"enum","EnumValues":["legacy","web","alternate"],"Description":"Omni account-tier wire profile; legacy by default, alternate stays fixed per conversation"},{"Name":"video_mode","Type":"integer","Description":"Default video capability mode when a request names none; 0 keeps each account's standard mode, which is also used where the mode is not advertised"},{"Name":"delete_chats","Type":"boolean","Description":"Delete the web conversation a text, image or music turn opens once it has answered"},{"Name":"video_thinking_level","Type":"integer","Description":"Default slot 80 thinking level of a video turn whose request names none (1-4); 0 keeps STANDARD"},{"Name":"route_room_ceiling_percent","Type":"integer","Description":"5-hour usage percent at which a new room skips an account (1-100); 0 keeps 80"},{"Name":"video_limit_hold_seconds","Type":"integer","Description":"Seconds an account reported out of video sits out; 0 keeps 1800"},{"Name":"room_turns","Type":"integer","Description":"Videos a room makes on the account that opens it, and the largest room_videos; 0 keeps 3"},{"Name":"default_generation_units","Type":"integer","Description":"Units a generation is assumed to cost before samples exist; 0 keeps 5000"},{"Name":"generation_samples","Type":"integer","Description":"Observed generation costs kept; 0 keeps 8"},{"Name":"same_window_slack_seconds","Type":"integer","Description":"Seconds within which two usage readings count as one window; 0 keeps 600"},{"Name":"accounts_cache_seconds","Type":"integer","Description":"Seconds an account listing is served from cache; 0 keeps 60"},{"Name":"credential_wait_seconds","Type":"integer","Description":"Seconds a call waits for its account slot; 0 keeps 90"},{"Name":"quiesce_drain_seconds","Type":"integer","Description":"Seconds a hot reload waits for running calls; 0 keeps 90"},{"Name":"trapped_release_seconds","Type":"integer","Description":"Interval of the trapped-session release loop, applied when it next starts; 0 keeps 300"},{"Name":"turn_rotation_seconds","Type":"integer","Description":"Seconds after a cookie rotation during which a turn skips renewal; 0 keeps 60"},{"Name":"slot_reservation_seconds","Type":"integer","Description":"Seconds a picked account is reserved for its call; 0 keeps 60"},{"Name":"continuation_request_bytes","Type":"integer","Description":"Largest continuation request in bytes; 0 keeps 5 MiB"},{"Name":"continuation_retention","Type":"integer","Description":"Turns a continuation keeps; 0 keeps 16"},{"Name":"interaction_input_bytes","Type":"integer","Description":"Largest interaction or research request in bytes; 0 keeps 4 MiB"},{"Name":"video_diag_stash_limit","Type":"integer","Description":"Video turn diagnostics kept; 0 keeps 256"},{"Name":"text_thinking_slot","Type":"integer","Description":"Slot 17 of a text turn (0-4); 0 is what the web app sends"},`), 1)
 	if config.NativeContinuation {
 		registration = bytes.Replace(registration, []byte(`"request_interceptor":true`), []byte(`"request_interceptor":true,"scheduler":true`), 1)
 		registration = bytes.ReplaceAll(registration, []byte(`["gemini","openai-image"]`), []byte(`["gemini","openai-image","interactions"]`))

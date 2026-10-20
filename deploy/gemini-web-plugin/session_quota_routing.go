@@ -77,7 +77,7 @@ func (service *service) generationUnits() float64 {
 		units = max(units, sample)
 	}
 	if units == 0 {
-		return defaultGenerationUnits
+		return float64(service.tuning().generationUnits())
 	}
 	return units
 }
@@ -88,7 +88,7 @@ func (service *service) generationUnits() float64 {
 // them, since the room stays pinned there. An account with no reading stays
 // eligible, as the rotation treats it.
 func (service *service) affordsARoom(id string) bool {
-	return service.affordsVideos(id, roomTurns)
+	return service.affordsVideos(id, service.tuning().roomTurns())
 }
 
 // affordsVideos reports whether an account can pay for a room of the given
@@ -129,7 +129,7 @@ func (service *service) belowFirstEntryCeilings(id string) bool {
 		return true
 	}
 	now := service.now().Unix()
-	roomFull := snapshot.roomUsedSeen && !turnedOver(snapshot.turnover, now) && snapshot.roomUsed >= firstEntryRoomCeiling
+	roomFull := snapshot.roomUsedSeen && !turnedOver(snapshot.turnover, now) && snapshot.roomUsed >= service.tuning().roomCeiling()
 	return !roomFull
 }
 
@@ -208,7 +208,7 @@ func (service *service) observeQuota(id string, usage *usageView) {
 	if usage.VideoCapped != nil {
 		snapshot.videoCapUntil = 0
 		if *usage.VideoCapped {
-			snapshot.videoCapUntil = now + int64(videoLimitHold/time.Second)
+			snapshot.videoCapUntil = now + int64(service.tuning().videoLimitHold()/time.Second)
 			if usage.VideoAvailableAt != nil && int64(*usage.VideoAvailableAt) > now {
 				snapshot.videoCapUntil = int64(*usage.VideoAvailableAt)
 			}
@@ -216,13 +216,13 @@ func (service *service) observeQuota(id string, usage *usageView) {
 	}
 	// A window that turned over in between says nothing about what the videos
 	// cost, and neither does a reading with no video behind it.
-	slack := int64(sameWindowSlack / time.Second)
+	slack := int64(service.tuning().sameWindowSlack() / time.Second)
 	sameWindow := previous.turnover-snapshot.turnover < slack && snapshot.turnover-previous.turnover < slack
 	if previous.delivered > 0 && previous.roomMeasured && snapshot.roomMeasured && sameWindow {
 		if spent := previous.roomUnits - snapshot.roomUnits; spent > 0 {
 			service.quota.samples = append(service.quota.samples, spent/float64(previous.delivered))
-			if len(service.quota.samples) > generationSamples {
-				service.quota.samples = service.quota.samples[len(service.quota.samples)-generationSamples:]
+			if kept := service.tuning().generationSamples(); len(service.quota.samples) > kept {
+				service.quota.samples = service.quota.samples[len(service.quota.samples)-kept:]
 			}
 		}
 	}
@@ -276,7 +276,7 @@ func (service *service) noteVideoRefusal(id string, err error) {
 	snapshot := service.quota.entries[id]
 	snapshot.limitedUntil = snapshot.turnover
 	if snapshot.limitedUntil <= now {
-		snapshot.limitedUntil = now + int64(videoLimitHold/time.Second)
+		snapshot.limitedUntil = now + int64(service.tuning().videoLimitHold()/time.Second)
 	}
 	service.quota.entries[id] = snapshot
 }

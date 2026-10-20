@@ -58,7 +58,7 @@ func TestARoomSizeOutsideANewRoomIsRefused(t *testing.T) {
 		"on a continuation": `"previous_interaction_id":"v1_abc","generation_config":{"room_videos":1}`,
 	} {
 		body := `{"model":"` + interactionOmniModel + `","input":"a cat",` + config + `}`
-		if _, _, err := parseInteraction([]byte(body)); safeCredentialCode(err) != "interaction_room_videos_unsupported" {
+		if _, _, err := (tuning{}).parseInteraction([]byte(body)); safeCredentialCode(err) != "interaction_room_videos_unsupported" {
 			t.Errorf("%s: err = %v, want interaction_room_videos_unsupported", name, err)
 		}
 	}
@@ -87,8 +87,8 @@ func TestSchedulerOpensAOneVideoRoomWhereOneVideoFits(t *testing.T) {
 
 func TestAnUnreadableRoomSizeHoldsAWholeRoom(t *testing.T) {
 	for _, header := range []string{"", "0", "4", "two"} {
-		if videos := roomVideos(header); videos != roomTurns {
-			t.Errorf("roomVideos(%q) = %d, want %d", header, videos, roomTurns)
+		if videos := (tuning{}).roomVideos(header); videos != roomTurns {
+			t.Errorf("(tuning{}).roomVideos(%q) = %d, want %d", header, videos, roomTurns)
 		}
 	}
 }

@@ -182,7 +182,7 @@ func (service *service) startTrappedSessionRelease() {
 }
 
 func (service *service) keepReleasingTrappedSessions(closing <-chan struct{}) {
-	ticker := time.NewTicker(trappedReleaseInterval)
+	ticker := time.NewTicker(service.tuning().trappedRelease())
 	defer ticker.Stop()
 	for {
 		select {

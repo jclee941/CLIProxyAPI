@@ -191,7 +191,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			if err != nil {
 				return nil, err
 			}
-			fields := webGenerationFields(prompt, model.Mode, webThinkingDefault, nonce, attachments)
+			fields := webGenerationFields(prompt, model.Mode, service.tuning().textThinkingSlot(), nonce, attachments)
 			if turn.Model == omniModel {
 				turn.VideoWire = turn.wireMode(service.settings().VideoWireMode).variant(execution.key, account.CapacityFlags)
 				session.videoWire = turn.VideoWire

@@ -61,7 +61,7 @@ func TestInteractionStreamingAcceptedBeforeGeneration(t *testing.T) {
 	if response.Terminate {
 		t.Fatalf("stream rejected: %s", response.ResponseBody)
 	}
-	if _, _, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":"video","stream":true}`)); err != nil {
+	if _, _, err := (tuning{}).parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":"video","stream":true}`)); err != nil {
 		t.Fatal(err)
 	}
 }

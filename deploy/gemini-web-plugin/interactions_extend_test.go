@@ -13,7 +13,7 @@ import (
 // chain ran 10.005s -> 20.010s -> 30.016s with the declaration written, where
 // undeclared follow-ups extended only occasionally.
 func TestExtensionNamesThePreviousVideo(t *testing.T) {
-	_, payload, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":"keep the shot going","previous_interaction_id":"prev","generation_config":{"video_config":{"task":"extend"}}}`))
+	_, payload, err := (tuning{}).parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":"keep the shot going","previous_interaction_id":"prev","generation_config":{"video_config":{"task":"extend"}}}`))
 	if err != nil {
 		t.Fatalf("a documented extend request was refused: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestExtensionLeavesAWrittenRoleAlone(t *testing.T) {
 		"<FIRST_FRAME> keep going",
 	} {
 		t.Run(written, func(t *testing.T) {
-			_, payload, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":` + strconv.Quote(written) + `,"previous_interaction_id":"prev","generation_config":{"video_config":{"task":"extend"}}}`))
+			_, payload, err := (tuning{}).parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":` + strconv.Quote(written) + `,"previous_interaction_id":"prev","generation_config":{"video_config":{"task":"extend"}}}`))
 			if err != nil {
 				t.Fatalf("a written role was refused: %v", err)
 			}
@@ -64,7 +64,7 @@ func TestExtensionLeavesAWrittenRoleAlone(t *testing.T) {
 func TestOnlyTheExtendTaskIsAccepted(t *testing.T) {
 	for _, task := range []string{"edit", "generate", "interpolate"} {
 		t.Run(task, func(t *testing.T) {
-			if _, _, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":"a kite","previous_interaction_id":"prev","generation_config":{"video_config":{"task":"` + task + `"}}}`)); err == nil {
+			if _, _, err := (tuning{}).parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":"a kite","previous_interaction_id":"prev","generation_config":{"video_config":{"task":"` + task + `"}}}`)); err == nil {
 				t.Fatal("a task this surface cannot perform was accepted")
 			}
 		})
@@ -76,16 +76,16 @@ func TestOnlyTheExtendTaskIsAccepted(t *testing.T) {
 func TestExtendNeedsAVideoToContinue(t *testing.T) {
 	const extend = `,"generation_config":{"video_config":{"task":"extend"}}}`
 
-	if _, _, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":"make it longer"` + extend)); err == nil {
+	if _, _, err := (tuning{}).parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":"make it longer"` + extend)); err == nil {
 		t.Fatal("an extension with nothing to extend was accepted")
 	}
-	if _, _, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"extend"},{"type":"image","data":"AAAA","mime_type":"image/png"}]` + extend)); err == nil {
+	if _, _, err := (tuning{}).parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"extend"},{"type":"image","data":"AAAA","mime_type":"image/png"}]` + extend)); err == nil {
 		t.Fatal("an image was accepted as the only video extension source")
 	}
-	if _, _, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":"make it longer","previous_interaction_id":"prev"` + extend)); err != nil {
+	if _, _, err := (tuning{}).parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":"make it longer","previous_interaction_id":"prev"` + extend)); err != nil {
 		t.Fatalf("a previous interaction is a source to extend: %v", err)
 	}
-	if _, _, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"make it longer"},{"type":"video","data":"AAAA","mime_type":"video/mp4"}]` + extend)); err != nil {
+	if _, _, err := (tuning{}).parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"make it longer"},{"type":"video","data":"AAAA","mime_type":"video/mp4"}]` + extend)); err != nil {
 		t.Fatalf("an uploaded clip is a source to extend: %v", err)
 	}
 }

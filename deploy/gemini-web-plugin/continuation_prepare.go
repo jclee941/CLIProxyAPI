@@ -61,7 +61,7 @@ func (service *service) prepareContinuation(execution continuationExecution) (in
 	}
 	// A bounded receipt history does not bound conversation length. Evicted
 	// receipts fail closed; their prompts are never treated as new submissions.
-	if len(execution.turns) >= continuationRetention {
+	if len(execution.turns) >= service.tuning().continuationRetention() {
 		delete(execution.turns, oldestKey)
 	}
 	bytes := make([]byte, 32)

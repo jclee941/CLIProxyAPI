@@ -58,7 +58,7 @@ type continuationView struct {
 // this body becomes is bounded again at the same size by omniRequest.
 const continuationRequestLimit = 5 * 1024 * 1024
 
-func continuationRequest(raw []byte) (continuationControl, []byte, bool, error) {
+func (tuned tuning) continuationRequest(raw []byte) (continuationControl, []byte, bool, error) {
 	var body map[string]json.RawMessage
 	if json.Unmarshal(raw, &body) != nil {
 		return continuationControl{}, nil, false, nil
@@ -68,7 +68,7 @@ func continuationRequest(raw []byte) (continuationControl, []byte, bool, error) 
 		return continuationControl{}, nil, false, nil
 	}
 	var control continuationControl
-	if len(raw) > continuationRequestLimit || strictJSON(encoded, &control) != nil {
+	if len(raw) > tuned.continuationRequestBytes() || strictJSON(encoded, &control) != nil {
 		return control, nil, true, failure(400, "invalid_continuation_request")
 	}
 	switch control.Action {
@@ -183,7 +183,7 @@ func continuationResponse(model string, view continuationView, body []byte) (int
 // executeContinuation owns the exclusive account lease throughout persistence
 // and upstream I/O. Recovery may enter an interrupted *submission*, never renewal.
 func (service *service) executeContinuation(ctx context.Context, request executorRequest) (interface{}, error) {
-	control, payload, _, err := continuationRequest(request.Payload)
+	control, payload, _, err := service.tuning().continuationRequest(request.Payload)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ func (service *service) executeContinuation(ctx context.Context, request executo
 	if err != nil {
 		return nil, err
 	}
-	if !waitForSlot(ctx, lease) {
+	if !service.tuning().waitForSlot(ctx, lease) {
 		return nil, failure(409, "session_busy")
 	}
 	defer lease.guard.Unlock()

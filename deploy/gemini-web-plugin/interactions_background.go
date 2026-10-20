@@ -19,7 +19,7 @@ func (service *service) markBackgroundInteraction(ctx context.Context, request e
 	if err != nil {
 		return err
 	}
-	if !waitForSlot(ctx, lease) {
+	if !service.tuning().waitForSlot(ctx, lease) {
 		return failure(409, "session_busy")
 	}
 	defer lease.guard.Unlock()

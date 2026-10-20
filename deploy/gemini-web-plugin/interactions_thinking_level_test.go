@@ -14,7 +14,7 @@ func TestInteractionThinkingLevelReachesTheVideoTurn(t *testing.T) {
 			body += `,"generation_config":{"thinking_level":"` + level + `"}`
 		}
 		body += `}`
-		_, payload, err := parseInteraction([]byte(body))
+		_, payload, err := (tuning{}).parseInteraction([]byte(body))
 		if err != nil {
 			t.Fatalf("level %q: %v", level, err)
 		}
@@ -34,7 +34,7 @@ func TestInteractionThinkingLevelReachesTheVideoTurn(t *testing.T) {
 		}
 	}
 	body := `{"model":"` + interactionOmniModel + `","input":"a wave","generation_config":{"thinking_level":"loud"}}`
-	if _, _, err := parseInteraction([]byte(body)); err == nil || safeCredentialCode(err) != "omni_invalid_thinking_level" {
+	if _, _, err := (tuning{}).parseInteraction([]byte(body)); err == nil || safeCredentialCode(err) != "omni_invalid_thinking_level" {
 		t.Fatalf("unknown level = %v, want omni_invalid_thinking_level", err)
 	}
 }

@@ -119,7 +119,7 @@ func (service *service) quiesce() error {
 	}
 	drained := service.lifecycle.drained
 	service.lifecycle.mu.Unlock()
-	limit := time.NewTimer(quiesceDrainLimit)
+	limit := time.NewTimer(service.tuning().quiesceDrain())
 	defer limit.Stop()
 	select {
 	case <-drained:

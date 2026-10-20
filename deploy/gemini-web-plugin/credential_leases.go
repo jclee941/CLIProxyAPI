@@ -91,7 +91,7 @@ var credentialWait = 90 * time.Second
 // about three times a second with overlapping exchanges, and a turn that only
 // retried the guard every two seconds never found it free: every new room on the
 // one account that could afford it failed after 90 s with session_busy.
-func waitForSlot(ctx context.Context, lease *credentialLease) bool {
+func (tuned tuning) waitForSlot(ctx context.Context, lease *credentialLease) bool {
 	if lease.guard.TryLock() {
 		return true
 	}
@@ -100,7 +100,7 @@ func waitForSlot(ctx context.Context, lease *credentialLease) bool {
 		lease.guard.Lock()
 		close(taken)
 	}()
-	timer := time.NewTimer(credentialWait)
+	timer := time.NewTimer(tuned.credentialWait())
 	defer timer.Stop()
 	select {
 	case <-taken:

@@ -64,9 +64,9 @@ type interactionRequest struct {
 // measured to spend the whole budget and answer no video.
 const interactionExtendTask = "extend"
 
-func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
+func (tuned tuning) parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 	var request interactionRequest
-	if len(raw) > interactionInputLimit || strictJSON(raw, &request) != nil || request.Model != interactionOmniModel {
+	if len(raw) > tuned.interactionInputBytes() || strictJSON(raw, &request) != nil || request.Model != interactionOmniModel {
 		return request, nil, failure(400, "unsupported_interaction_request")
 	}
 	if request.Background && request.Store != nil && !*request.Store {
@@ -83,7 +83,7 @@ func parseInteraction(raw []byte) (interactionRequest, []byte, error) {
 		return request, nil, failure(400, "interaction_task_unsupported")
 	}
 	// A room's size is known only when it opens; a continuation already has its room.
-	if videos := request.GenerationConfig.RoomVideos; videos < 0 || videos > roomTurns || videos > 0 && request.Previous != "" {
+	if videos := request.GenerationConfig.RoomVideos; videos < 0 || videos > tuned.roomTurns() || videos > 0 && request.Previous != "" {
 		return request, nil, failure(400, "interaction_room_videos_unsupported")
 	}
 	var prompt string
@@ -209,7 +209,7 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 	if request.Alt == interactionRetrieveAlt {
 		return service.retrieveInteraction(ctx, request)
 	}
-	body, payload, err := parseInteraction(request.Payload)
+	body, payload, err := service.tuning().parseInteraction(request.Payload)
 	if err != nil {
 		return nil, err
 	}

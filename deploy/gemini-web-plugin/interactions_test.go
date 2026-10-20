@@ -9,7 +9,7 @@ import (
 // The documented Omni input carries a reference image as inline bytes beside the
 // text, and the web session uploads exactly that.
 func TestInteractionCarriesAReferenceImage(t *testing.T) {
-	_, payload, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"a cat"},{"type":"image","data":"AAAA","mime_type":"image/png"}]}`))
+	_, payload, err := (tuning{}).parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"a cat"},{"type":"image","data":"AAAA","mime_type":"image/png"}]}`))
 
 	if err != nil {
 		t.Fatalf("a documented reference image was refused: %v", err)
@@ -87,7 +87,7 @@ func TestInteractionCarriesAVideoReference(t *testing.T) {
 		"drive":  `{"type":"video","uri":"https://drive.google.com/file/d/1A2B3C4D5E6F7G8H/view"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, payload, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"extend this"},` + part + `]}`))
+			_, payload, err := (tuning{}).parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"extend this"},` + part + `]}`))
 
 			if err != nil {
 				t.Fatalf("a %s video reference was refused: %v", name, err)
@@ -107,7 +107,7 @@ func TestInteractionCarriesAVideoReference(t *testing.T) {
 }
 
 func TestInteractionPreservesFilesReferenceForCallerScopedResolution(t *testing.T) {
-	_, payload, err := parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"a cat"},{"type":"image","uri":"files/abc"}]}`))
+	_, payload, err := (tuning{}).parseInteraction([]byte(`{"model":"gemini-omni-1.1-flash","input":[{"type":"text","text":"a cat"},{"type":"image","uri":"files/abc"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
