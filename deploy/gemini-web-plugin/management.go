@@ -79,7 +79,8 @@ func (service *service) managementOperation(ctx context.Context, request managem
 		if found && fresh {
 			return accountListResponse{cached, provider, service.generationUnits()}, nil
 		}
-		refresh := service.refreshAccounts(scope, service.listedAccounts(request.HostCallbackID, entries))
+		epoch := service.accountsGeneration()
+		refresh := service.refreshAccounts(scope, epoch, service.listedAccounts(request.HostCallbackID, entries))
 		if found {
 			return accountListResponse{cached, provider, service.generationUnits()}, nil
 		}

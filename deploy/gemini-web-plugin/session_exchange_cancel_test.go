@@ -14,6 +14,8 @@ import (
 type exchangePending struct {
 	ctx     context.Context
 	release chan struct{}
+	// observed closes when the upstream fixture saw the exchange cancelled.
+	observed chan struct{}
 }
 
 type exchangeCancelFixture struct {
@@ -38,13 +40,18 @@ func newExchangeCancelFixture(t *testing.T, responseBody bool) *exchangeCancelFi
 				return
 			}
 		}
-		pending := exchangePending{ctx: request.Context(), release: make(chan struct{})}
+		pending := exchangePending{ctx: request.Context(), release: make(chan struct{}), observed: make(chan struct{})}
 		fixture.started <- pending
 		select {
 		case <-request.Context().Done():
+			// A cancelled exchange gets no answer at all: a handler that just
+			// returned would let the server send an empty 200.
+			close(pending.observed)
+			panic(http.ErrAbortHandler)
 		case <-pending.release:
 			exchangeOK(writer, request)
 		case <-t.Context().Done():
+			panic(http.ErrAbortHandler)
 		}
 	})
 	t.Cleanup(func() {
@@ -461,7 +468,7 @@ func TestSessionExchangeShutdownCancelsBeforeDraining(t *testing.T) {
 
 			awaitExchangeSignal(t, closing)
 			for index := range done {
-				awaitExchangeSignal(t, pending[index].ctx.Done())
+				awaitExchangeSignal(t, (<-chan struct{})(pending[index].observed))
 				expectCancelledExchange(t, done[index])
 			}
 			if err := awaitExchangeSignal(t, shutdown); err != nil {

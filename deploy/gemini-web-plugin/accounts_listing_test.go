@@ -209,3 +209,80 @@ func TestAccountsListSharesOneRefreshAcrossExpiredReads(t *testing.T) {
 		t.Fatalf("the shared refresh queried upstream %d time(s) in all, want 4", upstream.Load())
 	}
 }
+
+func cachedListing(t *testing.T, service *service) []accountView {
+	t.Helper()
+	service.accountsMu.Lock()
+	defer service.accountsMu.Unlock()
+	if len(service.accountsCache) != 1 {
+		t.Fatalf("%d cached listings, want 1", len(service.accountsCache))
+	}
+	for _, cached := range service.accountsCache {
+		return cached.views
+	}
+	return nil
+}
+
+func TestAccountsListReadAfterAWriteStartsItsOwnRefresh(t *testing.T) {
+	// Given: an expired listing whose refresh is held open.
+	service, _ := listingFixture(t, []string{"a", "b"}, func(writer http.ResponseWriter, request *http.Request) {
+		writeAccountFixture(t, writer, request)
+	})
+	var clock atomic.Int64
+	clock.Store(1700000000)
+	service.now = func() time.Time { return time.Unix(clock.Load(), 0) }
+	listAccountViews(t, service, "call-1")
+	queued := make(chan func(), 4)
+	service.background = func(run func()) { queued <- run }
+	clock.Add(int64(accountsCacheTTL/time.Second) + 1)
+	listAccountViews(t, service, "call-2")
+	older := <-queued
+
+	// When: a write empties the cache and a read follows it.
+	invoke(t, service, "management.handle", managementRequest{Method: "POST", Path: resolvePath, HostCallbackID: "scope-list", Body: []byte(`{}`)})
+	read := make(chan []accountView, 1)
+	go func() { read <- listAccountViews(t, service, "call-3") }()
+	var newer func()
+	select {
+	case newer = <-queued:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the read after the write joined the refresh the write overtook")
+	}
+	newer()
+	views := <-read
+	kept := cachedListing(t, service)
+	older()
+
+	// Then: the read got its own refresh, and the overtaken one finishing
+	// later did not replace that listing in the cache.
+	if len(views) != 2 || &cachedListing(t, service)[0] != &kept[0] {
+		t.Fatalf("read %d views; the overtaken refresh replaced the cache: %v", len(views), &cachedListing(t, service)[0] != &kept[0])
+	}
+}
+
+func TestAccountsListKeepsACardRefreshOverAnOlderListing(t *testing.T) {
+	// Given: an expired listing whose refresh is held open.
+	service, records := listingFixture(t, []string{"a", "b"}, func(writer http.ResponseWriter, request *http.Request) {
+		writeAccountFixture(t, writer, request)
+	})
+	var clock atomic.Int64
+	clock.Store(1700000000)
+	service.now = func() time.Time { return time.Unix(clock.Load(), 0) }
+	listAccountViews(t, service, "call-1")
+	var queued []func()
+	service.background = func(run func()) { queued = append(queued, run) }
+	clock.Add(int64(accountsCacheTTL/time.Second) + 1)
+	listAccountViews(t, service, "call-2")
+
+	// When: a card is refreshed, then the older refresh finishes.
+	refresh := invoke(t, service, "management.handle", managementRequest{Method: "POST", Path: refreshPath, HostCallbackID: "scope-list", Body: jsonFixture(t, struct {
+		ID string `json:"id"`
+	}{records[0].ID})})
+	carded := cachedListing(t, service)
+	queued[0]()
+
+	// Then: the cache still holds the listing with the refreshed card.
+	if !refresh.OK || len(queued) != 1 || &cachedListing(t, service)[0] != &carded[0] {
+		t.Fatalf("refresh %+v, %d refreshes; the older listing replaced the card: %v", refresh.Error, len(queued), &cachedListing(t, service)[0] != &carded[0])
+	}
+}

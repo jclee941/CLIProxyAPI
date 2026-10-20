@@ -61,12 +61,20 @@ func (service *service) dropAccountsCache() {
 	service.accountsEpoch++
 }
 
+func (service *service) accountsGeneration() uint64 {
+	service.accountsMu.Lock()
+	defer service.accountsMu.Unlock()
+	return service.accountsEpoch
+}
+
 // updateCachedAccount puts one account's live reading into every cached
 // listing that shows it, so reading one card does not send the next dashboard
-// read back to inspecting every account.
+// read back to inspecting every account. It also moves the epoch on, so a
+// listing inspected before the reading cannot overwrite it.
 func (service *service) updateCachedAccount(view accountView) {
 	service.accountsMu.Lock()
 	defer service.accountsMu.Unlock()
+	service.accountsEpoch++
 	for scope, cached := range service.accountsCache {
 		for index, listed := range cached.views {
 			if listed.ID == view.ID {
@@ -119,34 +127,39 @@ func (service *service) inspectListed(ctx context.Context, listed []listedAccoun
 	return accounts
 }
 
-// accountsRefresh is one inspection of a scope's accounts. views is set before
-// done closes, and stays nil when a quiesce or shutdown cut the inspection short.
+// accountsRefresh is one inspection of a scope's accounts for one cache
+// epoch. views is set before done closes, and stays nil when a quiesce or
+// shutdown cut the inspection short.
 type accountsRefresh struct {
+	epoch uint64
 	done  chan struct{}
 	views []accountView
 }
 
-// refreshAccounts inspects a scope's accounts once, shared by every read that
-// arrives while it runs. It does not end with the read that started it: a
-// caller that gives up still leaves the listing cached for the next read. It
-// joins the lifecycle so a quiesce or shutdown waits for it, and their closing
-// signal cancels its upstream reads.
-func (service *service) refreshAccounts(scope string, listed []listedAccount) *accountsRefresh {
+// refreshAccounts inspects a scope's accounts once per cache epoch, shared by
+// every read of that epoch that arrives while it runs; epoch is taken before
+// listed was read, so a write that lands meanwhile keeps the inspection out of
+// the cache and out of later reads. It does not end with the read that
+// started it: a caller that gives up still leaves the listing cached for the
+// next read. It joins the lifecycle so a quiesce or shutdown waits for it, and
+// their closing signal cancels its upstream reads.
+func (service *service) refreshAccounts(scope string, epoch uint64, listed []listedAccount) *accountsRefresh {
 	service.accountsMu.Lock()
-	if running := service.accountsRefreshing[scope]; running != nil {
+	if running := service.accountsRefreshing[scope]; running != nil && running.epoch == epoch {
 		service.accountsMu.Unlock()
 		return running
 	}
-	refresh := &accountsRefresh{done: make(chan struct{})}
+	refresh := &accountsRefresh{epoch: epoch, done: make(chan struct{})}
 	if service.accountsRefreshing == nil {
 		service.accountsRefreshing = map[string]*accountsRefresh{}
 	}
 	service.accountsRefreshing[scope] = refresh
-	epoch := service.accountsEpoch
 	service.accountsMu.Unlock()
 	finish := func(views []accountView) {
 		service.accountsMu.Lock()
-		delete(service.accountsRefreshing, scope)
+		if service.accountsRefreshing[scope] == refresh {
+			delete(service.accountsRefreshing, scope)
+		}
 		refresh.views = views
 		service.accountsMu.Unlock()
 		close(refresh.done)
