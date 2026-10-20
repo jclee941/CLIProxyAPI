@@ -29,6 +29,7 @@ video_mode: 0
 video_thinking_level: 0
 delete_chats: false
 extend_declaration: false
+extend_source_declaration: false
 ```
 
 The plugin speaks to the Gemini web product directly; there is no sidecar path.
@@ -78,6 +79,14 @@ continues in its original conversation, with the prompt sent as the caller
 wrote it; measured 2026-10-20, one conversation went 10.006s -> 20.011s. A role
 the caller wrote is never changed. Set it with the same PATCH; it does not
 drain sessions.
+
+`extend_source_declaration` (`false` by default) does the same for a
+`task=extend` turn whose video is attached: one the caller uploaded, or the
+stored video another account continues from when the original account cannot
+serve. It starts the prompt with `[# Sources <VIDEO_0>@Video1]`. Left off, the
+prompt is sent as written and the video is attached as the extension's source,
+never declared a reference. Measured 2026-10-20 with it off: another account
+extended a 20.011s video to 30.016s.
 
 The plugin's other limits are flat, non-negative integer keys that override a
 built-in default; `0` or an absent key keeps the default, and PATCHing a key
