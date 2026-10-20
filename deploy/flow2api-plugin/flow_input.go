@@ -35,6 +35,9 @@ type flowInput struct {
 	seed       *int
 	resolution string
 	options    flowOptions
+	// healthCheck marks the plugin's own check of a held account, which the
+	// unusual-activity hold lets through.
+	healthCheck bool
 }
 
 // flowSamplingOptions are settings chat bridges attach to every request. A

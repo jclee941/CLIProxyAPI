@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -185,13 +186,39 @@ func (service *service) flowUploads(ctx context.Context, record storageRecord, p
 	return ids, nil
 }
 
+// flowCaptchaRemedies are what a browser-token submission tries, in order, once
+// Flow has refused fresh-page tokens for unusual activity: deleting the
+// browser's reCAPTCHA cookie, which gives it a new reCAPTCHA identity, then a native token
+// minted through the account's own session. Each gets one submission, and the
+// state each ends in is reported, so the log records which source Flow
+// accepts. On 2026-10-20 an operator went through this by hand while Flow
+// refused the account.
+var flowCaptchaRemedies = []string{"identity_reset", "native_token"}
+
 // flowSubmit spends one captcha token on one RPC. A token Flow judged unusual is
 // replaced and the call resent, since a refused token never starts the work; a
 // call whose answer was lost is never resent, because it may already have.
 func (service *service) flowSubmit(ctx context.Context, record storageRecord, project, action string, build func(token string) (string, any), accept func(any) error) error {
+	return service.flowSubmitAt(ctx, record, project, action, build, accept, true)
+}
+
+// flowSubmitAt is flowSubmit with the remedies optional: the free low-priority
+// queue refuses for reasons of its own, which no token source changes.
+func (service *service) flowSubmitAt(ctx context.Context, record storageRecord, project, action string, build func(token string) (string, any), accept func(any) error, remediate bool) error {
 	pageURL := flowOrigin + "/project/" + project
+	var remedies []string
+	if remediate && service.settings().FlowCaptchaProvider == "browser" {
+		remedies = flowCaptchaRemedies
+	}
+	remedy := ""
 	for attempt := 1; ; attempt++ {
-		token, err := service.flowToken(ctx, record, action, pageURL)
+		var token flowCaptchaToken
+		var err error
+		if remedy == "native_token" {
+			token, err = service.nativeFlowToken(ctx, record, action)
+		} else {
+			token, err = service.flowToken(ctx, record, action, pageURL)
+		}
 		if err != nil {
 			return err
 		}
@@ -204,6 +231,9 @@ func (service *service) flowSubmit(ctx context.Context, record storageRecord, pr
 			return accept(payload)
 		})
 		if err == nil {
+			if remedy != "" {
+				service.report(map[string]any{"provider": provider, "state": "flow_captcha_remedied", "reason": remedy}, "flow2api: captcha")
+			}
 			return nil
 		}
 		switch safeCredentialCode(err) {
@@ -211,6 +241,16 @@ func (service *service) flowSubmit(ctx context.Context, record storageRecord, pr
 			if attempt < flowTokenAttempts {
 				// A browser token Flow refused is replaced from a fresh page.
 				service.captchaBrowser.close(service.client)
+				continue
+			}
+			if len(remedies) > 0 && flowUnusualActivity(err) {
+				remedy, remedies = remedies[0], remedies[1:]
+				service.report(map[string]any{"provider": provider, "state": "flow_captcha_remedy", "reason": remedy}, "flow2api: captcha")
+				if remedy == "identity_reset" {
+					if errReset := service.captchaBrowser.resetIdentity(ctx, service.client, service.settings().FlowCaptchaBaseURL); errReset != nil {
+						service.report(map[string]any{"provider": provider, "state": safeCredentialCode(errReset), "reason": remedy}, "flow2api: captcha")
+					}
+				}
 				continue
 			}
 		case "flow_transport_failed", "flow_response_failed", "flow_session_exchange_transport_failed", "flow_session_exchange_response_failed", "flow_session_exchange_response_too_large":
@@ -235,6 +275,11 @@ func (service *service) flowToken(ctx context.Context, record storageRecord, act
 	default:
 		return service.flowCaptcha(ctx, action, pageURL)
 	}
+	return service.nativeFlowToken(ctx, record, action)
+}
+
+// nativeFlowToken mints a token through the account's own session.
+func (service *service) nativeFlowToken(ctx context.Context, record storageRecord, action string) (flowCaptchaToken, error) {
 	var token flowCaptchaToken
 	err := service.withFlowSession(ctx, record, func(session *flowSession) error {
 		var err error
@@ -242,6 +287,12 @@ func (service *service) flowToken(ctx context.Context, record storageRecord, act
 		return err
 	})
 	return token, err
+}
+
+// flowUnusualActivity reports whether Flow refused a token for unusual activity.
+func flowUnusualActivity(err error) bool {
+	var public *publicError
+	return errors.As(err, &public) && public.Code == "flow_captcha_rejected" && strings.Contains(public.Message, "UNUSUAL_ACTIVITY")
 }
 
 func (service *service) recaptchaOrigin() string {

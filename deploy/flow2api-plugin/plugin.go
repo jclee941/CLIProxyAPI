@@ -28,6 +28,13 @@ type pluginConfig struct {
 	FlowCaptchaKey      string   `yaml:"captcha_key"`
 	FlowCaptchaBaseURL  string   `yaml:"captcha_base_url"`
 	FlowCaptchaTask     string   `yaml:"captcha_task"`
+	// HealthCheckProject is the Flow project health checks generate in. Empty
+	// uses the account's project titled flowHealthTitle, created when missing.
+	HealthCheckProject string `yaml:"health_check_project"`
+	// UnusualActivityHoldSeconds and UnusualActivityHoldCapSeconds replace the
+	// first unusual-activity hold and its cap; 0 keeps the defaults.
+	UnusualActivityHoldSeconds    int `yaml:"unusual_activity_hold_seconds"`
+	UnusualActivityHoldCapSeconds int `yaml:"unusual_activity_hold_cap_seconds"`
 }
 
 type hostCall func(string, []byte) ([]byte, error)
@@ -52,19 +59,37 @@ type service struct {
 	flowOriginOverride      string
 	recaptchaOriginOverride string
 	flowWait                func(context.Context, time.Duration) error
+	healthProjects          map[string]string
+	healthChecks            map[string]*time.Timer
+	afterFunc               func(time.Duration, func()) *time.Timer
+	// lifetime ends when the host shuts the plugin down, which cancels a
+	// running health check.
+	lifetime    context.Context
+	endLifetime context.CancelFunc
 }
 
 func newService(host hostCall) *service {
+	lifetime, endLifetime := context.WithCancel(context.Background())
 	return &service{
-		host:      host,
-		now:       time.Now,
-		dashboard: "/CLIProxyAPI/plugins/flow2api/index.html",
-		config:    pluginConfig{SessionBrokerURL: "http://127.0.0.1:8317", FlowCaptchaProvider: "native"},
-		client:    &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		host:        host,
+		now:         time.Now,
+		afterFunc:   time.AfterFunc,
+		lifetime:    lifetime,
+		endLifetime: endLifetime,
+		dashboard:   "/CLIProxyAPI/plugins/flow2api/index.html",
+		config:      pluginConfig{SessionBrokerURL: "http://127.0.0.1:8317", FlowCaptchaProvider: "native"},
+		client:      &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}
 }
 
 func (service *service) stop() {
+	service.endLifetime()
+	service.flowMu.Lock()
+	for _, check := range service.healthChecks {
+		check.Stop()
+	}
+	service.healthChecks = nil
+	service.flowMu.Unlock()
 	service.captchaBrowser.close(service.client)
 	service.client.CloseIdleConnections()
 }
@@ -143,6 +168,9 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	default:
 		return nil, failure(400, "invalid_plugin_config")
 	}
+	if config.HealthCheckProject != "" && !flowUUIDPattern.MatchString(config.HealthCheckProject) || config.UnusualActivityHoldSeconds < 0 || config.UnusualActivityHoldCapSeconds < 0 {
+		return nil, failure(400, "invalid_plugin_config")
+	}
 	broker, err := url.Parse(config.SessionBrokerURL)
 	if err != nil || broker.Host == "" || broker.User != nil || broker.Scheme != "http" && broker.Scheme != "https" {
 		return nil, failure(400, "invalid_plugin_config")
@@ -155,7 +183,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	service.mu.Lock()
 	service.config = config
 	service.mu.Unlock()
-	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"flow2api","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","ConfigFields":[{"Name":"accounts","Type":"array","Description":"Existing Gemini account IDs allowed for Flow"},{"Name":"session_broker_url","Type":"string","Description":"Local core URL serving the Gemini session exchange"},{"Name":"captcha_provider","Type":"enum","EnumValues":["native","browser","yescaptcha","capsolver"],"Description":"Flow token provider"},{"Name":"captcha_key","Type":"string","Description":"External token provider credential"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini","openai","openai-response","claude"],"management_api":true,"frontend_http":true,"quota_provider":true}}`), nil
+	return json.RawMessage(`{"schema_version":6,"metadata":{"Name":"flow2api","Version":"0.1.0","Author":"jclee941","GitHubRepository":"https://github.com/jclee941/CLIProxyAPI","ConfigFields":[{"Name":"accounts","Type":"array","Description":"Existing Gemini account IDs allowed for Flow"},{"Name":"session_broker_url","Type":"string","Description":"Local core URL serving the Gemini session exchange"},{"Name":"captcha_provider","Type":"enum","EnumValues":["native","browser","yescaptcha","capsolver"],"Description":"Flow token provider"},{"Name":"captcha_key","Type":"string","Description":"External token provider credential"},{"Name":"health_check_project","Type":"string","Description":"Flow project the health check of a held account generates in; empty uses the account's project titled CLIProxyAPI health check, created when missing"},{"Name":"unusual_activity_hold_seconds","Type":"integer","Description":"First hold after Flow refuses the account for unusual activity; 0 keeps 1800"},{"Name":"unusual_activity_hold_cap_seconds","Type":"integer","Description":"Longest hold after repeated refusals; 0 keeps 14400"}]},"capabilities":{"auth_provider":true,"model_provider":true,"executor":true,"executor_model_scope":"oauth","executor_input_formats":["gemini"],"executor_output_formats":["gemini","openai","openai-response","claude"],"management_api":true,"frontend_http":true,"quota_provider":true}}`), nil
 }
 
 func (service *service) dispatch(ctx context.Context, method string, raw []byte) (interface{}, error) {

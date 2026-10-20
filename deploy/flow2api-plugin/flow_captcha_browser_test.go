@@ -27,6 +27,7 @@ type devtoolsFixture struct {
 	mu          sync.Mutex
 	pages       int
 	closed      []string
+	cleared     int
 	expressions []string
 }
 
@@ -106,6 +107,7 @@ func (fixture *devtoolsFixture) socket(writer http.ResponseWriter, request *http
 			Params struct {
 				URL        string `json:"url"`
 				Expression string `json:"expression"`
+				Name       string `json:"name"`
 			} `json:"params"`
 		}
 		if err := json.Unmarshal(raw, &command); err != nil {
@@ -115,6 +117,13 @@ func (fixture *devtoolsFixture) socket(writer http.ResponseWriter, request *http
 		result := map[string]any{}
 		switch command.Method {
 		case "Page.enable", "Page.setBypassCSP":
+		case "Network.deleteCookies":
+			if command.Params.Name != "_GRECAPTCHA" {
+				t.Errorf("deleted cookie %q", command.Params.Name)
+			}
+			fixture.mu.Lock()
+			fixture.cleared++
+			fixture.mu.Unlock()
 		case "Page.navigate":
 			if command.Params.URL != flowBrowserPage {
 				t.Errorf("navigated to %q", command.Params.URL)
@@ -237,5 +246,35 @@ func TestFlowBrowserOutageFallsBackToNativeTokens(t *testing.T) {
 	defer fixture.mu.Unlock()
 	if fixture.reload.Get("sa") != "IMAGE_GENERATION" || !slices.Equal(fixture.agents["ogiZ0b"], []string{flowUserAgent}) {
 		t.Fatalf("native reload %v, agents %q", fixture.reload, fixture.agents["ogiZ0b"])
+	}
+}
+
+func TestFlowUnusualActivityTriesAFreshIdentityThenTheSessionToken(t *testing.T) {
+	// Given: a browser minting tokens, and Flow refusing every browser token at
+	// normal priority, before and after its reCAPTCHA cookie is deleted.
+	fixture := newFlowFixture(t)
+	devtools := newDevtoolsFixture(t)
+	media := []any{flowTestOp, flowTestProject, flowTestMedia}
+	refused := flowErrorEnvelope(t, []any{"wrb.fr", "YhhmEf", nil, nil, nil, []any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY"}}}}, "generic"})
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", refused, refused, refused, refused, rpcEnvelope(t, "YhhmEf", []any{[]any{media}}))
+	fixture.reply("jwpduf", rpcEnvelope(t, "jwpduf", []any{[]any{append(slices.Clone(media), fixture.link("video"))}}))
+	service, record := flowService(t, fixture)
+	service.config.FlowCaptchaProvider, service.config.FlowCaptchaBaseURL = "browser", devtools.server.URL
+	t.Cleanup(func() { service.captchaBrowser.close(service.client) })
+
+	// When: a normal-priority video is requested.
+	mime, _ := flowInlineMedia(t, flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`))
+
+	// Then: three fresh pages, one deleted reCAPTCHA cookie and one session token were
+	// tried in that order, and the session token was accepted.
+	fixture.mu.Lock()
+	native := fixture.reload
+	fixture.mu.Unlock()
+	devtools.mu.Lock()
+	cleared, expressions := devtools.cleared, len(devtools.expressions)
+	devtools.mu.Unlock()
+	if mime != "video/mp4" || fixture.count("YhhmEf") != flowTokenAttempts+2 || cleared != 1 || expressions != flowTokenAttempts+1 || native == nil {
+		t.Fatalf("video %s after %d submissions, %d cookie deletions, %d browser tokens, native %v", mime, fixture.count("YhhmEf"), cleared, expressions, native != nil)
 	}
 }

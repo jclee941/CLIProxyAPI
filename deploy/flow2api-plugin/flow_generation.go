@@ -43,13 +43,27 @@ func (service *service) pauseLowPriority(account string) {
 // and a recaptured session alike, while the Flow app still worked in the
 // operator's browser. Each refused request is one more automated attempt on
 // the flagged account, so a refusal at normal priority holds the account: its
-// requests are answered here, and the first one after the hold probes whether
-// the flag has cleared. Consecutive refusals double the hold up to the cap,
-// and an accepted submission resets it.
+// requests are answered here, and when the hold ends the plugin's own health
+// check (flowHealthCheck) finds out whether the flag has cleared, so no
+// caller's request is spent finding out. Consecutive refusals double the hold
+// up to the cap, and an accepted submission resets it.
 const (
 	flowUnusualActivityHold    = 30 * time.Minute
 	flowUnusualActivityHoldCap = 4 * time.Hour
 )
+
+// unusualActivityHoldLimits are the first hold and its cap, as configured.
+func (service *service) unusualActivityHoldLimits() (time.Duration, time.Duration) {
+	settings := service.settings()
+	first, limit := flowUnusualActivityHold, flowUnusualActivityHoldCap
+	if settings.UnusualActivityHoldSeconds > 0 {
+		first = time.Duration(settings.UnusualActivityHoldSeconds) * time.Second
+	}
+	if settings.UnusualActivityHoldCapSeconds > 0 {
+		limit = time.Duration(settings.UnusualActivityHoldCapSeconds) * time.Second
+	}
+	return first, max(first, limit)
+}
 
 func (service *service) unusualActivityHeld(account string) (time.Time, bool) {
 	service.flowMu.Lock()
@@ -64,6 +78,7 @@ func (service *service) unusualActivityHeld(account string) (time.Time, bool) {
 func (service *service) noteUnusualActivity(account string, err error) time.Duration {
 	var public *publicError
 	refused := errors.As(err, &public) && public.Code == "flow_captcha_rejected" && strings.Contains(public.Message, "UNUSUAL_ACTIVITY")
+	first, limit := service.unusualActivityHoldLimits()
 	service.flowMu.Lock()
 	defer service.flowMu.Unlock()
 	if !refused {
@@ -75,9 +90,9 @@ func (service *service) noteUnusualActivity(account string, err error) time.Dura
 	if service.unusualHeldUntil == nil {
 		service.unusualHeldUntil, service.unusualHolds = map[string]time.Time{}, map[string]int{}
 	}
-	hold := flowUnusualActivityHold
+	hold := first
 	for range service.unusualHolds[account] {
-		hold = min(2*hold, flowUnusualActivityHoldCap)
+		hold = min(2*hold, limit)
 	}
 	service.unusualHolds[account]++
 	service.unusualHeldUntil[account] = service.now().Add(hold)
@@ -138,7 +153,7 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 		message := fmt.Sprintf("flow_quota_exhausted: PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED; %s is not sent again before %s", model.id, until.UTC().Format(time.RFC3339))
 		return nil, &publicError{Code: "flow_quota_exhausted", Message: message, HTTPStatus: 429}
 	}
-	if until, held := service.unusualActivityHeld(record.SourceAuthID); held {
+	if until, held := service.unusualActivityHeld(record.SourceAuthID); held && !input.healthCheck {
 		message := fmt.Sprintf("flow_unusual_activity_hold: Flow refused this account for unusual activity; it is not sent again before %s", until.UTC().Format(time.RFC3339))
 		return nil, &publicError{Code: "flow_unusual_activity_hold", Message: message, HTTPStatus: 429}
 	}
@@ -219,7 +234,7 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 		}
 		return nil
 	}
-	err = service.flowSubmit(ctx, record, project, action, build, accept)
+	err = service.flowSubmitAt(ctx, record, project, action, build, accept, input.options.Priority != "low")
 	if safeCredentialCode(err) == "flow_captcha_rejected" && input.options.Priority == "low" {
 		// Flow refuses the free low-priority Veo Lite queue with UNUSUAL_ACTIVITY
 		// once an account has leaned on it, while the same request at normal
@@ -237,6 +252,7 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 	}
 	if hold := service.noteUnusualActivity(record.SourceAuthID, err); hold > 0 {
 		service.report(map[string]any{"provider": provider, "state": "flow_unusual_activity_hold", "reason": model.id + " " + hold.String()}, "flow2api: generation")
+		service.scheduleHealthCheck(record, hold)
 	}
 	if err != nil {
 		service.holdDailyQuota(record.SourceAuthID, model.id, err)
