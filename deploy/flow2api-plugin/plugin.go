@@ -42,6 +42,8 @@ type service struct {
 	flowPages               map[string]flowPage
 	flowProjects            map[string]string
 	lowPriorityPausedUntil  map[string]time.Time
+	unusualHeldUntil        map[string]time.Time
+	unusualHolds            map[string]int
 	dailyQuotaHeldUntil     map[string]time.Time
 	flowReadings            map[string]flowReading
 	flowSpending            int

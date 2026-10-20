@@ -925,3 +925,48 @@ func rpcEnvelope(t *testing.T, rpcID string, payload any) string {
 	frame := jsonFixture(t, []any{[]any{"wrb.fr", rpcID, string(encoded), nil, nil, nil, "generic"}})
 	return ")]}'\n\n" + fmt.Sprintf("%d\n%s\n", len(utf16.Encode([]rune(string(frame)))), frame)
 }
+
+func TestFlowUnusualActivityHoldsTheAccountUntilAProbePasses(t *testing.T) {
+	// Given: Flow refusing every token for the account, twice over, then accepting.
+	fixture := newFlowFixture(t)
+	media := []any{flowTestOp, flowTestProject, flowTestMedia}
+	refused := flowErrorEnvelope(t, []any{"wrb.fr", "YhhmEf", nil, nil, nil, []any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY"}}}}, "generic"})
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", refused, refused, refused, refused, refused, refused, rpcEnvelope(t, "YhhmEf", []any{[]any{media}}))
+	fixture.reply("jwpduf", rpcEnvelope(t, "jwpduf", []any{[]any{append(slices.Clone(media), fixture.link("video"))}}))
+	service, record := flowService(t, fixture)
+	clock := time.Unix(1700000000, 0)
+	service.now = func() time.Time { return clock }
+	video := `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`
+
+	// When: the refused account is asked again at once.
+	first := flowExecute(t, service, record, "flow-veo-3.1-lite", video)
+	held := flowExecute(t, service, record, "flow-veo-3.1-lite", video)
+
+	// Then: the repeat is answered here without a submission.
+	if first.OK || first.Error.Code != "flow_captcha_rejected" || held.OK || held.Error.Code != "flow_unusual_activity_hold" || held.Error.HTTPStatus != 429 || fixture.count("YhhmEf") != flowTokenAttempts {
+		t.Fatalf("first %+v, held %+v after %d submissions", first.Error, held.Error, fixture.count("YhhmEf"))
+	}
+
+	// When: the hold passes, the probe is refused again, and the shorter hold passes.
+	clock = clock.Add(flowUnusualActivityHold)
+	probe := flowExecute(t, service, record, "flow-veo-3.1-lite", video)
+	clock = clock.Add(flowUnusualActivityHold)
+	doubled := flowExecute(t, service, record, "flow-veo-3.1-lite", video)
+
+	// Then: the second refusal doubled the hold.
+	if probe.OK || probe.Error.Code != "flow_captcha_rejected" || doubled.OK || doubled.Error.Code != "flow_unusual_activity_hold" || fixture.count("YhhmEf") != 2*flowTokenAttempts {
+		t.Fatalf("probe %+v, doubled %+v after %d submissions", probe.Error, doubled.Error, fixture.count("YhhmEf"))
+	}
+
+	// When: the doubled hold passes and Flow accepts the probe.
+	clock = clock.Add(flowUnusualActivityHold)
+	if mime, data := flowInlineMedia(t, flowExecute(t, service, record, "flow-veo-3.1-lite", video)); mime != "video/mp4" || !slices.Equal(data, flowTestMP4) {
+		t.Fatalf("video %s %d bytes", mime, len(data))
+	}
+
+	// Then: the escalation is cleared.
+	if service.noteUnusualActivity(record.SourceAuthID, &publicError{Code: "flow_captcha_rejected", Message: "flow_captcha_rejected: PUBLIC_ERROR_UNUSUAL_ACTIVITY"}) != flowUnusualActivityHold {
+		t.Fatal("an accepted submission did not reset the hold")
+	}
+}
