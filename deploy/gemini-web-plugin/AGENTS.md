@@ -33,7 +33,7 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 - `GEMINI_WEB_SESSION_KEY` supplies canonical base64 for a 32-byte key; configuration does not carry the key.
 - Store references use `session://gemini-web/<32 lowercase hex>`; `sessionFile` validates before resolving a record.
 - Store writes bind identity, revision, and state through AES-GCM authenticated data and atomic persistence.
-- The store is single-owner for the plugin lifetime; reconfiguration drains active work before replacing runtime state.
+- The store is single-owner for the plugin lifetime; reconfiguration drains active work before replacing runtime state, and a hot reload's `plugin.quiesce` drains running calls (at most 90 s) and closes the store so the replacement takes the owner lock; a drain timeout keeps the old instance serving.
 - Interaction ownership comes from trusted host caller metadata, not a caller-supplied routing header.
 - Detached interaction execution can survive downstream disconnect; retrieval and cursor replay read the durable outcome.
 - Native account discovery, quota snapshots, and scheduler admission are distinct responsibilities.
@@ -44,6 +44,7 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 - `video_wire_mode` accepts `legacy`, `web`, or `alternate`; continuation inherits its turn's variant unless an explicit mode overrides it.
 - Changing only video wire policy does not drain sessions; verify the applied variant in diagnostics, not only the saved config.
 - Plugin `video_mode` is the default capability mode when a request names none; an account without it keeps its standard mode, request modes stay strict, and changing it does not drain sessions.
+- Plugin `video_thinking_level` (1-4; zero keeps STANDARD) is the slot 80 level a video turn sends when its request names none; changing it does not drain sessions.
 - A turn the default mode answers in prose (slot 9 names a language) is read back once and, if it ended without a video and without a named limit, resent on the standard mode as the web edit of the refused attempt (`video_fallback.go`); a requested mode is never resent.
 
 ## ANTI-PATTERNS

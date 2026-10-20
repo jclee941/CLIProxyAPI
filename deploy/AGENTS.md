@@ -18,7 +18,7 @@ Deployment convergence and native plugin artifacts; score 13 from subtree size, 
 ## WHERE TO LOOK
 | Task | Location | Detail |
 | --- | --- | --- |
-| Active artifact selection | `cpa-plugins.json` | Gemini restart reload; ChatGPT and Flow hot reload |
+| Active artifact selection | `cpa-plugins.json` | All plugins hot reload; Gemini behind the Omni gate |
 | Core release selection | `cpa-converge.py` | Published binary and checksum, not a local rebuild |
 | Idle restart gate | `cpa-converge.py` | Account activity, unanswered Omni picks, and in-flight API requests |
 | Hot-load evidence | `cpa-converge.py` | Match the installed version in the host load log, not merely the plugin listing |
