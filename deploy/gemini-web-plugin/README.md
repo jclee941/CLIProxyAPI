@@ -26,6 +26,7 @@ browser_extension_id: REPLACE_WITH_REGISTERED_EXTENSION_ID
 native_continuation: true
 video_wire_mode: legacy
 video_mode: 0
+video_thinking_level: 0
 delete_chats: false
 ```
 
@@ -60,6 +61,42 @@ advertise the configured mode uses its standard mode, while a mode named in the
 request still has to be advertised. Set it with the same PATCH, for example
 `{"video_mode":8}`; it does not drain sessions and logs
 `state=video_mode reason=mode=<value>`.
+
+`video_thinking_level` is the web app's thinking level an Omni video turn sends
+in slot 80 when its request names no `generation_config.thinking_level`: `1`
+STANDARD, `2` EXTENDED, `3` DEEP_THINK, `4` MEDIUM. `0` (the default) keeps
+STANDARD. There is no "off": the web app always sends a level, and turns sent
+with the slot empty came back as the product's canned text answer. Set it with
+the same PATCH, for example `{"video_thinking_level":2}`; it does not drain
+sessions, and `video_turn_diag` reports the level sent as `thinking=<n>`.
+
+The plugin's other limits are flat, non-negative integer keys that override a
+built-in default; `0` or an absent key keeps the default, and PATCHing a key
+with `null` removes it. Each value is read where it is used, so the same PATCH
+applies it without draining sessions and logs `state=tuning reason=keys changed`.
+A negative value, `route_room_ceiling_percent` above 100 or `text_thinking_slot`
+above 4 rejects the whole configuration. The Manager's plugin settings list
+every key.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `route_room_ceiling_percent` | 80 | A new room opens only on an account below this share of its five-hour window (1-100). |
+| `video_limit_hold_seconds` | 1800 | How long an account the product reported out of video sits out. |
+| `room_turns` | 3 | Videos a room makes on the account that opens it; also the largest `room_videos` a request may name. |
+| `default_generation_units` | 5000 | Stand-in cost of a video until one has been measured. |
+| `generation_samples` | 8 | Measured video costs remembered, so a price change reaches the scheduler within a few videos. |
+| `same_window_slack_seconds` | 600 | How far two readings of one five-hour window may disagree about when it turns over. |
+| `accounts_cache_seconds` | 60 | How long an account listing is served from cache. |
+| `credential_wait_seconds` | 90 | How long a turn waits for its account's slot. |
+| `quiesce_drain_seconds` | 90 | How long a hot reload waits for running calls before the old instance keeps serving. |
+| `trapped_release_seconds` | 300 | Pace of the plugin's own release of accounts trapped by an interrupted submission; applies when the loop next starts. |
+| `turn_rotation_seconds` | 60 | A session whose cookies rotated this recently is used as it stands; Google refuses a second rotation within about 30 seconds. |
+| `slot_reservation_seconds` | 60 | How long a picked account stays reserved for its room until the turn records the submission. |
+| `continuation_request_bytes` | 5242880 | Largest continuation request. |
+| `continuation_retention` | 16 | Turns a continuation keeps. |
+| `interaction_input_bytes` | 4194304 | Largest interaction or research request. |
+| `video_diag_stash_limit` | 256 | Video turn diagnostics kept. |
+| `text_thinking_slot` | 0 | Slot 17 of a text turn (0-4); the web app sends 0, and the 4 sent until 2026-10-15 broke 3.1 Pro on every account. |
 
 `delete_chats` (default `false`) deletes the web conversation a text or music
 turn opened once it has answered, keeping generated chats out of the account's

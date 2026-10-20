@@ -45,6 +45,7 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 - Changing only video wire policy does not drain sessions; verify the applied variant in diagnostics, not only the saved config.
 - Plugin `video_mode` is the default capability mode when a request names none; an account without it keeps its standard mode, request modes stay strict, and changing it does not drain sessions.
 - Plugin `video_thinking_level` (1-4; zero keeps STANDARD) is the slot 80 level a video turn sends when its request names none; changing it does not drain sessions.
+- Tuning keys (`tuning.go`) are flat non-negative integers overriding named defaults (0 or absent keeps them); they are read at use from an atomic snapshot, so a PATCH does not drain sessions, and a negative value, `route_room_ceiling_percent` over 100 or `text_thinking_slot` over 4 rejects the config.
 - A turn the default mode answers in prose (slot 9 names a language) is read back once and, if it ended without a video and without a named limit, resent on the standard mode as the web edit of the refused attempt (`video_fallback.go`); a requested mode is never resent.
 
 ## ANTI-PATTERNS
