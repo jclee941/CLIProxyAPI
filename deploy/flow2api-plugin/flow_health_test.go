@@ -501,3 +501,25 @@ func TestFlowPeriodicCheckOnASpentQuotaIsNotAFailure(t *testing.T) {
 		t.Fatalf("health after a check on a spent quota %+v", health)
 	}
 }
+
+func TestFlowAcceptanceThatLosesTheRaceToAHoldReportsNothing(t *testing.T) {
+	// Given: an account a refusal has just held, as when that refusal lands
+	// between an accepted request's outcome and its health report.
+	fixture := newFlowFixture(t)
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", flowUnusualRefusal(t, "YhhmEf"))
+	service, record := flowService(t, fixture)
+	flowCaptureChecks(service)
+	flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`)
+
+	// When: the accepted request reports the account healthy.
+	service.markHealth(record.SourceAuthID, flowHealthOK, "", time.Time{})
+
+	// Then: the account is still reported held.
+	service.flowMu.Lock()
+	state := service.healthStates[record.SourceAuthID]
+	service.flowMu.Unlock()
+	if state.status != flowHealthBlocked || state.heldUntil.IsZero() {
+		t.Fatalf("health = %+v, want blocked while the hold stands", state)
+	}
+}

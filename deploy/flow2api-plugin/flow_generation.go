@@ -316,7 +316,7 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 	if hold := service.noteUnusualActivity(record, err, input.check); hold > 0 {
 		service.report(map[string]any{"provider": provider, "state": "flow_unusual_activity_hold", "reason": model.id + " " + hold.String()}, "flow2api: generation")
 		service.markHealth(record.SourceAuthID, flowHealthBlocked, "PUBLIC_ERROR_UNUSUAL_ACTIVITY", service.now().Add(hold))
-	} else if _, held := service.unusualActivityHeld(record.SourceAuthID); err == nil && !held {
+	} else if err == nil {
 		service.markHealth(record.SourceAuthID, flowHealthOK, "", time.Time{})
 	}
 	if err != nil {
