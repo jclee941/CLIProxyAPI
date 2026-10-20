@@ -44,6 +44,7 @@ Native Gemini session, media, and durable interaction engine; score 15 from modu
 - `video_wire_mode` accepts `legacy`, `web`, or `alternate`; continuation inherits its turn's variant unless an explicit mode overrides it.
 - Changing only video wire policy does not drain sessions; verify the applied variant in diagnostics, not only the saved config.
 - Plugin `video_mode` is the default capability mode when a request names none; an account without it keeps its standard mode, request modes stay strict, and changing it does not drain sessions.
+- A turn the default mode answers in prose (slot 9 names a language) is read back once and, if it ended without a video and without a named limit, resent on the standard mode as the web edit of the refused attempt (`video_fallback.go`); a requested mode is never resent.
 
 ## ANTI-PATTERNS
 - Do not delete owner, intent, or recovery records to clear an uncertain operation.

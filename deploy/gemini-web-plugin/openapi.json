@@ -8221,7 +8221,7 @@
           "video_mode": {
             "type": "integer",
             "minimum": 1,
-            "description": "Gateway extension, not in the official API: the capability mode the video turn runs on, for example 1 for 3.8 Flash, 3 for 3.1 Pro, 6 for 3.5 Flash-Lite and 8 for 4 Argon as advertised on the current accounts. Omitted uses the gateway's default mode where the serving account advertises it, and the account's standard mode (1) otherwise. A mode the serving account does not advertise returns 400 omni_video_mode_unavailable and nothing is sent; there is no fallback to another model. Values below 1 or non-integers return omni_invalid_video_mode."
+            "description": "Gateway extension, not in the official API: the capability mode the video turn runs on, for example 1 for 3.8 Flash, 3 for 3.1 Pro, 6 for 3.5 Flash-Lite and 8 for 4 Argon as advertised on the current accounts. Omitted uses the gateway's default mode where the serving account advertises it, and the account's standard mode (1) otherwise; when the default mode answers the turn with a text reply instead of a video, the same turn is made once more on the standard mode and that result is returned. A mode the serving account does not advertise returns 400 omni_video_mode_unavailable and nothing is sent; a mode the request names never falls back to another model. Values below 1 or non-integers return omni_invalid_video_mode."
           },
           "room_videos": {
             "type": "integer",
