@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 )
@@ -128,18 +129,31 @@ func (service *service) nativeText(ctx context.Context, record storageRecord, to
 	if err != nil {
 		return nil, err
 	}
-	raw, err := session.sendTurn(ctx, prompt, account, model, attachments, level)
-	if err != nil {
-		return nil, err
+	// A reply that breaks the declared tool contract is resent once with the
+	// violation named; a second violation fails instead of reaching the caller.
+	turnPrompt := prompt
+	for attempt := 0; ; attempt++ {
+		raw, err := session.sendTurn(ctx, turnPrompt, account, model, attachments, level)
+		if err != nil {
+			return nil, err
+		}
+		if service.settings().DeleteChats {
+			defer service.deleteChat(ctx, session, webReplyConversation(raw))
+		}
+		text, err := webReplyText(raw)
+		if err != nil {
+			return nil, err
+		}
+		body, err := webRenderResponse(requested, text, payload)
+		var violation *webToolViolation
+		if !errors.As(err, &violation) {
+			return body, err
+		}
+		if attempt > 0 {
+			return nil, &publicError{Code: "tool_call_invalid", Message: "tool_call_invalid: " + violation.reason, HTTPStatus: 502}
+		}
+		turnPrompt = webToolRepairPrompt(prompt, violation)
 	}
-	if service.settings().DeleteChats {
-		defer service.deleteChat(ctx, session, webReplyConversation(raw))
-	}
-	text, err := webReplyText(raw)
-	if err != nil {
-		return nil, err
-	}
-	return webRenderResponse(requested, text, payload)
 }
 
 // nativeVideo produces the Gemini-native video response body the caller's
@@ -268,8 +282,11 @@ func webRenderResponse(requested, text string, payload []byte) ([]byte, error) {
 		return nil, failure(400, "invalid_generation_request")
 	}
 	parts := make([]any, 0, 2)
-	if len(webToolDefinitions(request)) > 0 {
-		clean, calls := webParseFunctionCalls(text)
+	if definitions := webToolDefinitions(request); len(definitions) > 0 {
+		clean, calls, malformed := webParseFunctionCalls(text)
+		if violation := webCheckToolCalls(request, definitions, calls, malformed); violation != nil {
+			return nil, violation
+		}
 		if strings.TrimSpace(clean) != "" {
 			parts = append(parts, map[string]any{"text": clean})
 		}

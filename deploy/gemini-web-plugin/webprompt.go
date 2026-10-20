@@ -239,14 +239,18 @@ type webFunctionCall struct {
 
 // webParseFunctionCalls recovers the calls from a reply. Three shapes are
 // accepted because the model reproduces the requested block loosely: fenced,
-// unfenced, and a bare object when the whole reply is the call.
-func webParseFunctionCalls(text string) (string, []webFunctionCall) {
+// unfenced, and a bare object when the whole reply is the call. malformed
+// counts call blocks that could not be decoded.
+func webParseFunctionCalls(text string) (string, []webFunctionCall, int) {
 	clean := text
 	var calls []webFunctionCall
+	malformed := 0
 	for _, pattern := range []*regexp.Regexp{webFencedCallPattern, webUnfencedCallPattern} {
 		for _, match := range pattern.FindAllStringSubmatch(clean, -1) {
 			if call, ok := webDecodeCall(match[1]); ok {
 				calls = append(calls, call)
+			} else {
+				malformed++
 			}
 		}
 		clean = strings.TrimSpace(pattern.ReplaceAllString(clean, ""))
@@ -257,7 +261,7 @@ func webParseFunctionCalls(text string) (string, []webFunctionCall) {
 			clean = ""
 		}
 	}
-	return clean, calls
+	return clean, calls, malformed
 }
 
 func webDecodeCall(raw string) (webFunctionCall, bool) {
