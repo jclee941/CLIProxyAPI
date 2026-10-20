@@ -17,6 +17,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+var loadConfigFileFunc = config.LoadConfig
+
 func (w *Watcher) stopConfigReloadTimer() {
 	w.configReloadMu.Lock()
 	if w.configReloadTimer != nil {
@@ -49,10 +51,8 @@ func (w *Watcher) ReloadConfigIfChanged() {
 }
 
 func (w *Watcher) reloadConfigIfChanged() {
-	// Reloads run one at a time and record the content they started from, so a
-	// save that lands while a reload runs (or the reload's own rewrite of the
-	// file) leaves the next check a reason to reload instead of being marked as
-	// applied while the runtime keeps the older config.
+	// File events and post-save reloads may arrive together; an older read must
+	// not apply after a newer one.
 	w.configApplyMu.Lock()
 	defer w.configApplyMu.Unlock()
 
@@ -78,8 +78,15 @@ func (w *Watcher) reloadConfigIfChanged() {
 	}
 	log.Infof("config file changed, reloading: %s", w.configPath)
 	if w.reloadConfig() {
+		// Record the bytes the reload actually parsed, not the change-check read or a
+		// later re-read: a write landing between them must not count as applied. A
+		// write-back during load only costs one extra reload.
 		w.clientsMutex.Lock()
-		w.lastConfigHash = newHash
+		appliedHash := newHash
+		if w.config != nil && w.config.SourceHash != "" {
+			appliedHash = w.config.SourceHash
+		}
+		w.lastConfigHash = appliedHash
 		w.clientsMutex.Unlock()
 		w.persistConfigAsync()
 	}
@@ -89,7 +96,7 @@ func (w *Watcher) reloadConfig() bool {
 	log.Debug("=========================== CONFIG RELOAD ============================")
 	log.Debugf("starting config reload from: %s", w.configPath)
 
-	newConfig, errLoadConfig := config.LoadConfig(w.configPath)
+	newConfig, errLoadConfig := loadConfigFileFunc(w.configPath)
 	if errLoadConfig != nil {
 		log.Errorf("failed to reload config: %v", errLoadConfig)
 		return false

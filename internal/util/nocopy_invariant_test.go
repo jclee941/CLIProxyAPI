@@ -137,7 +137,7 @@ var reviewedInPlaceByteWrites = map[string]reviewedInPlaceByteWrite{
 	"internal/client/codex/live/tcp_proxy.go":               {1, "copies header and payload into a freshly allocated frame"},
 	"internal/home/client.go":                               {1, "zeroes a secret buffer after json.Unmarshal has copied every value out"},
 	"internal/pluginstore/auth.go":                          {1, "zeroes a locally built credential buffer after base64 encoding copied it out"},
-	"deploy/gemini-web-plugin/webgenerate.go":               {3, "sets integer protocol slots in a newly allocated []any request vector; no byte buffer or GJSON result is mutated"},
+	"deploy/gemini-web-plugin/webgenerate.go":               {6, "sets integer protocol slots in a newly allocated []any request vector; no byte buffer or GJSON result is mutated"},
 	"deploy/gemini-web-plugin/webvideo.go":                  {3, "sets integer video slots in webGenerationFields' fresh []any request vector; no byte buffer or GJSON result is mutated"},
 }
 

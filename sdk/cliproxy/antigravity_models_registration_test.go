@@ -21,6 +21,19 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
 )
 
+// waitForAntigravityClientModel polls until the registry publishes modelID
+// for clientID, bounded so a missing publication fails instead of hanging.
+func waitForAntigravityClientModel(t *testing.T, clientID, modelID string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !GlobalModelRegistry().ClientSupportsModel(clientID, modelID) {
+		if time.Now().After(deadline) {
+			t.Fatalf("client %s model %s was not published within 2s", clientID, modelID)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func TestAntigravityDynamicRegistrationLifecycle(t *testing.T) {
 	resetAntigravityCapabilityCache()
 	t.Cleanup(resetAntigravityCapabilityCache)
@@ -664,6 +677,11 @@ func TestAntigravityBlockedHintPersistenceDoesNotBlockPublicationOrOtherAccounts
 		if r.Header.Get("Authorization") == "Bearer token-slow-b" {
 			_, _ = w.Write([]byte(`{"models":{"gemini-3-flash":{}}}`))
 			authBProbed <- struct{}{}
+			// Hold the response briefly after the server-side signal so the client
+			// deterministically receives and publishes it well after authBProbed
+			// fires; waiting only on that signal would race the probe result
+			// against later authB updates.
+			time.Sleep(200 * time.Millisecond)
 			return
 		}
 		model := authAModel.Load().(string)
