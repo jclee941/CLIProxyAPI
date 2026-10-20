@@ -96,4 +96,4 @@ else
 fi
 
 converge_cpa
-log "converged at $target_head"
+log "deploy clone at $target_head; cpa-converge above reports whether the host converged"
