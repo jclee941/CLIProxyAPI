@@ -57,7 +57,9 @@ means Flow refused the linked account for unusual activity: its requests are
 answered at once, without reaching Flow, until the plugin's own health check
 finds Flow accepting the account again, and the message names the time of the
 next check. The first hold lasts 30 minutes and each further refusal doubles it,
-up to 4 hours.
+up to 4 hours. The account stays held after that time until the check has an
+image accepted; a check that cannot tell, for example because the project
+lookup failed, keeps the hold and runs again 5 minutes later.
 
 A non-streaming request that outlasts the server's keep-alive interval has
 already answered HTTP 200 and sent blank keep-alive lines when a late failure
@@ -432,6 +434,9 @@ Optional keys:
 | `health_check_project` | Flow project the health check of a held account generates in: one Nano Banana 2 image, which costs no credits. When unset, the account's project titled `CLIProxyAPI health check` is used, and created if missing, so health checks never land in callers' projects. |
 | `unusual_activity_hold_seconds` | First hold after Flow refuses the account for unusual activity. Default 1800. |
 | `unusual_activity_hold_cap_seconds` | Longest hold after repeated refusals. Default 14400. |
+| `health_check_retry_seconds` | Wait before a held account's check that could not tell runs again. Default 300. |
+| `health_check_interval_seconds` | How often an account Flow accepted nothing from in that time is checked. Default 3600; a negative value turns the periodic check off. |
+| `telegram_bot_token`, `telegram_chat_id` | Telegram bot and chat for health cards. When unset, the core's `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are used. |
 
 Register a `flow2api` auth file through the existing management auth-file API:
 
@@ -465,6 +470,10 @@ Flow models, and one entry per configured account:
 | `observed_at` | Unix seconds when `credits` and `tier` were read. |
 | `project` | Current project ID, when one is known. |
 | `error` | Named error for a non-`ready` account. |
+| `health` | Health check state: `status` (`ok`, `blocked`, `failing`, or `unknown` before any change), `held_until` while held, the last check's `checked_at`, `check_kind` (`periodic` or `hold`), `check_result` (`passed`, `refused`, `failed`) and `check_error`, `accepted_at` of the last accepted request, and `next_check`. |
+
+The response also carries `health_checks`: `interval_seconds` of the periodic
+check (0 when off) and whether `telegram` alerts are configured.
 
 Each call reads Flow live; there is no refresh route. While Gemini holds the
 account (for example during a video generation), the entry reports `busy` with
@@ -490,8 +499,25 @@ generation; the description carries that read time when a Flow request that
 may spend credits ran since. Only before the plugin has read any balance does
 a lookup wait for the account, up to 60 seconds.
 
+## Health checks and alerts
+
+Every minute the plugin looks at each configured account. One that Flow accepted
+nothing from, and that was not checked, in the last interval (an hour by
+default) gets a health check: one Nano Banana 2 image, which costs no credits,
+in the project titled `CLIProxyAPI health check` or `health_check_project`. An
+account callers are using is therefore never checked. A refusal for unusual
+activity starts the hold described above.
+
+When an account's health changes, a card goes to the configured Telegram chat:
+blocked (with the time of the next check), health check failed (with the error
+code), or recovered (with the outage length). A repeat of the same state sends
+nothing. `POST /v0/management/plugins/flow2api/telegram/test` sends a test card
+and answers `{"status":"sent"}`, `409 flow_telegram_unconfigured` without a bot
+and chat, or `502 flow_telegram_rejected` / `flow_telegram_unreachable`.
+
 `GET /v0/resource/plugins/flow2api/index` serves the read-only "Google Flow"
-dashboard page that shows the same data. On the current Manager, enable
+dashboard page that shows the same data, including each account's health and a
+button that sends the test card. On the current Manager, enable
 "Remember credential" when logging in, or use the page's masked Manager Admin Key
 field. The Manager Admin Key is different from the core management key.
 
