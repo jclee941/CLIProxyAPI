@@ -85,7 +85,11 @@ func TestABlockedOwnerHandsTheChainToAnotherAccount(t *testing.T) {
 	if _, err := service.executeInteraction(t.Context(), foreign); safeCredentialCode(err) != "continuation_identity_mismatch" {
 		t.Fatalf("a foreign caller carried the chain: %v", err)
 	}
-	// And the new owner continues its own conversation without another upload.
+	// And the new owner continues its own conversation without another upload,
+	// naming the previous video when the operator turned the declaration on.
+	service.mu.Lock()
+	service.config.ExtendDeclaration = true
+	service.mu.Unlock()
 	interactionID(t, interactionCall(t, service, target,
 		`{"model":"gemini-omni-1.1-flash","input":"again","previous_interaction_id":"`+next+`","generation_config":{"video_config":{"task":"extend"}}}`))
 

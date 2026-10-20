@@ -92,6 +92,9 @@ func TestExtendNeedsAVideoToContinue(t *testing.T) {
 
 func TestInteractionExtendReachesSameConversationWire(t *testing.T) {
 	service, local := continuationFixture(t)
+	service.mu.Lock()
+	service.config.ExtendDeclaration = true
+	service.mu.Unlock()
 	fixture := &continuationWebFixture{video: true}
 	continuationWeb(t, service, fixture)
 	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
@@ -111,6 +114,25 @@ func TestInteractionExtendReachesSameConversationWire(t *testing.T) {
 	}
 	if jsonField(fields[55], 0, 0) != float64(17) || jsonField(fields[0], 9, 6, 0, 3) != float64(2) {
 		t.Fatalf("default portrait framing missing: chip=%v orientation=%v", jsonField(fields[55], 0, 0), jsonField(fields[0], 9, 6, 0, 3))
+	}
+}
+
+func TestInteractionExtendSendsThePromptAsWrittenByDefault(t *testing.T) {
+	// Given: the operator left extend_declaration off.
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{video: true}
+	continuationWeb(t, service, fixture)
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+
+	// When: a stored interaction is extended in its own conversation.
+	first := interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"first"}`))
+	interactionID(t, interactionCall(t, service, local, `{"model":"gemini-omni-1.1-flash","input":"continue","previous_interaction_id":"`+first+`","generation_config":{"video_config":{"task":"extend"}}}`))
+
+	// Then: the turn keeps its conversation, and its prompt is the caller's.
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.fields) != 2 || jsonField(fixture.fields[1][2], 0) != "c_chat" || jsonField(fixture.fields[1][0], 0) != "continue" {
+		t.Fatalf("extension wire prompt = %v", jsonField(fixture.fields[len(fixture.fields)-1][0], 0))
 	}
 }
 

@@ -236,7 +236,7 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 				return nil, err
 			}
 			previous = ""
-		case extend:
+		case extend && service.settings().ExtendDeclaration:
 			if payload, err = withPreviousVideoDeclaration(payload); err != nil {
 				return nil, err
 			}
