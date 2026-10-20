@@ -7,8 +7,12 @@ import (
 )
 
 func TestUploadedExtensionUsesSourceRole(t *testing.T) {
-	// Given a video uploaded without a caller-written media role.
+	// Given a video uploaded without a caller-written media role, and the
+	// operator's source declaration turned on.
 	service, local := continuationFixture(t)
+	service.mu.Lock()
+	service.config.ExtendSourceDeclaration = true
+	service.mu.Unlock()
 	fixture := &continuationWebFixture{video: true}
 	continuationWeb(t, service, fixture)
 	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
@@ -29,13 +33,38 @@ func TestUploadedExtensionUsesSourceRole(t *testing.T) {
 	}
 }
 
+func TestUploadedExtensionSendsThePromptAsWrittenByDefault(t *testing.T) {
+	// Given: extend_source_declaration left off, and a video uploaded without a
+	// caller-written media role.
+	service, local := continuationFixture(t)
+	fixture := &continuationWebFixture{video: true}
+	continuationWeb(t, service, fixture)
+	service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+
+	// When: the official API requests an extension of that upload.
+	interactionID(t, interactionCall(t, service, local,
+		`{"model":"gemini-omni-1.1-flash","input":[{"type":"video","mime_type":"video/mp4","data":"AAAA"},{"type":"text","text":"Continue the scene"}],"generation_config":{"video_config":{"task":"extend"}}}`))
+
+	// Then: the upload goes with the prompt as written, declared neither a
+	// source nor a reference.
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.fields) != 1 || len(fixture.uploads) != 1 {
+		t.Fatalf("submissions=%d uploads=%d, want one each", len(fixture.fields), len(fixture.uploads))
+	}
+	prompt, _ := jsonField(fixture.fields[0], 0, 0).(string)
+	if !strings.Contains(prompt, "Continue the scene") || strings.Contains(prompt, "[# ") || strings.Contains(prompt, "<VIDEO_REF_0>") {
+		t.Fatalf("uploaded extension prompt = %q", prompt)
+	}
+}
+
 func TestVideoAttachmentDoesNotOverrideSourceFraming(t *testing.T) {
 	// Given the same selected portrait chip with either a video or an image.
 	for _, mimeType := range []string{"video/mp4", "image/png"} {
 		t.Run(mimeType, func(t *testing.T) {
 			attachments := []webAttachment{{Path: "/uploaded/media", Name: "media", MIMEType: mimeType}}
 			// When the web request is serialized.
-			fields := webVideoFields("continue", 1, "nonce", webFramingPortrait, webVideoThinkingLevel, webLanguageDefault, attachments)
+			fields := webVideoFields("continue", 1, "nonce", webFramingPortrait, webVideoThinkingLevel, webLanguageDefault, attachments, false)
 			// Then only uploaded video suppresses chip-derived video options.
 			orientation := jsonField(fields[0], 9, 6, 0, 3)
 			if mimeType == "video/mp4" {

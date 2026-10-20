@@ -28,7 +28,7 @@ func TestInteractionThinkingLevelReachesTheVideoTurn(t *testing.T) {
 		if err != nil {
 			t.Fatalf("level %q: %v", level, err)
 		}
-		fields := webVideoFields("a wave", 1, "conversation", options.framing(), options.thinking(0), options.language(), nil)
+		fields := webVideoFields("a wave", 1, "conversation", options.framing(), options.thinking(0), options.language(), nil, false)
 		if fields[80] != want {
 			t.Fatalf("level %q: slot 80 = %#v, want %d", level, fields[80], want)
 		}

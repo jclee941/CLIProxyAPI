@@ -195,7 +195,7 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 			if turn.Model == omniModel {
 				turn.VideoWire = turn.wireMode(service.settings().VideoWireMode).variant(execution.key, account.CapacityFlags)
 				session.videoWire = turn.VideoWire
-				fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing(), options.thinking(service.settings().VideoThinkingLevel), language, attachments)
+				fields = webVideoFields(options.applyPrompt(prompt), model.Mode, nonce, options.framing(), options.thinking(service.settings().VideoThinkingLevel), language, attachments, execution.request.extendSource)
 				fields = turn.VideoWire.fields(fields)
 				if options.VideoTool {
 					fields = webMentionVideoTool(fields)

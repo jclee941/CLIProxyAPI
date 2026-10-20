@@ -44,7 +44,8 @@ const webVideoChipMarker = "googleusercontent.com/video_gen_chip/"
 const webVideoThinkingLevel = 1
 
 // webVideoFields turns the text request into a video submission. The overrides
-// are what distinguishes a video turn from a text one.
+// are what distinguishes a video turn from a text one. An extension's attached
+// video is its source, so it is not declared a reference.
 // The framing travels twice, exactly as the web app sends it. Slot 55 carries
 // the ids of the chips the user picked, where 16 is the landscape chip and 17
 // the portrait one, and the turn carries the orientation those chips translate
@@ -53,8 +54,10 @@ const webVideoThinkingLevel = 1
 // Both were pinned to landscape, which is why every video came back landscape,
 // and they have to move together - a portrait orientation under a landscape chip
 // leaves the upstream holding the stream open until the budget runs out.
-func webVideoFields(prompt string, mode int, conversationID string, framing omniFraming, thinking int, language string, attachments []webAttachment) []any {
-	prompt = webReferenceDeclaration(prompt, attachments)
+func webVideoFields(prompt string, mode int, conversationID string, framing omniFraming, thinking int, language string, attachments []webAttachment, extendSource bool) []any {
+	if !extendSource {
+		prompt = webReferenceDeclaration(prompt, attachments)
+	}
 	fields := webGenerationFields(prompt, mode, 0, conversationID, attachments)
 	fields[1] = []any{language}
 	fields[0] = []any{prompt, 0, nil, webAttachmentSlot(attachments), nil, nil, 0, nil, nil,
@@ -306,7 +309,7 @@ func (session *webSession) submitVideo(ctx context.Context, prompt string, accou
 		return nil, err
 	}
 	session.videoWire = session.videoWire.variant(conversationID, account.CapacityFlags)
-	fields, err := json.Marshal(session.videoWire.fields(webVideoFields(prompt, model.Mode, conversationID, framing, thinking, language, attachments)))
+	fields, err := json.Marshal(session.videoWire.fields(webVideoFields(prompt, model.Mode, conversationID, framing, thinking, language, attachments, false)))
 	if err != nil {
 		return nil, failure(400, "web_request_invalid")
 	}

@@ -98,7 +98,10 @@ type executorRequest struct {
 	freshContinuation   bool
 	// retryRefused marks a create that names a previous turn without extending
 	// it, so a first turn that ended without video is retried in place.
-	retryRefused    bool
+	retryRefused bool
+	// extendSource marks a task=extend turn: its attached video is the source
+	// to continue, never declared a reference.
+	extendSource    bool
 	AuthID          string
 	AuthProvider    string
 	Model           string

@@ -146,9 +146,6 @@ func (tuned tuning) parseInteraction(raw []byte) (interactionRequest, []byte, er
 	if request.GenerationConfig.VideoConfig.Task == interactionExtendTask && request.Previous == "" && !hasVideoSource {
 		return request, nil, failure(400, "interaction_extend_requires_source")
 	}
-	if request.GenerationConfig.VideoConfig.Task == interactionExtendTask && request.Previous == "" && !webRoleDeclared(prompt) {
-		prompt = uploadedVideoDeclaration + prompt
-	}
 	parts := make([]any, 0, len(references)+1)
 	parts = append(parts, map[string]string{"text": prompt})
 	for _, reference := range references {
@@ -223,16 +220,19 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 	native.Model, native.Format, native.SourceFormat = omniModel, "gemini", "gemini"
 	native.Stream = false
 	native.freshContinuation = true
+	// An extension goes with the prompt as the caller wrote it unless the
+	// operator turned a declaration on; its attached video is never declared a
+	// reference.
+	extend := body.GenerationConfig.VideoConfig.Task == interactionExtendTask
 	previous := body.Previous
 	if previous != "" {
 		location, carried, errLocate := service.locateChained(request, previous)
 		if errLocate != nil {
 			return nil, errLocate
 		}
-		extend := body.GenerationConfig.VideoConfig.Task == interactionExtendTask
 		switch {
 		case carried:
-			if payload, err = withChainedReference(payload, location, extend); err != nil {
+			if payload, err = withChainedReference(payload, location, extend && service.settings().ExtendSourceDeclaration); err != nil {
 				return nil, err
 			}
 			previous = ""
@@ -241,7 +241,12 @@ func (service *service) executeInteraction(ctx context.Context, request executor
 				return nil, err
 			}
 		}
+	} else if extend && service.settings().ExtendSourceDeclaration {
+		if payload, err = withDeclaration(payload, uploadedVideoDeclaration); err != nil {
+			return nil, err
+		}
 	}
+	native.extendSource = extend
 	native.retryRefused = previous != "" && body.GenerationConfig.VideoConfig.Task != interactionExtendTask
 	native.Payload, err = json.Marshal(map[string]any{continuationField: continuationControl{Action: "prepare", Token: previous}})
 	if err != nil {

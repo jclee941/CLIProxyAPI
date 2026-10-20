@@ -103,7 +103,7 @@ func TestABlockedOwnerHandsTheChainToAnotherAccount(t *testing.T) {
 	}
 	carried := fixture.fields[1]
 	if jsonField(carried, 2, 0) != "" || jsonField(carried, 0, 3, 0, 0, 0) != "/uploaded/video" ||
-		jsonField(carried, 0, 0) != uploadedVideoDeclaration+"continue" {
+		jsonField(carried, 0, 0) != "continue" {
 		t.Fatalf("the carried turn did not extend the uploaded video: prompt=%v conversation=%v", jsonField(carried, 0, 0), jsonField(carried, 2, 0))
 	}
 	continued := fixture.fields[2]

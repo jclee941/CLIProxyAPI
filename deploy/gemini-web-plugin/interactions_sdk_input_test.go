@@ -17,14 +17,14 @@ func TestSDKUserInputStepUploadsAndExtendsVideo(t *testing.T) {
 	// When the SDK's request crosses the real plugin/HTTP boundary.
 	interactionID(t, interactionCall(t, service, local, body))
 
-	// Then the uploaded media remains the extension source.
+	// Then the uploaded media remains the extension source, not a reference.
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
 	if len(fixture.fields) != 1 || len(fixture.uploads) != 1 {
 		t.Fatalf("submissions=%d uploads=%d", len(fixture.fields), len(fixture.uploads))
 	}
 	prompt, _ := jsonField(fixture.fields[0], 0, 0).(string)
-	if !strings.Contains(prompt, "[# Sources <VIDEO_0>@Video1]") {
+	if !strings.Contains(prompt, "Continue the scene") || strings.Contains(prompt, "<VIDEO_REF_0>") {
 		t.Fatalf("SDK input lost its source role: %q", prompt)
 	}
 }

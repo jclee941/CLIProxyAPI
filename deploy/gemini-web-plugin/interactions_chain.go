@@ -128,14 +128,15 @@ func (service *service) chainedSource(location chainedLocation) (webSource, erro
 
 // withChainedReference attaches the previous video by name, so the request stays
 // small and the bytes stream straight to the upload. It goes first among the
-// attachments so an extension can name it <VIDEO_0>; any other turn leaves it
-// undeclared, which declares it a reference like every uploaded video.
-func withChainedReference(payload []byte, location chainedLocation, extend bool) ([]byte, error) {
+// attachments so a declared extension can name it <VIDEO_0>. Undeclared, an
+// extension sends it as its source and any other turn declares it a reference
+// like every uploaded video.
+func withChainedReference(payload []byte, location chainedLocation, declare bool) ([]byte, error) {
 	content, turn, first, err := userPromptTurn(payload)
 	if err != nil {
 		return nil, err
 	}
-	if prompt := first["text"].(string); extend && !webRoleDeclared(prompt) {
+	if prompt := first["text"].(string); declare && !webRoleDeclared(prompt) {
 		first["text"] = uploadedVideoDeclaration + prompt
 	}
 	parts := turn["parts"].([]any)
@@ -147,6 +148,12 @@ func withChainedReference(payload []byte, location chainedLocation, extend bool)
 // withPreviousVideoDeclaration names the previous turn's video as this turn's
 // source. A caller who wrote their own role means it and is left alone.
 func withPreviousVideoDeclaration(payload []byte) ([]byte, error) {
+	return withDeclaration(payload, previousVideoDeclaration)
+}
+
+// withDeclaration starts the prompt with a media role, unless the caller wrote
+// one of their own.
+func withDeclaration(payload []byte, declaration string) ([]byte, error) {
 	content, _, first, err := userPromptTurn(payload)
 	if err != nil {
 		return nil, err
@@ -155,7 +162,7 @@ func withPreviousVideoDeclaration(payload []byte) ([]byte, error) {
 	if webRoleDeclared(prompt) {
 		return payload, nil
 	}
-	first["text"] = previousVideoDeclaration + prompt
+	first["text"] = declaration + prompt
 	return json.Marshal(content)
 }
 
