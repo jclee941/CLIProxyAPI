@@ -69,8 +69,12 @@ func (service *service) unusualActivityHoldLimits() (time.Duration, time.Duratio
 
 // flowHold is a held account. until is when its next check runs; generation
 // names that check, so a check that was replaced while it waited or ran
-// changes nothing.
+// changes nothing. record is the request the latest refusal answered, which
+// the check generates as. pending is set while a scheduled check has not
+// started yet.
 type flowHold struct {
+	record     storageRecord
+	pending    bool
 	until      time.Time
 	refusals   int
 	generation uint64
@@ -120,24 +124,30 @@ func (service *service) noteUnusualActivity(record storageRecord, err error) tim
 	if hold == nil {
 		hold = &flowHold{}
 		service.holds[account] = hold
+	} else if hold.pending {
+		// A request admitted before the hold and refused while its check
+		// waits tells nothing new: only a refused check doubles the hold.
+		return 0
 	}
 	delay := first
 	for range hold.refusals {
 		delay = min(2*delay, limit)
 	}
 	hold.refusals++
+	hold.record = record
 	service.scheduleCheckLocked(record, hold, delay)
 	return delay
 }
 
-// scheduleCheckLocked replaces the hold's pending check with one after delay.
+// scheduleCheckLocked replaces the hold's pending check with one after delay;
+// a stopped or quiesced instance arms none.
 func (service *service) scheduleCheckLocked(record storageRecord, hold *flowHold, delay time.Duration) {
 	if hold.timer != nil {
 		hold.timer.Stop()
 	}
 	hold.generation++
-	hold.until, hold.timer = service.now().Add(delay), nil
-	if service.lifetime.Err() != nil {
+	hold.until, hold.timer, hold.pending = service.now().Add(delay), nil, true
+	if service.lifetime.Err() != nil || service.quiesced {
 		return
 	}
 	generation := hold.generation
@@ -200,6 +210,9 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 	}
 	if until, held := service.unusualActivityHeld(record.SourceAuthID); held && !input.healthCheck {
 		message := fmt.Sprintf("flow_unusual_activity_hold: Flow refused this account for unusual activity; it is not sent again before %s", until.UTC().Format(time.RFC3339))
+		if !service.now().Before(until) {
+			message = "flow_unusual_activity_hold: Flow refused this account for unusual activity; a health check of the account is running"
+		}
 		return nil, &publicError{Code: "flow_unusual_activity_hold", Message: message, HTTPStatus: 429}
 	}
 	if input.options.Priority == "low" && service.lowPriorityPaused(record.SourceAuthID) {
@@ -279,7 +292,7 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 		}
 		return nil
 	}
-	err = service.flowSubmitAt(ctx, record, project, action, build, accept, input.options.Priority != "low")
+	err = service.flowSubmit(ctx, record, project, action, build, accept)
 	if safeCredentialCode(err) == "flow_captcha_rejected" && input.options.Priority == "low" {
 		// Flow refuses the free low-priority Veo Lite queue with UNUSUAL_ACTIVITY
 		// once an account has leaned on it, while the same request at normal

@@ -61,6 +61,7 @@ type service struct {
 	flowProjects            map[string]string
 	lowPriorityPausedUntil  map[string]time.Time
 	holds                   map[string]*flowHold
+	quiesced                bool
 	dailyQuotaHeldUntil     map[string]time.Time
 	flowReadings            map[string]flowReading
 	flowSpending            int
@@ -108,6 +109,40 @@ func (service *service) stop() {
 	service.flowMu.Unlock()
 	service.captchaBrowser.close(service.client)
 	service.client.CloseIdleConnections()
+}
+
+// quiesce readies this instance for a replacement loaded into the same host,
+// which calls it before loading the new build. The host keeps a replaced
+// instance to finish its running calls but never shuts it down, so the work it
+// does on its own stops here: the periodic health checks, a held account's
+// scheduled check, health cards, and its captcha browser page. Calls are still
+// served. A register resumes the work, which happens when the host keeps this
+// instance because its replacement failed to load.
+func (service *service) quiesce() {
+	service.flowMu.Lock()
+	service.quiesced = true
+	for _, hold := range service.holds {
+		if hold.timer != nil {
+			hold.timer.Stop()
+			hold.timer = nil
+		}
+	}
+	service.flowMu.Unlock()
+	service.captchaBrowser.close(service.client)
+}
+
+func (service *service) resumeQuiesced() {
+	service.flowMu.Lock()
+	defer service.flowMu.Unlock()
+	if !service.quiesced {
+		return
+	}
+	service.quiesced = false
+	for _, hold := range service.holds {
+		if hold.timer == nil {
+			service.scheduleCheckLocked(hold.record, hold, max(hold.until.Sub(service.now()), 0))
+		}
+	}
 }
 func (service *service) settings() pluginConfig {
 	service.mu.RLock()
@@ -207,7 +242,11 @@ func (service *service) register(raw []byte) (interface{}, error) {
 func (service *service) dispatch(ctx context.Context, method string, raw []byte) (interface{}, error) {
 	switch method {
 	case "plugin.register", "plugin.reconfigure":
+		service.resumeQuiesced()
 		return service.register(raw)
+	case "plugin.quiesce":
+		service.quiesce()
+		return struct{}{}, nil
 	case "frontend_http.register":
 		return flowHTTPRegistration(), nil
 	case "frontend_http.handle":
@@ -314,7 +353,7 @@ func (service *service) dispatch(ctx context.Context, method string, raw []byte)
 		return httpResponse{StatusCode: 200, Headers: http.Header{"Content-Type": {"application/json"}, "Cache-Control": {"no-store"}}, Body: body}, err
 	default:
 		// The host reads unknown_method as an optional method this plugin
-		// does not offer, such as the quiesce a hot reload asks for first.
+		// does not offer.
 		return nil, failure(400, "unknown_method")
 	}
 }

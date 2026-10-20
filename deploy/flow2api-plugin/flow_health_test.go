@@ -24,7 +24,9 @@ func flowCaptureChecks(service *service) (*[]time.Duration, *[]func()) {
 	delays, checks := &[]time.Duration{}, &[]func(){}
 	service.afterFunc = func(delay time.Duration, check func()) *time.Timer {
 		*delays, *checks = append(*delays, delay), append(*checks, check)
-		return time.NewTimer(time.Hour)
+		timer := time.NewTimer(time.Hour)
+		timer.Stop()
+		return timer
 	}
 	return delays, checks
 }
@@ -237,8 +239,9 @@ func TestFlowTelegramTestCardAndHealthListing(t *testing.T) {
 	// When: Telegram is not configured, the test card is refused by name.
 	service.config.TelegramBotToken, service.config.TelegramChatID = "", ""
 	unconfigured := invoke(t, service, "management.handle", managementRequest{Method: "POST", Path: flowTelegramTestPath})
-	if unconfigured.OK || unconfigured.Error.Code != "flow_telegram_unconfigured" {
-		t.Fatalf("unconfigured test card answered %+v", unconfigured.Error)
+	var refusal httpResponse
+	if !unconfigured.OK || json.Unmarshal(unconfigured.Result, &refusal) != nil || refusal.StatusCode != 409 || string(refusal.Body) != `{"error":"flow_telegram_unconfigured"}` {
+		t.Fatalf("unconfigured test card answered %+v %d %s", unconfigured.Error, refusal.StatusCode, refusal.Body)
 	}
 }
 
@@ -268,39 +271,32 @@ func TestFlowInconclusiveHealthCheckKeepsTheHold(t *testing.T) {
 		held.OK || held.Error.Code != "flow_unusual_activity_hold" || fixture.count("YhhmEf") != flowTokenAttempts {
 		t.Fatalf("checks after %v, %d images, held %v, caller %+v", *delays, fixture.count("ogiZ0b"), stillHeld, held.Error)
 	}
+	// Then: the account still shows blocked, not failing, with the failed check.
+	if health := service.healthView(record.SourceAuthID); health.Status != flowHealthBlocked || health.CheckKind != "hold" || health.CheckResult != "failed" {
+		t.Fatalf("health after the checks %+v", health)
+	}
 }
 
-func TestFlowReplacedHealthCheckChangesNothing(t *testing.T) {
-	// Given: a held account whose scheduled check was replaced by a later
-	// refusal before it ran, as when an earlier caller's request is refused late.
+func TestFlowLateRefusalLeavesThePendingCheckAlone(t *testing.T) {
+	// Given: a held account whose check is scheduled, and a request admitted
+	// before the hold that Flow refuses late, as when several were waiting.
 	fixture := newFlowFixture(t)
 	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
 	fixture.reply("YhhmEf", flowUnusualRefusal(t, "YhhmEf"))
 	fixture.reply("ogiZ0b", rpcEnvelope(t, "ogiZ0b", []any{[]any{[]any{flowTestMedia, fixture.link("image")}}}))
 	service, record := flowService(t, fixture)
 	service.config.HealthCheckProject = flowTestHealthProject
-	clock := time.Unix(1700000000, 0)
-	service.now = func() time.Time { return clock }
-	_, checks := flowCaptureChecks(service)
-	refusal := &publicError{Code: "flow_captcha_rejected", Message: "flow_captcha_rejected: PUBLIC_ERROR_UNUSUAL_ACTIVITY"}
+	delays, checks := flowCaptureChecks(service)
 	flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`)
-	later := service.noteUnusualActivity(record, refusal)
 
-	// When: the replaced check runs.
+	// When: the late refusal arrives, then the check runs.
+	late := service.noteUnusualActivity(record, &publicError{Code: "flow_captcha_rejected", Message: "flow_captcha_rejected: PUBLIC_ERROR_UNUSUAL_ACTIVITY"})
 	(*checks)[0]()
 
-	// Then: it sent nothing and the later hold stands.
-	until, held := service.unusualActivityHeld(record.SourceAuthID)
-	if later != 2*flowUnusualActivityHold || fixture.count("ogiZ0b") != 0 || !held || !until.Equal(clock.Add(later)) {
-		t.Fatalf("later hold %v, %d images, held %v until %v", later, fixture.count("ogiZ0b"), held, until)
-	}
-
-	// When: the current check runs.
-	(*checks)[1]()
-
-	// Then: its accepted image ends the hold.
-	if _, held := service.unusualActivityHeld(record.SourceAuthID); held || fixture.count("ogiZ0b") != 1 {
-		t.Fatalf("held %v after %d images", held, fixture.count("ogiZ0b"))
+	// Then: the late refusal neither doubled the hold nor replaced its check,
+	// and the check's accepted image ended the hold.
+	if _, held := service.unusualActivityHeld(record.SourceAuthID); late != 0 || !slices.Equal(*delays, []time.Duration{flowUnusualActivityHold}) || held || fixture.count("ogiZ0b") != 1 {
+		t.Fatalf("late refusal held %v, checks after %v, held %v after %d images", late, *delays, held, fixture.count("ogiZ0b"))
 	}
 }
 
@@ -331,5 +327,107 @@ func TestFlowHoldRecordedDuringACheckOutlivesIt(t *testing.T) {
 	until, held := service.unusualActivityHeld(record.SourceAuthID)
 	if !held || !until.Equal(clock.Add(2*flowUnusualActivityHold)) || !slices.Equal(*delays, []time.Duration{flowUnusualActivityHold, 2 * flowUnusualActivityHold}) {
 		t.Fatalf("held %v until %v, checks after %v", held, until, *delays)
+	}
+}
+
+func TestFlowQuiescedInstanceLeavesItsChecksAloneUntilRegistered(t *testing.T) {
+	// Given: a held account whose check is scheduled, Telegram configured, and
+	// Flow accepting the health check's image.
+	fixture := newFlowFixture(t)
+	telegram, cards := newFlowTelegramFixture(t)
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", flowUnusualRefusal(t, "YhhmEf"))
+	fixture.reply("ogiZ0b", rpcEnvelope(t, "ogiZ0b", []any{[]any{[]any{flowTestMedia, fixture.link("image")}}}))
+	service, record := flowService(t, fixture)
+	service.config.HealthCheckProject = flowTestHealthProject
+	service.config.TelegramBotToken, service.config.TelegramChatID = "123:fixture", "42"
+	service.telegramOrigin = telegram.URL
+	clock := time.Unix(1700000000, 0)
+	service.now = func() time.Time { return clock }
+	delays, checks := flowCaptureChecks(service)
+	flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`)
+	nextFlowCard(t, cards)
+
+	// When: a hot reload quiesces the instance, the hold's time and an hour
+	// pass, and the stopped timer fires late.
+	quiesced := invoke(t, service, "plugin.quiesce", nil)
+	clock = clock.Add(flowUnusualActivityHold + flowHealthEvery)
+	(*checks)[0]()
+	service.periodicHealthChecks()
+
+	// Then: neither the held account's check nor a periodic check reached
+	// Flow, and the account stays held.
+	if _, held := service.unusualActivityHeld(record.SourceAuthID); !quiesced.OK || fixture.count("ogiZ0b") != 0 || !held {
+		t.Fatalf("quiesce %+v, %d images, held %v", quiesced.Error, fixture.count("ogiZ0b"), held)
+	}
+
+	// When: the host keeps the instance, as when its replacement failed to
+	// load, and the check it re-arms runs.
+	service.resumeQuiesced()
+	(*checks)[0]()
+	stale := fixture.count("ogiZ0b")
+	(*checks)[1]()
+
+	// Then: the replaced timer's late call changed nothing, the check was due
+	// at once, and its accepted image ended the hold with a recovery card.
+	if _, held := service.unusualActivityHeld(record.SourceAuthID); stale != 0 || held || fixture.count("ogiZ0b") != 1 || (*delays)[1] != 0 || !strings.Contains(nextFlowCard(t, cards).Text, "복구") {
+		t.Fatalf("held %v after %d images, checks after %v", held, fixture.count("ogiZ0b"), *delays)
+	}
+}
+
+func TestFlowRegisterResumesAQuiescedInstance(t *testing.T) {
+	service := newService(nil)
+	t.Cleanup(service.stop)
+	if reply := invoke(t, service, "plugin.quiesce", nil); !reply.OK {
+		t.Fatalf("quiesce: %+v", reply.Error)
+	}
+	if registered := invoke(t, service, "plugin.register", nil); !registered.OK {
+		t.Fatalf("register: %+v", registered.Error)
+	}
+	service.flowMu.Lock()
+	quiesced := service.quiesced
+	service.flowMu.Unlock()
+	if quiesced {
+		t.Fatal("a register left the instance quiesced")
+	}
+}
+
+func TestFlowRunningCheckNamesNoPastTime(t *testing.T) {
+	// Given: a held account whose check is running past the time it was due.
+	fixture := newFlowFixture(t)
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", flowUnusualRefusal(t, "YhhmEf"))
+	service, record := flowService(t, fixture)
+	clock := time.Unix(1700000000, 0)
+	service.now = func() time.Time { return clock }
+	flowCaptureChecks(service)
+	video := `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`
+	flowExecute(t, service, record, "flow-veo-3.1-lite", video)
+	clock = clock.Add(flowUnusualActivityHold)
+
+	// When: a caller asks.
+	held := flowExecute(t, service, record, "flow-veo-3.1-lite", video)
+
+	// Then: it is held, told a check is running rather than a time already past.
+	if held.OK || held.Error.Code != "flow_unusual_activity_hold" || !strings.Contains(held.Error.Message, "health check of the account is running") {
+		t.Fatalf("caller answered %+v", held.Error)
+	}
+}
+
+func TestFlowPeriodicCheckOnASpentQuotaIsNotAFailure(t *testing.T) {
+	// Given: an idle account whose health model's daily quota is spent.
+	fixture := newFlowFixture(t)
+	service, record := flowService(t, fixture)
+	service.config.HealthCheckProject = flowTestHealthProject
+	service.holdDailyQuota(record.SourceAuthID, flowHealthModel, &publicError{Code: "flow_quota_exhausted", Message: "flow_quota_exhausted: PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED"})
+
+	// When: the periodic check runs.
+	service.periodicHealthChecks()
+
+	// Then: the failed check is recorded, nothing reached Flow, and the
+	// account is not marked failing, which would have sent a card.
+	health := service.healthView(record.SourceAuthID)
+	if health.Status == flowHealthFailing || health.CheckKind != "periodic" || health.CheckResult != "failed" || fixture.count("ogiZ0b") != 0 {
+		t.Fatalf("health after a check on a spent quota %+v", health)
 	}
 }

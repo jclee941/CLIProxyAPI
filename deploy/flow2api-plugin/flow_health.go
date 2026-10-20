@@ -83,7 +83,7 @@ func (service *service) periodicHealthChecks() {
 		}
 		now := service.now()
 		service.flowMu.Lock()
-		due := service.holds[account] == nil && now.Sub(service.flowAccepted[account]) >= every && now.Sub(service.healthChecked[account]) >= every
+		due := !service.quiesced && service.holds[account] == nil && now.Sub(service.flowAccepted[account]) >= every && now.Sub(service.healthChecked[account]) >= every
 		if due {
 			if service.healthChecked == nil {
 				service.healthChecked = map[string]time.Time{}
@@ -97,7 +97,8 @@ func (service *service) periodicHealthChecks() {
 	}
 }
 
-// holdCheck runs the check a hold scheduled, unless a newer hold replaced it.
+// holdCheck runs the check a hold scheduled, unless a newer hold replaced it or
+// a hot reload quiesced this instance.
 // An accepted image ends the hold and a refusal reschedules it, both through
 // noteUnusualActivity; a check that could not tell keeps the hold and runs
 // again after healthCheckRetry, unless the hold changed meanwhile.
@@ -105,9 +106,9 @@ func (service *service) holdCheck(record storageRecord, generation uint64) {
 	account := record.SourceAuthID
 	service.flowMu.Lock()
 	hold := service.holds[account]
-	current := hold != nil && hold.generation == generation
+	current := hold != nil && hold.generation == generation && !service.quiesced
 	if current {
-		hold.until, hold.timer = service.now().Add(flowHealthWindow), nil
+		hold.until, hold.timer, hold.pending = service.now().Add(flowHealthWindow), nil, false
 	}
 	service.flowMu.Unlock()
 	if !current {
@@ -125,9 +126,21 @@ func (service *service) holdCheck(record storageRecord, generation uint64) {
 	}
 }
 
+// flowHealthInconclusive reports a check that says nothing about the
+// account's health: Gemini held its lease throughout, or the health model's
+// daily quota is spent.
+func flowHealthInconclusive(err error) bool {
+	switch safeCredentialCode(err) {
+	case "flow_session_exchange_busy", "flow_quota_exhausted":
+		return true
+	}
+	return false
+}
+
 // runHealthCheck generates one image for the account in the health check
-// project and records the outcome; a failure other than an unusual-activity
-// refusal marks the account failing.
+// project and records the outcome. A periodic check's failure other than an
+// unusual-activity refusal or an inconclusive answer marks the account
+// failing; a held account stays blocked, with the check's result recorded.
 func (service *service) runHealthCheck(record storageRecord, kind string) error {
 	account := record.SourceAuthID
 	err := service.flowHealthGenerate(service.lifetime, record)
@@ -136,7 +149,7 @@ func (service *service) runHealthCheck(record storageRecord, kind string) error 
 		state = safeCredentialMessage(err)
 	}
 	service.noteHealthCheck(account, kind, err)
-	if err != nil && !flowUnusualActivity(err) && service.lifetime.Err() == nil {
+	if kind == "periodic" && err != nil && !flowUnusualActivity(err) && !flowHealthInconclusive(err) && service.lifetime.Err() == nil {
 		service.markHealth(account, flowHealthFailing, safeCredentialCode(err), time.Time{})
 	}
 	service.report(map[string]any{"provider": provider, "state": state, "reason": flowHealthModel + " " + kind}, "flow2api: health check")
@@ -144,6 +157,7 @@ func (service *service) runHealthCheck(record storageRecord, kind string) error 
 }
 
 func (service *service) flowHealthGenerate(ctx context.Context, record storageRecord) error {
+	defer service.beginFlowSpend()()
 	project, err := service.flowHealthProject(ctx, record)
 	if err != nil {
 		return err

@@ -79,32 +79,6 @@ func (browser *flowBrowser) token(ctx context.Context, client *http.Client, base
 	return flowCaptchaToken{value: token, userAgent: browser.userAgent}, nil
 }
 
-// resetIdentity deletes the browser's reCAPTCHA cookie and drops the page, so
-// the next token starts from a new reCAPTCHA identity. The other cookies stay,
-// so a browser signed in to the account keeps its session.
-func (browser *flowBrowser) resetIdentity(ctx context.Context, client *http.Client, base string) error {
-	browser.mu.Lock()
-	defer browser.mu.Unlock()
-	ctx, cancel := context.WithTimeout(ctx, flowBrowserCall)
-	defer cancel()
-	if browser.base != base {
-		browser.closeLocked(client)
-		browser.base = base
-	}
-	if browser.conn == nil {
-		if err := browser.openLocked(ctx, client); err != nil {
-			browser.closeLocked(client)
-			return err
-		}
-	} else if err := browser.deadlineLocked(ctx); err != nil {
-		browser.closeLocked(client)
-		return failure(503, "flow_captcha_browser_failed")
-	}
-	_, err := browser.callLocked("Network.deleteCookies", map[string]any{"name": "_GRECAPTCHA", "domain": "www.google.com"})
-	browser.closeLocked(client)
-	return err
-}
-
 func (browser *flowBrowser) close(client *http.Client) {
 	browser.mu.Lock()
 	defer browser.mu.Unlock()

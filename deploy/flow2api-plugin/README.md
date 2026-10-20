@@ -56,8 +56,9 @@ run at `normal` priority (see `priority` below). `429 flow_unusual_activity_hold
 means Flow refused the linked account for unusual activity: its requests are
 answered at once, without reaching Flow, until the plugin's own health check
 finds Flow accepting the account again, and the message names the time of the
-next check. The first hold lasts 30 minutes and each further refusal doubles it,
-up to 4 hours. The account stays held after that time until the check has an
+next check. The first hold lasts 30 minutes and each refused health check
+doubles it, up to 4 hours; requests that were already running when the hold
+began do not extend it. The account stays held after that time until the check has an
 image accepted; a check that cannot tell, for example because the project
 lookup failed, keeps the hold and runs again 5 minutes later.
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
@@ -52,7 +53,8 @@ type flowHealthView struct {
 	NextCheck   int64  `json:"next_check,omitempty"`
 }
 
-// markHealth records the account's health and sends a card when it changed.
+// markHealth records the account's health and, unless a hot reload quiesced
+// this instance, sends a card when it changed.
 func (service *service) markHealth(account, status, detail string, heldUntil time.Time) {
 	now := service.now()
 	service.flowMu.Lock()
@@ -67,8 +69,9 @@ func (service *service) markHealth(account, status, detail string, heldUntil tim
 	}
 	service.healthStates[account] = current
 	label := service.accountLabels[account]
+	quiesced := service.quiesced
 	service.flowMu.Unlock()
-	if previous.status == status {
+	if previous.status == status || quiesced {
 		return
 	}
 	if label == "" {
@@ -259,9 +262,16 @@ func (service *service) telegramTest(ctx context.Context) (interface{}, error) {
 		"Flow 헬스체크 알림이 이 채팅으로 옵니다: 차단 감지, 헬스체크 실패, 복구.",
 		"<i>" + service.now().In(flowKST).Format("2006-01-02 15:04:05") + " KST</i>",
 	}, "\n")
+	status, answer := 200, map[string]string{"status": "sent"}
 	if err := service.deliverTelegram(ctx, card); err != nil {
-		return nil, err
+		// The host answers a failed call 502 whatever it was, so the code and
+		// its status travel as a response.
+		var public *publicError
+		if !errors.As(err, &public) {
+			public = failure(502, "flow_telegram_failed")
+		}
+		status, answer = public.HTTPStatus, map[string]string{"error": public.Code}
 	}
-	body, err := json.Marshal(map[string]string{"status": "sent"})
-	return httpResponse{StatusCode: 200, Headers: http.Header{"Content-Type": {"application/json"}, "Cache-Control": {"no-store"}}, Body: body}, err
+	body, err := json.Marshal(answer)
+	return httpResponse{StatusCode: status, Headers: http.Header{"Content-Type": {"application/json"}, "Cache-Control": {"no-store"}}, Body: body}, err
 }

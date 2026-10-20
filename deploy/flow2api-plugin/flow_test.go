@@ -286,6 +286,8 @@ func flowErrorEnvelope(t *testing.T, frame []any) string {
 func flowService(t *testing.T, fixture *flowFixture) (*service, storageRecord) {
 	t.Helper()
 	t.Setenv("MANAGEMENT_PASSWORD", "fixture-management")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "")
+	t.Setenv("TELEGRAM_CHAT_ID", "")
 	service := newService(nil)
 	record := storageRecord{Type: provider, ID: "flow2api-f.json", Label: "Flow fixture", SourceAuthID: "gemini-web-f.json"}
 	service.client = fixture.server.Client()
@@ -732,11 +734,11 @@ func TestFlowLowPriorityRefusalBelowTheCreditFloorSpendsNothing(t *testing.T) {
 }
 
 func TestFlowAnswersOptionalHostMethodsAsUnsupported(t *testing.T) {
-	// A hot reload first asks the replaced plugin to quiesce; the host treats
-	// unknown_method as a method the plugin does not offer, not as a failure.
-	result := invoke(t, newService(nil), "plugin.quiesce", struct{}{})
+	// The host treats unknown_method as a method the plugin does not offer,
+	// not as a failure.
+	result := invoke(t, newService(nil), "scheduler.pick", struct{}{})
 	if result.OK || result.Error.Code != "unknown_method" || result.Error.HTTPStatus != 400 {
-		t.Fatalf("quiesce = %+v", result.Error)
+		t.Fatalf("scheduler.pick = %+v", result.Error)
 	}
 }
 
