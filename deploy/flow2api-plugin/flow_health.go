@@ -92,37 +92,36 @@ func (service *service) periodicHealthChecks() {
 		}
 		service.flowMu.Unlock()
 		if due {
-			_ = service.runHealthCheck(storageRecord{ID: account, SourceAuthID: account}, "periodic") // The outcome is recorded and reported.
+			_ = service.runHealthCheck(storageRecord{ID: account, SourceAuthID: account}, "periodic", nil) // The outcome is recorded and reported.
 		}
 	}
 }
 
-// holdCheck runs the check a hold scheduled, unless a newer hold replaced it or
-// a hot reload quiesced this instance.
-// An accepted image ends the hold and a refusal reschedules it, both through
+// holdCheck runs a check a hold scheduled, unless the hold ended, a newer
+// schedule replaced the check, or a hot reload quiesced this instance. An
+// accepted image ends the hold and a refusal doubles it, both through
 // noteUnusualActivity; a check that could not tell keeps the hold and runs
 // again after healthCheckRetry, unless the hold changed meanwhile.
-func (service *service) holdCheck(record storageRecord, generation uint64) {
+func (service *service) holdCheck(record storageRecord, check *flowHoldCheck) {
 	account := record.SourceAuthID
 	service.flowMu.Lock()
-	hold := service.holds[account]
-	current := hold != nil && hold.generation == generation && !service.quiesced
+	current := service.holds[account] == check.hold && check.hold.generation == check.generation && !service.quiesced
 	if current {
-		hold.until, hold.timer, hold.pending = service.now().Add(flowHealthWindow), nil, false
+		check.hold.until, check.hold.timer = service.now().Add(flowHealthWindow), nil
 	}
 	service.flowMu.Unlock()
 	if !current {
 		return
 	}
-	err := service.runHealthCheck(record, "hold")
+	err := service.runHealthCheck(record, "hold", check)
 	if err == nil || flowUnusualActivity(err) {
 		return
 	}
 	retry := service.healthCheckRetry()
 	service.flowMu.Lock()
 	defer service.flowMu.Unlock()
-	if hold := service.holds[account]; hold != nil && hold.generation == generation {
-		service.scheduleCheckLocked(record, hold, retry)
+	if service.holds[account] == check.hold && check.hold.generation == check.generation {
+		service.scheduleCheckLocked(record, check.hold, retry)
 	}
 }
 
@@ -141,9 +140,9 @@ func flowHealthInconclusive(err error) bool {
 // project and records the outcome. A periodic check's failure other than an
 // unusual-activity refusal or an inconclusive answer marks the account
 // failing; a held account stays blocked, with the check's result recorded.
-func (service *service) runHealthCheck(record storageRecord, kind string) error {
+func (service *service) runHealthCheck(record storageRecord, kind string, check *flowHoldCheck) error {
 	account := record.SourceAuthID
-	err := service.flowHealthGenerate(service.lifetime, record)
+	err := service.flowHealthGenerate(service.lifetime, record, check)
 	state := "flow_health_check_passed"
 	if err != nil {
 		state = safeCredentialMessage(err)
@@ -156,7 +155,7 @@ func (service *service) runHealthCheck(record storageRecord, kind string) error 
 	return err
 }
 
-func (service *service) flowHealthGenerate(ctx context.Context, record storageRecord) error {
+func (service *service) flowHealthGenerate(ctx context.Context, record storageRecord, check *flowHoldCheck) error {
 	defer service.beginFlowSpend()()
 	project, err := service.flowHealthProject(ctx, record)
 	if err != nil {
@@ -177,7 +176,7 @@ func (service *service) flowHealthGenerate(ctx context.Context, record storageRe
 	if err != nil {
 		return err
 	}
-	input.healthCheck = true
+	input.healthCheck, input.check = true, check
 	_, err = service.flowGenerate(ctx, record, model, input)
 	return err
 }

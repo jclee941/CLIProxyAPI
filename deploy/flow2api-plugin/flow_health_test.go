@@ -290,7 +290,7 @@ func TestFlowLateRefusalLeavesThePendingCheckAlone(t *testing.T) {
 	flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`)
 
 	// When: the late refusal arrives, then the check runs.
-	late := service.noteUnusualActivity(record, &publicError{Code: "flow_captcha_rejected", Message: "flow_captcha_rejected: PUBLIC_ERROR_UNUSUAL_ACTIVITY"})
+	late := service.noteUnusualActivity(record, &publicError{Code: "flow_captcha_rejected", Message: "flow_captcha_rejected: PUBLIC_ERROR_UNUSUAL_ACTIVITY"}, nil)
 	(*checks)[0]()
 
 	// Then: the late refusal neither doubled the hold nor replaced its check,
@@ -300,9 +300,10 @@ func TestFlowLateRefusalLeavesThePendingCheckAlone(t *testing.T) {
 	}
 }
 
-func TestFlowHoldRecordedDuringACheckOutlivesIt(t *testing.T) {
-	// Given: a held account whose check cannot tell, and a later refusal
-	// recorded while that check is waiting for Flow.
+func TestFlowCheckReplacedWhileRunningSchedulesNoRetry(t *testing.T) {
+	// Given: a held account whose check cannot tell, and whose schedule is
+	// replaced while that check waits for Flow, as when the host keeps a
+	// quiesced instance and registers it again.
 	fixture := newFlowFixture(t)
 	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
 	fixture.reply("YhhmEf", flowUnusualRefusal(t, "YhhmEf"))
@@ -311,22 +312,91 @@ func TestFlowHoldRecordedDuringACheckOutlivesIt(t *testing.T) {
 	clock := time.Unix(1700000000, 0)
 	service.now = func() time.Time { return clock }
 	delays, checks := flowCaptureChecks(service)
-	refusal := &publicError{Code: "flow_captcha_rejected", Message: "flow_captcha_rejected: PUBLIC_ERROR_UNUSUAL_ACTIVITY"}
 	flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`)
 	fixture.onRPC = func(rpcID string) {
 		if rpcID == "UpteDb" {
-			service.noteUnusualActivity(record, refusal)
+			service.quiesce()
+			service.resumeQuiesced()
 		}
 	}
 
 	// When: the check runs and finishes without an answer.
 	(*checks)[0]()
 
-	// Then: the later hold and its own check stand; the finished check
-	// scheduled no retry over them.
-	until, held := service.unusualActivityHeld(record.SourceAuthID)
-	if !held || !until.Equal(clock.Add(2*flowUnusualActivityHold)) || !slices.Equal(*delays, []time.Duration{flowUnusualActivityHold, 2 * flowUnusualActivityHold}) {
-		t.Fatalf("held %v until %v, checks after %v", held, until, *delays)
+	// Then: the replacement check stands, and the finished check scheduled no
+	// retry over it.
+	if _, held := service.unusualActivityHeld(record.SourceAuthID); !held || !slices.Equal(*delays, []time.Duration{flowUnusualActivityHold, flowHealthWindow}) {
+		t.Fatalf("held %v, checks after %v", held, *delays)
+	}
+}
+
+func TestFlowStaleAcceptanceLeavesTheHold(t *testing.T) {
+	// Given: a held account, and a request admitted before the hold whose
+	// accepted answer arrives after it, and a check whose schedule was
+	// replaced before its accepted image came back.
+	fixture := newFlowFixture(t)
+	telegram, cards := newFlowTelegramFixture(t)
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", flowUnusualRefusal(t, "YhhmEf"))
+	fixture.reply("ogiZ0b", rpcEnvelope(t, "ogiZ0b", []any{[]any{[]any{flowTestMedia, fixture.link("image")}}}))
+	service, record := flowService(t, fixture)
+	service.config.HealthCheckProject = flowTestHealthProject
+	service.config.TelegramBotToken, service.config.TelegramChatID = "123:fixture", "42"
+	service.telegramOrigin = telegram.URL
+	clock := time.Unix(1700000000, 0)
+	service.now = func() time.Time { return clock }
+	_, checks := flowCaptureChecks(service)
+	flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`)
+	nextFlowCard(t, cards)
+
+	// When: the earlier request's acceptance arrives, then the check runs and
+	// its schedule is replaced while its image is being generated.
+	service.noteUnusualActivity(record, nil, nil)
+	_, heldAfterLate := service.unusualActivityHeld(record.SourceAuthID)
+	fixture.onRPC = func(rpcID string) {
+		if rpcID == "ogiZ0b" {
+			service.quiesce()
+			service.resumeQuiesced()
+		}
+	}
+	(*checks)[0]()
+	_, heldAfterReplaced := service.unusualActivityHeld(record.SourceAuthID)
+	fixture.onRPC = nil
+	(*checks)[1]()
+
+	// Then: neither stale acceptance ended the hold or marked the account
+	// healthy; the replacement check's accepted image did, with one recovery
+	// card.
+	if !heldAfterLate || !heldAfterReplaced || fixture.count("ogiZ0b") != 2 {
+		t.Fatalf("held after the late acceptance %v, after the replaced check %v, %d images", heldAfterLate, heldAfterReplaced, fixture.count("ogiZ0b"))
+	}
+	if _, held := service.unusualActivityHeld(record.SourceAuthID); held || !strings.Contains(nextFlowCard(t, cards).Text, "복구") {
+		t.Fatalf("held %v after the replacement check", held)
+	}
+}
+
+func TestFlowCallbackOfAnEndedHoldDoesNotCheckItsSuccessor(t *testing.T) {
+	// Given: a hold that ended through its accepted check, and a new hold
+	// whose first check carries the same generation number.
+	fixture := newFlowFixture(t)
+	refused := flowUnusualRefusal(t, "YhhmEf")
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", refused, refused, refused, refused, refused, refused)
+	fixture.reply("ogiZ0b", rpcEnvelope(t, "ogiZ0b", []any{[]any{[]any{flowTestMedia, fixture.link("image")}}}))
+	service, record := flowService(t, fixture)
+	service.config.HealthCheckProject = flowTestHealthProject
+	_, checks := flowCaptureChecks(service)
+	video := `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`
+	flowExecute(t, service, record, "flow-veo-3.1-lite", video)
+	(*checks)[0]()
+	flowExecute(t, service, record, "flow-veo-3.1-lite", video)
+
+	// When: the ended hold's callback runs again.
+	(*checks)[0]()
+
+	// Then: it sent nothing for the new hold, which waits for its own check.
+	if _, held := service.unusualActivityHeld(record.SourceAuthID); !held || fixture.count("ogiZ0b") != 1 || len(*checks) != 2 {
+		t.Fatalf("held %v after %d images and %d scheduled checks", held, fixture.count("ogiZ0b"), len(*checks))
 	}
 }
 

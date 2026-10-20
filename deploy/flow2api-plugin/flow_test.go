@@ -976,7 +976,7 @@ func TestFlowUnusualActivityHoldLastsUntilAHealthCheckIsAccepted(t *testing.T) {
 	}
 
 	// Then: the escalation ended with the hold.
-	if service.noteUnusualActivity(record, &publicError{Code: "flow_captcha_rejected", Message: "flow_captcha_rejected: PUBLIC_ERROR_UNUSUAL_ACTIVITY"}) != flowUnusualActivityHold {
+	if service.noteUnusualActivity(record, &publicError{Code: "flow_captcha_rejected", Message: "flow_captcha_rejected: PUBLIC_ERROR_UNUSUAL_ACTIVITY"}, nil) != flowUnusualActivityHold {
 		t.Fatal("an accepted check did not reset the hold")
 	}
 }

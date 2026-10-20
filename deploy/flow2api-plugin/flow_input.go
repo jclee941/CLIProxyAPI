@@ -38,6 +38,9 @@ type flowInput struct {
 	// healthCheck marks the plugin's own check of a held account, which the
 	// unusual-activity hold lets through.
 	healthCheck bool
+	// check names the hold and the scheduled check a hold check runs for; it
+	// is nil for callers and periodic checks.
+	check *flowHoldCheck
 }
 
 // flowSamplingOptions are settings chat bridges attach to every request. A
