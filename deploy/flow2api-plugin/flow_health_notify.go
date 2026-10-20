@@ -58,11 +58,13 @@ type flowHealthView struct {
 func (service *service) markHealth(account, status, detail string, heldUntil time.Time) {
 	now := service.now()
 	service.flowMu.Lock()
-	// An acceptance reported while the account is held came from a request
-	// admitted before the hold, or one a refusal overtook on its way here; only
-	// the hold's own check ends it. Checking under the lock that creates holds
-	// keeps a refusal from landing between the check and the report.
-	if status == flowHealthOK && service.holds[account] != nil {
+	// A report other than a refusal arriving while the account is held came
+	// from work started before the hold: a request admitted earlier, one a
+	// refusal overtook on its way here, or a periodic check that began before
+	// it. Only the hold's own check ends the hold. Checking under the lock that
+	// creates holds keeps a refusal from landing between the check and the
+	// report.
+	if status != flowHealthBlocked && service.holds[account] != nil {
 		service.flowMu.Unlock()
 		return
 	}

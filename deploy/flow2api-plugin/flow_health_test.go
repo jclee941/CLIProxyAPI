@@ -502,7 +502,7 @@ func TestFlowPeriodicCheckOnASpentQuotaIsNotAFailure(t *testing.T) {
 	}
 }
 
-func TestFlowAcceptanceThatLosesTheRaceToAHoldReportsNothing(t *testing.T) {
+func TestFlowReportsThatLoseTheRaceToAHoldChangeNothing(t *testing.T) {
 	// Given: an account a refusal has just held, as when that refusal lands
 	// between an accepted request's outcome and its health report.
 	fixture := newFlowFixture(t)
@@ -512,8 +512,10 @@ func TestFlowAcceptanceThatLosesTheRaceToAHoldReportsNothing(t *testing.T) {
 	flowCaptureChecks(service)
 	flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8}}`)
 
-	// When: the accepted request reports the account healthy.
+	// When: an accepted request reports the account healthy, and a periodic
+	// check that began before the hold reports it failing.
 	service.markHealth(record.SourceAuthID, flowHealthOK, "", time.Time{})
+	service.markHealth(record.SourceAuthID, flowHealthFailing, "flow_transport_failed", time.Time{})
 
 	// Then: the account is still reported held.
 	service.flowMu.Lock()
