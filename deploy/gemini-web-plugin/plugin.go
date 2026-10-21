@@ -38,8 +38,12 @@ type pluginConfig struct {
 	// VideoThinkingLevel is the slot 80 thinking level a video turn is sent with
 	// when its request names none, numbered as omniThinkingLevels; zero keeps
 	// webVideoThinkingLevel.
-	VideoThinkingLevel int    `yaml:"video_thinking_level,omitempty"`
-	Tuning             tuning `yaml:",inline"`
+	VideoThinkingLevel int `yaml:"video_thinking_level,omitempty"`
+	// TextThinkingLevels names, per text model, the thinking level a turn is sent
+	// with when its request names none: low, medium or high, as a request names
+	// them. A model it does not name sends no level and keeps its mode's own.
+	TextThinkingLevels map[string]string `yaml:"text_thinking_levels,omitempty"`
+	Tuning             tuning            `yaml:",inline"`
 	// DeleteChats deletes the web conversation a text, image or music turn opens
 	// once it has answered, keeping generated chats out of the account history.
 	DeleteChats bool `yaml:"delete_chats,omitempty"`
@@ -233,7 +237,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	default:
 		return nil, failure(400, "invalid_plugin_config")
 	}
-	if config.VideoMode < 0 || config.VideoThinkingLevel < 0 || config.VideoThinkingLevel > 4 || !config.Tuning.valid() {
+	if config.VideoMode < 0 || config.VideoThinkingLevel < 0 || config.VideoThinkingLevel > 4 || !config.Tuning.valid() || !normalizeTextThinkingLevels(config.TextThinkingLevels) {
 		return nil, failure(400, "invalid_plugin_config")
 	}
 	if len(config.SessionExchangeAccounts) == 0 {
@@ -246,6 +250,8 @@ func (service *service) register(raw []byte) (interface{}, error) {
 	modeChanged := current.VideoMode != config.VideoMode
 	current.VideoMode = config.VideoMode
 	current.VideoThinkingLevel = config.VideoThinkingLevel
+	textLevelsChanged := !reflect.DeepEqual(current.TextThinkingLevels, config.TextThinkingLevels)
+	current.TextThinkingLevels = config.TextThinkingLevels
 	tuningChanged := current.Tuning != config.Tuning
 	current.Tuning = config.Tuning
 	deleteChanged := current.DeleteChats != config.DeleteChats
@@ -268,6 +274,7 @@ func (service *service) register(raw []byte) (interface{}, error) {
 		service.config.VideoWireMode = config.VideoWireMode
 		service.config.VideoMode = config.VideoMode
 		service.config.VideoThinkingLevel = config.VideoThinkingLevel
+		service.config.TextThinkingLevels = config.TextThinkingLevels
 		service.config.Tuning = config.Tuning
 		service.config.DeleteChats = config.DeleteChats
 		service.config.ExtendDeclaration = config.ExtendDeclaration
@@ -317,6 +324,13 @@ func (service *service) register(raw []byte) (interface{}, error) {
 			"state":    "video_mode",
 			"reason":   "mode=" + strconv.Itoa(config.VideoMode),
 		}, "gemini-web: default video mode applied")
+	}
+	if textLevelsChanged {
+		service.report(map[string]any{
+			"provider": provider,
+			"state":    "text_thinking_levels",
+			"reason":   textThinkingLevelsReason(config.TextThinkingLevels),
+		}, "gemini-web: text thinking levels applied")
 	}
 	if deleteChanged {
 		service.report(map[string]any{

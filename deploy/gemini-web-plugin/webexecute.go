@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -69,7 +70,9 @@ func webTextModelInfos(account accountModels) []modelInfo {
 // thinking level, protocol field 81: standard, medium and extended.
 var webThinkingLevels = map[string]int{"low": 1, "medium": 4, "high": 2}
 
-func webThinkingLevel(payload []byte) (int, error) {
+// webThinkingLevel reads the thinking level a text turn asks for; a request that
+// names none takes fallback, the level text_thinking_levels sets for its model.
+func webThinkingLevel(payload []byte, fallback string) (int, error) {
 	var request struct {
 		GenerationConfig struct {
 			ThinkingConfig struct {
@@ -82,6 +85,9 @@ func webThinkingLevel(payload []byte) (int, error) {
 	}
 	name := strings.ToLower(strings.TrimSpace(request.GenerationConfig.ThinkingConfig.ThinkingLevel))
 	if name == "" {
+		name = fallback
+	}
+	if name == "" {
 		return 0, nil
 	}
 	level, ok := webThinkingLevels[name]
@@ -89,6 +95,33 @@ func webThinkingLevel(payload []byte) (int, error) {
 		return 0, failure(400, "invalid_thinking_level")
 	}
 	return level, nil
+}
+
+// normalizeTextThinkingLevels lowercases the configured level names in place and
+// reports whether each is one a request could name.
+func normalizeTextThinkingLevels(levels map[string]string) bool {
+	for model, name := range levels {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if _, ok := webThinkingLevels[name]; !ok {
+			return false
+		}
+		levels[model] = name
+	}
+	return true
+}
+
+// textThinkingLevelsReason renders the configured levels for the apply report,
+// sorted by model so the line is stable.
+func textThinkingLevelsReason(levels map[string]string) string {
+	if len(levels) == 0 {
+		return "none"
+	}
+	pairs := make([]string, 0, len(levels))
+	for model, name := range levels {
+		pairs = append(pairs, model+"="+name)
+	}
+	sort.Strings(pairs)
+	return strings.Join(pairs, ",")
 }
 
 // nativeText runs one text turn directly against the web product and renders the
@@ -106,7 +139,7 @@ func (service *service) nativeText(ctx context.Context, record storageRecord, to
 	if strings.TrimSpace(prompt) == "" {
 		return nil, failure(400, "text_only_flash_request")
 	}
-	level, err := webThinkingLevel(payload)
+	level, err := webThinkingLevel(payload, service.settings().TextThinkingLevels[requested])
 	if err != nil {
 		return nil, err
 	}
