@@ -1,15 +1,15 @@
 # GeminiWeb Manager Integration Build
 
-This is a local, reviewable build recipe, not a deployment receipt. The running
-Manager image, Compose, environment, keys and services are unchanged.
-Current local checks and artifact hashes are recorded in [PATCH-EVIDENCE.md](PATCH-EVIDENCE.md).
+Build the complete upstream Manager with the retained native plugin portal,
+quota and log integrations. This recipe does not deploy by itself.
+Checks and artifact hashes are recorded in [PATCH-EVIDENCE.md](PATCH-EVIDENCE.md).
 
 ## Pinned Input
 
 - Repository: `https://github.com/seakee/CPA-Manager-Plus.git`
-- Revision: `e1a8788ab796f4d001c5d1e9851c418989b05424` (`v1.12.11`)
+- Revision: `64ce94e6aa1af691555429a3211e67c59c0480ad` (`v1.14.7`)
 - Patch: `patches/0001-gemini-web-manager.patch`
-- Build version: `v1.12.11-geminiweb.1`
+- Build version: `v1.14.7-geminiweb.1`
 - Use Node 22.22.0 and the vendor's committed `package-lock.json` with `npm ci`.
 - Keep the vendor MIT `LICENSE`; the script includes it with `management.html`.
 
@@ -18,7 +18,7 @@ Current local checks and artifact hashes are recorded in [PATCH-EVIDENCE.md](PAT
 Choose a path that does not already exist:
 
 ```sh
-bash deploy/cpa-manager-plus/build-patched.sh /tmp/opencode/manager-gemini-review
+SOURCE_REF=v1.14.7 bash deploy/cpa-manager-plus/build-patched.sh /tmp/opencode/manager-gemini-review
 ```
 
 The script fetches the exact revision into a new vendor checkout, checks and
@@ -46,17 +46,31 @@ After reviewing the patch and artifact, an image can be built locally with:
 ```sh
 docker build --platform linux/amd64 \
   --file /tmp/opencode/manager-gemini-review/vendor/Dockerfile.manager-server \
-  --build-arg VERSION=v1.12.11-geminiweb.1 \
-  --build-arg SOURCE_COMMIT=e1a8788ab796f4d001c5d1e9851c418989b05424 \
-  --tag cpa-manager-plus:geminiweb-review \
+  --build-arg VERSION=v1.14.7-geminiweb.1 \
+  --build-arg SOURCE_COMMIT=64ce94e6aa1af691555429a3211e67c59c0480ad \
+  --tag cpa-manager-plus:v1.14.7-geminiweb.20261021.1 \
   /tmp/opencode/manager-gemini-review/vendor
 ```
 
 This command builds only. Upstream base-image tags are not content-addressed;
-pin approved base-image digests separately if byte-reproducible OCI images are
-required. No OCI image reproducibility or production verification is claimed.
-The existing deployment still references its original image until separately
-reviewed. Do not edit Compose or activate the image as part of this recipe.
+pin base-image digests separately if byte-reproducible OCI images are required.
+
+The current NAS keeps its ports, volumes and secret mounts in
+`/volume1/docker/cliproxy/manager/compose.yml`. The image selection alone is
+tracked in `nas-image.yml`. After installing the verified image and pulling
+the fork through the documented `pull-deploy.sh` procedure, an explicitly
+authorized Manager deployment uses:
+
+```sh
+B=/volume1/docker/cliproxy
+PATH=/usr/local/bin:$PATH docker compose \
+  -f "$B/manager/compose.yml" \
+  -f "$B/deploy/deploy/cpa-manager-plus/nas-image.yml" \
+  --profile approval-required up -d --no-deps cpa-manager-plus
+```
+
+This replaces only Manager Plus. It does not recreate the CPA core,
+PostgreSQL, or native plugins.
 
 ## Behavior And Deliberate Limits
 
@@ -99,12 +113,13 @@ are not zero or unlimited quota. Opaque tier codes are never renamed to PRO.
 Detailed login/registration remains accessible through the checked **Open
 GeminiWeb plugin panel** action.
 
-Antigravity quota reads every quota summary host and merges their groups,
-because the hosts list different groups: the daily host lists only Claude and
-GPT, while the production host also lists Gemini. The model inventory is read
-only when no summary host lists a group. xAI unified billing answers in proto3
-JSON, which omits a zero `creditUsagePercent`, so a weekly unified period
-without one shows 0%; other weekly payloads without the field stay Unknown.
+Antigravity uses the upstream Hub client identity introduced in v1.14.7
+(upstream PR #986). The current client receives Gemini's authoritative 5H and
+7D buckets from the daily server. The former cross-host merge workaround is
+removed; upstream quota fetching and rate-limit handling remain intact.
+xAI unified billing answers in proto3 JSON, which omits a zero
+`creditUsagePercent`, so a weekly unified period without one shows 0%; other
+weekly payloads without the field stay Unknown.
 
 ## Isolated Browser QA
 

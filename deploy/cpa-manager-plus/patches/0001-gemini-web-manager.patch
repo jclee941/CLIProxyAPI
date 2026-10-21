@@ -1,6 +1,6 @@
 diff --git c/apps/web/src/components/quota/geminiWebQuotaConfig.test.ts i/apps/web/src/components/quota/geminiWebQuotaConfig.test.ts
 new file mode 100644
-index 0000000..254bc83
+index 00000000..254bc83f
 --- /dev/null
 +++ i/apps/web/src/components/quota/geminiWebQuotaConfig.test.ts
 @@ -0,0 +1,70 @@
@@ -76,7 +76,7 @@ index 0000000..254bc83
 +});
 diff --git c/apps/web/src/components/quota/geminiWebQuotaConfig.ts i/apps/web/src/components/quota/geminiWebQuotaConfig.ts
 new file mode 100644
-index 0000000..d852328
+index 00000000..d8523284
 --- /dev/null
 +++ i/apps/web/src/components/quota/geminiWebQuotaConfig.ts
 @@ -0,0 +1,44 @@
@@ -125,18 +125,19 @@ index 0000000..d852328
 +  return next;
 +}
 diff --git c/apps/web/src/components/quota/index.ts i/apps/web/src/components/quota/index.ts
-index afb876e..40badf6 100644
+index 7f5bc660..18843985 100644
 --- c/apps/web/src/components/quota/index.ts
 +++ i/apps/web/src/components/quota/index.ts
-@@ -1,16 +1,18 @@
- export {
-   ANTIGRAVITY_CONFIG,
-   CLAUDE_CONFIG,
+@@ -4,17 +4,19 @@ export {
    CODEX_CONFIG,
+   CODEX_SUMMARY_CONFIG,
+   DEVIN_CONFIG,
    KIMI_CONFIG,
+   META_CONFIG,
 +  PLUGIN_QUOTA_CONFIG,
    XAI_CONFIG,
    buildObservedCodexQuotaState,
+   buildQuotaFailureState,
    getQuotaStoreKey,
    resolveQuotaDisplayState,
  } from './quotaConfigs';
@@ -148,15 +149,15 @@ index afb876e..40badf6 100644
    type QuotaSetter,
    type QuotaUpdater,
 diff --git c/apps/web/src/components/quota/quotaConfigs.ts i/apps/web/src/components/quota/quotaConfigs.ts
-index 0851533..b7eb0ac 100644
+index f982c952..f6395383 100644
 --- c/apps/web/src/components/quota/quotaConfigs.ts
 +++ i/apps/web/src/components/quota/quotaConfigs.ts
-@@ -6,13 +6,15 @@ import type {
-   CodexQuotaState,
-   CodexQuotaWindow,
-   CodexRateLimitResetCredit,
-   CredentialScopedQuotaState,
+@@ -10,13 +10,15 @@ import type {
+   DevinQuotaData,
+   DevinQuotaState,
    KimiQuotaState,
+   MetaQuotaData,
+   MetaQuotaState,
 +  PluginQuotaState,
    XaiBillingSummary,
    XaiQuotaState,
@@ -167,20 +168,29 @@ index 0851533..b7eb0ac 100644
  import type {
    AntigravityQuotaData,
    ClaudeQuotaData,
-@@ -49,11 +51,11 @@ import {
+@@ -58,11 +60,20 @@ import {
    buildQuotaCredentialIdentity,
    getQuotaCredentialStoreKey,
    scopeQuotaStateToCredential,
  } from '@/utils/quota/credentialScope';
  
--type QuotaType = 'antigravity' | 'claude' | 'codex' | 'kimi' | 'xai';
-+type QuotaType = 'antigravity' | 'claude' | 'codex' | 'kimi' | 'xai' | 'gemini-web' | 'plugin';
+-type QuotaType = 'antigravity' | 'claude' | 'codex' | 'kimi' | 'xai' | 'devin' | 'meta';
++type QuotaType =
++  | 'antigravity'
++  | 'claude'
++  | 'codex'
++  | 'kimi'
++  | 'xai'
++  | 'devin'
++  | 'meta'
++  | 'gemini-web'
++  | 'plugin';
+ 
+ export type { QuotaFetchContext };
  
  export interface QuotaConfig<TState, TData> {
    type: QuotaType;
-   i18nPrefix: string;
-   fetchQuota: (
-@@ -736,10 +738,44 @@ export const KIMI_CONFIG: QuotaConfig<KimiQuotaState, KimiQuotaData> = {
+@@ -801,10 +812,44 @@ export const KIMI_CONFIG: QuotaConfig<KimiQuotaState, KimiQuotaData> = {
      failedAtMs: Date.now(),
    }),
    scopeState: scopeCredentialQuotaState,
@@ -226,13 +236,13 @@ index 0851533..b7eb0ac 100644
    fetchQuota: fetchXaiQuota,
    getStoreKey: getQuotaCredentialStoreKey,
 diff --git c/apps/web/src/features/accounts/AccountsPage.module.scss i/apps/web/src/features/accounts/AccountsPage.module.scss
-index 414f593..fd426b3 100644
+index 5b88b50e..cd773e61 100644
 --- c/apps/web/src/features/accounts/AccountsPage.module.scss
 +++ i/apps/web/src/features/accounts/AccountsPage.module.scss
-@@ -1088,10 +1088,32 @@
-   font-size: 12px;
-   font-weight: 800;
-   text-align: right;
+@@ -2194,10 +2194,32 @@
+ .quotaWindowUsagePlaceholder {
+   display: block;
+   height: 16px;
  }
  
 +.quotaWindowAmountLine {
@@ -263,22 +273,34 @@ index 414f593..fd426b3 100644
    align-content: center;
    gap: 7px;
 diff --git c/apps/web/src/features/accounts/AccountsPage.tsx i/apps/web/src/features/accounts/AccountsPage.tsx
-index 7013705..f4aa6e6 100644
+index 91f9b0e5..1b78b43c 100644
 --- c/apps/web/src/features/accounts/AccountsPage.tsx
 +++ i/apps/web/src/features/accounts/AccountsPage.tsx
-@@ -45,10 +45,11 @@ import {
- import {
-   ANTIGRAVITY_CONFIG,
-   CLAUDE_CONFIG,
+@@ -52,10 +52,11 @@ import {
    CODEX_CONFIG,
+   CODEX_SUMMARY_CONFIG,
+   DEVIN_CONFIG,
    KIMI_CONFIG,
+   META_CONFIG,
 +  PLUGIN_QUOTA_CONFIG,
    XAI_CONFIG,
    buildObservedCodexQuotaState,
+   buildQuotaFailureState,
    refreshQuotaWithConfig,
    type QuotaConfig,
-   type QuotaRefreshResult,
-@@ -333,10 +334,15 @@ import {
+@@ -216,10 +217,11 @@ import {
+   getAccountSortFieldOption,
+   getProviderLabel,
+   getQuotaWindowReadableLabel,
+   parsePriorityValue,
+   resolveWindowDurationSeconds,
++  selectAccountQuotaListWindows,
+   selectAccountQuotaMainListWindows,
+   toAuthFileCodexInspectionSnapshot,
+   type AccountSortFieldValue,
+   type AccountQuotaLifecycleBarOverride,
+   type AccountsView,
+@@ -371,10 +373,15 @@ import {
  } from '@/utils/quota/credentialScope';
  import {
    buildProviderCredentialTaskPlan,
@@ -294,11 +316,51 @@ index 7013705..f4aa6e6 100644
    CredentialHealthInspectionMode,
    CredentialInspectionSnapshot,
    CredentialInspectionTarget,
-@@ -1252,25 +1258,28 @@ export function AccountsPage() {
-   const antigravityQuota = useQuotaStore((state) => state.antigravityQuota);
-   const claudeQuota = useQuotaStore((state) => state.claudeQuota);
+@@ -432,10 +439,13 @@ const ANTIGRAVITY_MULTI_WINDOW_PLAN_TYPES = new Set(['pro', 'ultra', 'ultra-lite
+ type AccountQuotaRefreshMode = 'summary' | 'detail';
+ 
+ const getAccountQuotaRefreshKey = (row: AccountRow): string =>
+   `${row.provider}:${getQuotaCredentialStoreKey(row.raw)}`;
+ 
++const canRefreshAccountQuota = (row: AccountRow): boolean =>
++  isQuotaRefreshSupportedProvider(row.provider) || isPluginQuotaFile(row.raw);
++
+ const getMainListQuotaWindowLimit = (
+   layoutMode: AccountsLayoutMode,
+   row: AccountRow
+ ): number => {
+   if (layoutMode === 'table') return 4;
+@@ -443,10 +453,25 @@ const getMainListQuotaWindowLimit = (
+     ANTIGRAVITY_MULTI_WINDOW_PLAN_TYPES.has(row.canonicalPlanType ?? '')
+     ? 4
+     : 2;
+ };
+ 
++const getMainListQuotaWindows = (
++  row: AccountRow,
++  windows: AccountQuotaDisplayWindow[],
++  layoutMode: AccountsLayoutMode
++): AccountQuotaDisplayWindow[] => {
++  const limit = getMainListQuotaWindowLimit(layoutMode, row);
++  const selected = selectAccountQuotaMainListWindows(row, windows, limit);
++  if (
++    selected.length > 0 ||
++    isQuotaRefreshSupportedProvider(row.provider) ||
++    !isPluginQuotaFile(row.raw)
++  ) return selected;
++  return selectAccountQuotaListWindows(row, windows, []).slice(0, limit);
++};
++
+ const getCardQuotaWindowGroups = (
+   row: AccountRow,
+   windows: AccountQuotaDisplayWindow[]
+ ): Array<{ key: string; windows: AccountQuotaDisplayWindow[] }> => {
+   if (row.provider !== ANTIGRAVITY_CONFIG.type) return [{ key: 'all', windows }];
+@@ -1376,29 +1401,32 @@ export function AccountsPage() {
    const codexQuota = useQuotaStore((state) => state.codexQuota);
+   const devinQuota = useQuotaStore((state) => state.devinQuota);
    const kimiQuota = useQuotaStore((state) => state.kimiQuota);
+   const metaQuota = useQuotaStore((state) => state.metaQuota);
    const xaiQuota = useQuotaStore((state) => state.xaiQuota);
 +  const pluginQuota = useQuotaStore((state) => state.pluginQuota);
    const baseQuotaStores = useMemo(
@@ -306,17 +368,21 @@ index 7013705..f4aa6e6 100644
        antigravityQuota,
        claudeQuota,
        codexQuota,
+       devinQuota,
        kimiQuota,
+       metaQuota,
        xaiQuota,
 +      pluginQuota,
      }),
--    [antigravityQuota, claudeQuota, codexQuota, kimiQuota, xaiQuota]
-+    [antigravityQuota, claudeQuota, codexQuota, kimiQuota, xaiQuota, pluginQuota]
+-    [antigravityQuota, claudeQuota, codexQuota, devinQuota, kimiQuota, metaQuota, xaiQuota]
++    [antigravityQuota, claudeQuota, codexQuota, devinQuota, kimiQuota, metaQuota, xaiQuota, pluginQuota]
    );
    const setAntigravityQuota = useQuotaStore((state) => state.setAntigravityQuota);
    const setClaudeQuota = useQuotaStore((state) => state.setClaudeQuota);
    const setCodexQuota = useQuotaStore((state) => state.setCodexQuota);
+   const setDevinQuota = useQuotaStore((state) => state.setDevinQuota);
    const setKimiQuota = useQuotaStore((state) => state.setKimiQuota);
+   const setMetaQuota = useQuotaStore((state) => state.setMetaQuota);
    const setXaiQuota = useQuotaStore((state) => state.setXaiQuota);
 +  const setPluginQuota = useQuotaStore((state) => state.setPluginQuota);
  
@@ -324,10 +390,10 @@ index 7013705..f4aa6e6 100644
      () => initialWorkspaceUrlState.current.view
    );
    const [documentVisible, setDocumentVisible] = useState(
-@@ -2875,10 +2884,11 @@ export function AccountsPage() {
+@@ -3065,10 +3093,11 @@ export function AccountsPage() {
            break;
-         case XAI_CONFIG.type:
-           prune(XAI_CONFIG, setXaiQuota);
+         case META_CONFIG.type:
+           prune(META_CONFIG, setMetaQuota);
            break;
          default:
 +          if (targetFiles.some(isPluginQuotaFile)) prune(PLUGIN_QUOTA_CONFIG, setPluginQuota);
@@ -336,21 +402,51 @@ index 7013705..f4aa6e6 100644
        return targetFiles;
      },
      [
-@@ -2887,10 +2897,11 @@ export function AccountsPage() {
-       setAntigravityQuota,
-       setClaudeQuota,
+@@ -3079,10 +3108,11 @@ export function AccountsPage() {
        setCredentialEvidenceBoundaries,
        setCodexQuota,
+       setDevinQuota,
        setKimiQuota,
+       setMetaQuota,
 +      setPluginQuota,
        setXaiQuota,
      ]
    );
    invalidateProviderCredentialEvidenceRef.current = invalidateProviderCredentialEvidence;
  
-@@ -5892,19 +5903,29 @@ export function AccountsPage() {
-               setXaiQuota,
-               getScopedQuotaState(XAI_CONFIG, baseQuotaStores.xaiQuota, row.raw)
+@@ -4873,14 +4903,14 @@ export function AccountsPage() {
+     const result = new Map<string, AccountQuotaWindowDefinition[]>();
+     for (const row of pageRows) {
+       const quotaWindows =
+         quotaDisplayWindowsByRowKey.get(row.selectionKey) ??
+         buildQuotaDisplayWindows(row);
+-      const mainListWindows = selectAccountQuotaMainListWindows(
++      const mainListWindows = getMainListQuotaWindows(
+         row,
+         quotaWindows,
+-        getMainListQuotaWindowLimit(effectiveLayoutMode, row)
++        effectiveLayoutMode
+       );
+       const existingDefinitions = quotaWindowDefinitionsByRowKey.get(row.selectionKey);
+       let definitions: AccountQuotaWindowDefinition[];
+       if (existingDefinitions && existingDefinitions.length > 0) {
+         const selectedKeys = new Set(mainListWindows.map((w) => w.key));
+@@ -6391,11 +6421,11 @@ export function AccountsPage() {
+   const refreshQuotaForRow = useCallback(
+     async (
+       row: AccountRow,
+       mode: AccountQuotaRefreshMode = 'summary'
+     ): Promise<AccountQuotaRefreshOutcome> => {
+-      if (row.runtimeOnly || !isQuotaRefreshSupportedProvider(row.provider)) {
++      if (row.runtimeOnly || !canRefreshAccountQuota(row)) {
+         return { status: 'ignored' };
+       }
+       const refreshWithConfig = <TState, TData>(
+         config: QuotaConfig<TState, TData>,
+         setQuota: QuotaSetter<TState>,
+@@ -6502,10 +6532,19 @@ export function AccountsPage() {
+               setMetaQuota,
+               getScopedQuotaState(META_CONFIG, baseQuotaStores.metaQuota, row.raw)
              )
            );
          default:
@@ -368,17 +464,45 @@ index 7013705..f4aa6e6 100644
      },
      [
        invalidateCodexCredentialStatusForSelectionKeys,
-       setAntigravityQuota,
+@@ -6513,10 +6552,11 @@ export function AccountsPage() {
        setClaudeQuota,
        setCodexQuota,
+       setDevinQuota,
        setKimiQuota,
+       setMetaQuota,
 +      setPluginQuota,
        setXaiQuota,
        t,
        authFilesRequestScope,
        baseQuotaStores,
      ]
-@@ -6054,10 +6075,43 @@ export function AccountsPage() {
+@@ -6527,11 +6567,11 @@ export function AccountsPage() {
+       const currentBatch = quotaRefreshBatchRef.current;
+       if (currentBatch?.connectionFingerprint === connectionFingerprint) {
+         return currentBatch.promise;
+       }
+       const refreshable = targets.filter(
+-        (row) => !row.runtimeOnly && isQuotaRefreshSupportedProvider(row.provider)
++        (row) => !row.runtimeOnly && canRefreshAccountQuota(row)
+       );
+       if (refreshable.length === 0) {
+         showNotification(t('accounts.no_refreshable_accounts'), 'warning');
+         return Promise.resolve();
+       }
+@@ -6677,11 +6717,11 @@ export function AccountsPage() {
+     [accountDisplayMode, connectionFingerprint, refreshQuotaForRow, showNotification, t]
+   );
+ 
+   const refreshAccountQuota = useCallback(
+     async (row: AccountRow, mode: AccountQuotaRefreshMode = 'summary'): Promise<void> => {
+-      if (row.runtimeOnly || !isQuotaRefreshSupportedProvider(row.provider)) return;
++      if (row.runtimeOnly || !canRefreshAccountQuota(row)) return;
+       const refreshKey = getAccountQuotaRefreshKey(row);
+       if (manualQuotaRefreshingKeysRef.current.has(refreshKey)) return;
+ 
+       manualQuotaRefreshingKeysRef.current.add(refreshKey);
+       setManualQuotaRefreshingKeys((current) => {
+@@ -6735,10 +6775,48 @@ export function AccountsPage() {
    );
  
    const isManualQuotaRefreshing = (row: AccountRow): boolean =>
@@ -390,7 +514,12 @@ index 7013705..f4aa6e6 100644
 +  const refreshStalePluginQuotas = useCallback(() => {
 +    const nowMs = Date.now();
 +    pageRows.forEach((row) => {
-+      if (row.runtimeOnly || row.raw.disabled === true || !isPluginQuotaFile(row.raw)) return;
++      if (
++        row.runtimeOnly ||
++        row.raw.disabled === true ||
++        isQuotaRefreshSupportedProvider(row.provider) ||
++        !isPluginQuotaFile(row.raw)
++      ) return;
 +      const refreshKey = getAccountQuotaRefreshKey(row);
 +      if (
 +        pluginQuotaAutoRefreshKeysRef.current.has(refreshKey) ||
@@ -422,58 +551,137 @@ index 7013705..f4aa6e6 100644
        if (!requestHistoryAvailable) return Promise.resolve();
        const refreshKey = JSON.stringify({
          checking: featureAvailability.checking,
-@@ -7484,11 +7538,15 @@ export function AccountsPage() {
-                   const label = visibleScopeLabel
-                     ? `${visibleScopeLabel} · ${window.label}`
-                     : window.groupLabel
-                       ? `${window.groupLabel} ${window.label}`
-                       : window.label;
--                  return `${label}: ${formatPercent(window.remainingPercent)}`;
-+                  return `${label}: ${
-+                    window.remainingPercent === null && window.amountLabel
-+                      ? window.amountLabel
-+                      : formatPercent(window.remainingPercent)
-+                  }`;
-                 })
-                 .join('\n') ||
-               quotaEmptyLabel;
-             const healthTitle = t(
-               item.health.tooltipKey,
-@@ -7755,10 +7813,33 @@ export function AccountsPage() {
-                             ? `${visibleScopeLabel} · ${window.label}`
-                             : window.label;
-                           const barClass = usesFallbackQuotaPresentation
-                             ? getFallbackWindowBarClass(quotaLifecycleBarOverride, windowRemaining)
-                             : getRemainingBarClass(row);
-+                          if (
-+                            windowRemaining === null &&
-+                            window.source === 'plugin' &&
-+                            window.amountLabel
-+                          ) {
-+                            return (
-+                              <span
-+                                key={window.key}
-+                                className={styles.quotaWindowCard}
-+                                data-account-quota-window={window.key}
-+                                title={`${quotaWindowLabel}: ${window.amountLabel}`}
-+                              >
-+                                <span className={styles.quotaWindowAmountLine}>
-+                                  <span className={styles.quotaWindowAmountLabel}>
-+                                    {quotaWindowLabel}
-+                                  </span>
-+                                  <strong className={styles.quotaWindowPercent}>
-+                                    {window.amountLabel}
-+                                  </strong>
-+                                </span>
-+                              </span>
-+                            );
-+                          }
-                           return (
-                             <span
-                               key={window.key}
-                               className={styles.quotaWindowCard}
-                               data-account-quota-window={window.key}
-@@ -7933,10 +8014,11 @@ export function AccountsPage() {
+@@ -8203,11 +8281,11 @@ export function AccountsPage() {
+ 
+   const renderBatchBar = () => {
+     const hasSelection = selectionCount > 0;
+     const refreshTargets = hasSelection ? selectedRows : pageRows;
+     const hasRefreshableTargets = refreshTargets.some(
+-      (row) => !row.runtimeOnly && isQuotaRefreshSupportedProvider(row.provider)
++      (row) => !row.runtimeOnly && canRefreshAccountQuota(row)
+     );
+     const showSelectionControls = isSelectionMode || hasSelection;
+ 
+     return (
+       <section
+@@ -8367,11 +8445,11 @@ export function AccountsPage() {
+               onClick={() => refreshQuotaRows(selectedRows)}
+               disabled={
+                 disableControls ||
+                 quotaRefreshing ||
+                 !selectedRows.some(
+-                  (row) => !row.runtimeOnly && isQuotaRefreshSupportedProvider(row.provider)
++                  (row) => !row.runtimeOnly && canRefreshAccountQuota(row)
+                 )
+               }
+               loading={quotaRefreshing}
+               title={t('accounts.refresh_quota')}
+             >
+@@ -8450,11 +8528,11 @@ export function AccountsPage() {
+       targetRow: AccountRow
+     ): AccountQuotaRefreshMode =>
+       targetRow.provider === CODEX_CONFIG.type ? 'detail' : 'summary';
+ 
+     const refreshButton =
+-      !row.runtimeOnly && isQuotaRefreshSupportedProvider(row.provider) ? (
++      !row.runtimeOnly && canRefreshAccountQuota(row) ? (
+         <Button
+           variant="secondary"
+           size="sm"
+           iconOnly
+           className={`${styles.accountIconButton} ${styles.accountIconButtonRefresh}`}
+@@ -8649,13 +8727,15 @@ export function AccountsPage() {
+       windowUsageData.currentCost !== null &&
+       windowUsageData.currentTokens !== null;
+     const hasForecast =
+       windowUsageData.forecastCost !== null &&
+       windowUsageData.forecastTokens !== null;
++    const amountOnly = window.source === 'plugin' && windowRemaining === null && window.amountLabel;
+     const percentText = windowRemaining !== null ? formatPercent(windowRemaining) : '-';
+     const remainingParts = formatQuotaRemainingPercentParts(percentText, i18n.language);
+-    const remainingText = formatQuotaRemainingPercentDisplay(percentText, i18n.language);
++    const remainingText =
++      amountOnly || formatQuotaRemainingPercentDisplay(percentText, i18n.language);
+     const cardTitle = [
+       `${readableLabel}: ${remainingText}${relativeReset ? ` | ${relativeReset}` : ''}`,
+       hasActual
+         ? `${t('accounts.quota_used_short')} ${formatCompactUsd(
+             windowUsageData.currentCost!
+@@ -8703,11 +8783,13 @@ export function AccountsPage() {
+                 </span>
+                 <span className={styles.quotaWindowSep} aria-hidden="true" />
+               </>
+             ) : null}
+             <strong className={styles.quotaWindowPercent}>
+-              {remainingParts ? (
++              {amountOnly ? (
++                amountOnly
++              ) : remainingParts ? (
+                 <>
+                   <span className={styles.quotaWindowPercentPrefix}>
+                     {remainingParts.prefix}
+                   </span>
+                   <span className={styles.quotaWindowPercentValue}>
+@@ -8719,16 +8801,18 @@ export function AccountsPage() {
+               )}
+             </strong>
+             {extraMeta}
+           </span>
+         </span>
+-        <span className={styles.quotaTrack} aria-hidden="true">
+-          <span
+-            className={`${styles.quotaBar} ${barClass}`}
+-            style={{ width: `${windowWidth}%` }}
+-          />
+-        </span>
++        {!amountOnly ? (
++          <span className={styles.quotaTrack} aria-hidden="true">
++            <span
++              className={`${styles.quotaBar} ${barClass}`}
++              style={{ width: `${windowWidth}%` }}
++            />
++          </span>
++        ) : null}
+         <span className={styles.quotaWindowUsageLine}>
+           {hasActual ? (
+             <span
+               className={styles.quotaUsageGroup}
+               title={`${t('accounts.quota_used_short')}: ${formatCompactUsd(
+@@ -8801,14 +8885,14 @@ export function AccountsPage() {
+     const recommendation = recommendationBySelectionKey.get(row.selectionKey) ?? null;
+     const accountHistory = accountHistoryByRowKey.get(row.selectionKey) ?? null;
+     const quotaWindows =
+       quotaDisplayWindowsByRowKey.get(row.selectionKey) ?? buildQuotaDisplayWindows(row);
+     const quotaLifecycleBarOverride = getAccountQuotaLifecycleBarOverride(row.quota.status);
+-    const mainListWindows = selectAccountQuotaMainListWindows(
++    const mainListWindows = getMainListQuotaWindows(
+       row,
+       quotaWindows,
+-      getMainListQuotaWindowLimit(effectiveLayoutMode, row)
++      effectiveLayoutMode
+     );
+     const quotaCooldown = quotaCooldownsByRowKey.get(row.selectionKey)?.[0] ?? null;
+     const codexStatus = codexStatusBySelectionKey.get(row.selectionKey) ?? null;
+     const item = buildAccountListItem(row, {
+       t,
+@@ -8846,11 +8930,15 @@ export function AccountsPage() {
+         : t('accounts.quota_source_none');
+     const quotaWindowTitle =
+       mainListWindows
+         .map((window) => {
+           const label = getQuotaWindowReadableLabel(window, t);
+-          return `${label}: ${formatPercent(window.remainingPercent)}`;
++          return `${label}: ${
++            window.remainingPercent === null && window.amountLabel
++              ? window.amountLabel
++              : formatPercent(window.remainingPercent)
++          }`;
+         })
+         .join('\n') || quotaEmptyLabel;
+     const healthTitle = t(
+       item.health.tooltipKey,
+       formatQuotaResetTooltipParams(
+@@ -9871,10 +9959,11 @@ export function AccountsPage() {
  
      const renderActiveDetail = () => {
        if (detailTab === 'quota') {
@@ -485,8 +693,21 @@ index 7013705..f4aa6e6 100644
              historyAvailable={requestHistoryAvailable}
              historyRefreshing={historyRefreshing}
              onRefreshHistory={() => void refreshAccountHistory(selectedRow)}
+@@ -10073,11 +10162,11 @@ export function AccountsPage() {
+               >
+                 <IconShield size={16} />
+                 {t('accounts.recommend_action_reauth')}
+               </Button>
+             ) : null}
+-            {!selectedRow.runtimeOnly && isQuotaRefreshSupportedProvider(selectedRow.provider) ? (
++            {!selectedRow.runtimeOnly && canRefreshAccountQuota(selectedRow) ? (
+               <Button
+                 variant="secondary"
+                 onClick={() => void refreshAccountQuota(selectedRow, 'detail')}
+                 loading={quotaRefreshing || selectedQuotaRefreshing}
+                 disabled={disableControls || selectedQuotaRefreshing || selectedRow.runtimeOnly}
 diff --git c/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx i/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx
-index 4d2fdaf..4f5ebec 100644
+index 0698eaaa..7ffcc3b5 100644
 --- c/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx
 +++ i/apps/web/src/features/accounts/components/accountDetail/AccountQuotaTab.tsx
 @@ -1,9 +1,11 @@
@@ -501,7 +722,7 @@ index 4d2fdaf..4f5ebec 100644
    IconChartLine,
    IconCheck,
    IconDollarSign,
-@@ -93,20 +95,22 @@ const MetricCell = ({ icon, tone, label, value, valueTitle }: MetricCellProps):
+@@ -93,10 +95,11 @@ const MetricCell = ({ icon, tone, label, value, valueTitle }: MetricCellProps):
      </div>
    );
  };
@@ -513,9 +734,10 @@ index 4d2fdaf..4f5ebec 100644
    historyAvailable: boolean;
    historyRefreshing: boolean;
    onRefreshHistory: () => void;
-   onResetQuota: () => void;
-   resetQuotaDisabled: boolean;
- }
+@@ -131,10 +134,11 @@ const renderResetCreditRemainingText = (
+       return t('codex_quota.reset_credit_expiry_remaining_less_than_minute');
+   }
+ };
  
  export function AccountQuotaTab({
 +  file,
@@ -524,7 +746,7 @@ index 4d2fdaf..4f5ebec 100644
    historyAvailable,
    historyRefreshing,
    onRefreshHistory,
-@@ -282,10 +286,14 @@ export function AccountQuotaTab({
+@@ -315,10 +319,14 @@ export function AccountQuotaTab({
              ))}
            </div>
          </section>
@@ -536,12 +758,12 @@ index 4d2fdaf..4f5ebec 100644
 +
        {shouldShowResetRecords ? (
          <section
+           id="quota-reset-records"
            className={styles.quotaSection}
            data-account-quota-evidence="true"
-           data-account-quota-reset-records="true"
 diff --git c/apps/web/src/features/accounts/components/accountDetail/GeminiWebQuotaPanel.tsx i/apps/web/src/features/accounts/components/accountDetail/GeminiWebQuotaPanel.tsx
 new file mode 100644
-index 0000000..d65975c
+index 00000000..d65975c4
 --- /dev/null
 +++ i/apps/web/src/features/accounts/components/accountDetail/GeminiWebQuotaPanel.tsx
 @@ -0,0 +1,221 @@
@@ -767,14 +989,14 @@ index 0000000..d65975c
 +  );
 +}
 diff --git c/apps/web/src/features/accounts/model/accountOperationalScope.test.ts i/apps/web/src/features/accounts/model/accountOperationalScope.test.ts
-index fa33d49..ad8bd7a 100644
+index 9746b111..b81fd299 100644
 --- c/apps/web/src/features/accounts/model/accountOperationalScope.test.ts
 +++ i/apps/web/src/features/accounts/model/accountOperationalScope.test.ts
-@@ -7,10 +7,11 @@ const emptyStores = () => ({
-   antigravityQuota: {},
-   claudeQuota: {},
+@@ -9,10 +9,11 @@ const emptyStores = () => ({
    codexQuota: {},
    kimiQuota: {},
+   devinQuota: {},
+   metaQuota: {},
    xaiQuota: {},
 +  pluginQuota: {},
  });
@@ -783,14 +1005,14 @@ index fa33d49..ad8bd7a 100644
    it('assigns a file-level item to the only account row behind that file', () => {
      const rows = buildAccountRows(
 diff --git c/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.test.ts i/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.test.ts
-index 01343ff..b5c0246 100644
+index eddbc3ae..1af6ce61 100644
 --- c/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.test.ts
 +++ i/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.test.ts
-@@ -26,10 +26,11 @@ const emptyStores = (): AccountQuotaStores => ({
-   antigravityQuota: {},
-   claudeQuota: {},
+@@ -28,10 +28,11 @@ const emptyStores = (): AccountQuotaStores => ({
    codexQuota: {},
+   devinQuota: {},
    kimiQuota: {},
+   metaQuota: {},
    xaiQuota: {},
 +  pluginQuota: {},
  });
@@ -798,11 +1020,11 @@ index 01343ff..b5c0246 100644
  const t = ((key: string, options?: Record<string, string | number>) => {
    const translations: Record<string, string> = {
      'antigravity_quota.group_gemini_models': 'Gemini models',
-@@ -54,10 +55,11 @@ const buildRow = (file: AuthFileItem, stores: AccountQuotaStores = emptyStores()
-     stores.antigravityQuota,
-     stores.claudeQuota,
+@@ -60,10 +61,11 @@ const buildRow = (file: AuthFileItem, stores: AccountQuotaStores = emptyStores()
      stores.codexQuota,
+     stores.devinQuota,
      stores.kimiQuota,
+     stores.metaQuota,
      stores.xaiQuota,
 +    stores.pluginQuota,
    ] as Array<Record<string, CredentialScopedQuotaState>>;
@@ -810,10 +1032,10 @@ index 01343ff..b5c0246 100644
      const legacy = record[file.name];
      if (!legacy) return;
      const identity = buildQuotaCredentialIdentity(file);
-@@ -1044,5 +1046,113 @@ describe('accountQuotaDisplayWindows', () => {
-         t,
-       })
-     ).toEqual([]);
+@@ -1890,5 +1892,113 @@ describe('accountQuotaDisplayWindows', () => {
+         quotaProgressObservedAtMs: null,
+       });
+     });
    });
  });
 +
@@ -925,7 +1147,7 @@ index 01343ff..b5c0246 100644
 +  });
 +});
 diff --git c/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.ts i/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.ts
-index 3f8e699..528ec14 100644
+index f16412d4..f276e1ec 100644
 --- c/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.ts
 +++ i/apps/web/src/features/accounts/model/accountQuotaDisplayWindows.ts
 @@ -19,10 +19,15 @@ import {
@@ -940,15 +1162,15 @@ index 3f8e699..528ec14 100644
 +  pluginQuotaBucketLabel,
 +} from '@/utils/quota/pluginQuota';
  import type { AccountRow } from './accountRows';
- import type { AccountQuotaStores } from './accountQuotaSummary';
- 
- export type AccountQuotaWindowKind =
-   | 'five_hour'
-@@ -39,10 +44,11 @@ export type AccountQuotaWindowSource =
-   | 'codex'
-   | 'claude'
+ import {
+   hasConfirmedXaiBillingEntitlement,
+   isExplicitFreeXaiPlan,
+   type AccountQuotaStores,
+@@ -45,10 +50,11 @@ export type AccountQuotaWindowSource =
    | 'antigravity'
+   | 'devin'
    | 'kimi'
+   | 'meta'
    | 'xai'
 +  | 'plugin'
    | 'summary';
@@ -956,7 +1178,7 @@ index 3f8e699..528ec14 100644
  export interface AccountQuotaDisplayWindow {
    key: string;
    label: string;
-@@ -760,10 +766,81 @@ const buildXaiQuotaDisplayWindows = (
+@@ -803,10 +809,81 @@ const buildXaiQuotaDisplayWindows = (
    });
  
    return windows;
@@ -1038,9 +1260,9 @@ index 3f8e699..528ec14 100644
    options: BuildAccountQuotaDisplayWindowsOptions
  ): AccountQuotaDisplayWindow[] => {
    if (row.quota.remainingPercent === null && row.quota.usedPercent === null) return [];
-@@ -810,7 +887,12 @@ export const buildAccountQuotaDisplayWindows = (
-   if (row.provider === 'xai') {
-     const windows = buildXaiQuotaDisplayWindows(row, options);
+@@ -863,10 +940,15 @@ export const buildAccountQuotaDisplayWindows = (
+   if (row.provider === 'meta') {
+     const windows = buildMetaQuotaDisplayWindows(row, options);
      if (windows.length) return windows;
    }
  
@@ -1051,13 +1273,16 @@ index 3f8e699..528ec14 100644
 +
    return buildSummaryQuotaDisplayWindow(row, options);
  };
+ 
+ const buildDevinQuotaDisplayWindows = (
+   row: AccountRow,
 diff --git c/apps/web/src/features/accounts/model/accountQuotaSummary.test.ts i/apps/web/src/features/accounts/model/accountQuotaSummary.test.ts
-index afb2aa6..afb6383 100644
+index 0d9962b3..0d0f7635 100644
 --- c/apps/web/src/features/accounts/model/accountQuotaSummary.test.ts
 +++ i/apps/web/src/features/accounts/model/accountQuotaSummary.test.ts
-@@ -1,18 +1,22 @@
+@@ -1,10 +1,13 @@
  import { describe, expect, it } from 'vitest';
- import type { AuthFileItem, CodexQuotaState } from '@/types';
+ import type { AuthFileItem, CodexQuotaState, XaiBillingSummary } from '@/types';
  import { getAuthFileSelectionKey } from '@/features/authFiles/model/credentialStatus';
  import { CODEX_SPARK_MODEL_ID } from '@/utils/quota/codexQuota';
 -import { buildQuotaCredentialIdentity } from '@/utils/quota/credentialScope';
@@ -1065,27 +1290,29 @@ index afb2aa6..afb6383 100644
 +  buildQuotaCredentialIdentity,
 +  getQuotaCredentialStoreKey,
 +} from '@/utils/quota/credentialScope';
- import { resolveAccountQuota, type AccountQuotaStores } from './accountQuotaSummary';
- 
- const emptyStores = (): AccountQuotaStores => ({
-   antigravityQuota: {},
-   claudeQuota: {},
+ import {
+   hasConfirmedXaiBillingEntitlement,
+   resolveAccountQuota,
+   type AccountQuotaStores,
+ } from './accountQuotaSummary';
+@@ -15,10 +18,11 @@ const emptyStores = (): AccountQuotaStores => ({
    codexQuota: {},
+   devinQuota: {},
    kimiQuota: {},
+   metaQuota: {},
    xaiQuota: {},
 +  pluginQuota: {},
  });
  
- describe('resolveAccountQuota', () => {
-   it('keeps the account summary on Codex Main when Spark is more constrained', () => {
-     const file = {
-@@ -131,5 +135,60 @@ describe('resolveAccountQuota', () => {
-     };
- 
-     expect(resolveAccountQuota(file, stores).planType).toBe('Antigravity Future');
+ const makeXaiBilling = (overrides: Partial<XaiBillingSummary> = {}): XaiBillingSummary => ({
+   periodType: 'weekly',
+   usagePercent: null,
+@@ -654,5 +658,59 @@ describe('hasConfirmedXaiBillingEntitlement', () => {
+     expect(hasConfirmedXaiBillingEntitlement(withOnDemandLimit, undefined)).toBe(false);
+     expect(hasConfirmedXaiBillingEntitlement(withOnDemandLimit, 'unknown')).toBe(false);
    });
  });
-+
+ 
 +describe('resolveAccountQuota for CPA plugin quota', () => {
 +  const pluginFile = (name: string, provider: string) =>
 +    ({
@@ -1141,24 +1368,27 @@ index afb2aa6..afb6383 100644
 +  });
 +});
 diff --git c/apps/web/src/features/accounts/model/accountQuotaSummary.ts i/apps/web/src/features/accounts/model/accountQuotaSummary.ts
-index 71ddd07..ac43d63 100644
+index a08f9c85..e5edb4b6 100644
 --- c/apps/web/src/features/accounts/model/accountQuotaSummary.ts
 +++ i/apps/web/src/features/accounts/model/accountQuotaSummary.ts
-@@ -1,11 +1,13 @@
+@@ -1,14 +1,16 @@
  import type {
 +  AntigravityQuotaGroup,
    AntigravityQuotaState,
    AuthFileItem,
    ClaudeQuotaState,
    CodexQuotaState,
+   CodexSpendControlLimit,
+   DevinQuotaState,
    KimiQuotaState,
+   MetaQuotaState,
 +  PluginQuotaState,
    QuotaResetAccuracy,
    XaiBillingSummary,
    XaiQuotaState,
  } from '@/types';
  import {
-@@ -24,10 +26,11 @@ import {
+@@ -27,10 +29,11 @@ import {
    hasUsageHeaderDiagnosticSignal,
  } from '@/utils/usageHeaderSnapshots';
  import { getCredentialScopedQuotaState } from '@/utils/quota/credentialScope';
@@ -1170,11 +1400,11 @@ index 71ddd07..ac43d63 100644
    | 'unknown'
    | 'loading'
    | 'ok'
-@@ -74,10 +77,11 @@ export interface AccountQuotaStores {
-   antigravityQuota: Record<string, AntigravityQuotaState>;
-   claudeQuota: Record<string, ClaudeQuotaState>;
+@@ -79,10 +82,11 @@ export interface AccountQuotaStores {
    codexQuota: Record<string, CodexQuotaState>;
+   devinQuota: Record<string, DevinQuotaState>;
    kimiQuota: Record<string, KimiQuotaState>;
+   metaQuota: Record<string, MetaQuotaState>;
    xaiQuota: Record<string, XaiQuotaState>;
 +  pluginQuota: Record<string, PluginQuotaState>;
  }
@@ -1182,7 +1412,7 @@ index 71ddd07..ac43d63 100644
  export interface AccountQuotaOverrides {
    codexQuotaBySelectionKey?: Map<string, CodexQuotaState>;
    codexHeaderSnapshotBySelectionKey?: Map<string, UsageHeaderSnapshot>;
-@@ -835,10 +839,53 @@ const loadingQuota = (planType: string | null): AccountQuotaSummary => ({
+@@ -914,10 +918,53 @@ const loadingQuota = (planType: string | null): AccountQuotaSummary => ({
    resetAccuracy: 'unknown',
    planType,
    source: 'cache',
@@ -1236,7 +1466,7 @@ index 71ddd07..ac43d63 100644
    stores: AccountQuotaStores,
    overrides?: AccountQuotaOverrides
  ): AccountQuotaSummary => {
-@@ -953,46 +1000,11 @@ export const resolveAccountQuota = (
+@@ -1032,46 +1079,11 @@ export const resolveAccountQuota = (
      const planType = antigravityPlanType;
      if (quota.status === 'loading') return loadingQuota(planType);
      if (quota.status === 'error') {
@@ -1284,10 +1514,10 @@ index 71ddd07..ac43d63 100644
    if (provider === 'kimi') {
      const quota = getCredentialScopedQuotaState(stores.kimiQuota, file);
      if (!quota) return emptyQuota(filePlanType);
-@@ -1021,10 +1033,21 @@ export const resolveAccountQuota = (
-     return quotaFromXaiBilling(quota.billing, filePlanType, {
-       fetchedAtMs: quota.fetchedAtMs,
-     });
+@@ -1146,10 +1158,21 @@ export const resolveAccountQuota = (
+             ?.quotaProgressObservedAtMs ?? undefined,
+       }
+     );
    }
  
 +  if (isPluginQuotaFile(file)) {
@@ -1307,14 +1537,14 @@ index 71ddd07..ac43d63 100644
  export const compareQuotaResetLabels = (
    leftRaw: string,
 diff --git c/apps/web/src/features/accounts/model/accountRows.test.ts i/apps/web/src/features/accounts/model/accountRows.test.ts
-index 37981ee..7366add 100644
+index 8762cc06..ee936dd1 100644
 --- c/apps/web/src/features/accounts/model/accountRows.test.ts
 +++ i/apps/web/src/features/accounts/model/accountRows.test.ts
-@@ -36,10 +36,11 @@ const emptyStores = (): AccountQuotaStores => ({
-   antigravityQuota: {},
-   claudeQuota: {},
+@@ -45,10 +45,11 @@ const emptyStores = (): AccountQuotaStores => ({
    codexQuota: {},
    kimiQuota: {},
+   devinQuota: {},
+   metaQuota: {},
    xaiQuota: {},
 +  pluginQuota: {},
  });
@@ -1323,13 +1553,13 @@ index 37981ee..7366add 100644
    overrides: Partial<AccountCredentialEvidenceBoundary> = {}
  ): AccountCredentialEvidenceBoundary => ({
 diff --git c/apps/web/src/features/accounts/model/accountsPagePresentation.test.ts i/apps/web/src/features/accounts/model/accountsPagePresentation.test.ts
-index 52fa78c..d94a239 100644
+index ead014ac..8a42e719 100644
 --- c/apps/web/src/features/accounts/model/accountsPagePresentation.test.ts
 +++ i/apps/web/src/features/accounts/model/accountsPagePresentation.test.ts
-@@ -387,5 +387,29 @@ describe('accountsPagePresentation', () => {
-     expect(matrix?.windowKeys).toEqual(
-       new Set(['five-claude', 'five-gemini', 'weekly-claude', 'weekly-gemini'])
-     );
+@@ -1066,5 +1066,29 @@ describe('accountsPagePresentation', () => {
+       expect(formatQuotaRemainingPercentDisplay('', 'zh-CN')).toBe('-');
+       expect(formatQuotaRemainingPercentDisplay('80%')).toBe('剩余 80%');
+     });
    });
  });
 +
@@ -1357,10 +1587,10 @@ index 52fa78c..d94a239 100644
 +  });
 +});
 diff --git c/apps/web/src/features/accounts/model/accountsPagePresentation.ts i/apps/web/src/features/accounts/model/accountsPagePresentation.ts
-index 4158e08..d52ea66 100644
+index 0505a975..44d5992b 100644
 --- c/apps/web/src/features/accounts/model/accountsPagePresentation.ts
 +++ i/apps/web/src/features/accounts/model/accountsPagePresentation.ts
-@@ -376,10 +376,14 @@ const selectKimiQuotaListWindows = (
+@@ -852,10 +852,14 @@ export const selectAccountQuotaMainListWindows = (
  export const selectAccountQuotaListWindows = (
    row: AccountRow,
    quotaWindows: AccountQuotaDisplayWindow[],
@@ -1376,14 +1606,14 @@ index 4158e08..d52ea66 100644
      case 'kimi':
        return selectKimiQuotaListWindows(quotaWindows);
 diff --git c/apps/web/src/features/accounts/model/usageValueRows.test.ts i/apps/web/src/features/accounts/model/usageValueRows.test.ts
-index d1ce4df..b716813 100644
+index 571445e1..169bc74c 100644
 --- c/apps/web/src/features/accounts/model/usageValueRows.test.ts
 +++ i/apps/web/src/features/accounts/model/usageValueRows.test.ts
-@@ -18,10 +18,11 @@ const emptyStores = (): AccountQuotaStores => ({
-   antigravityQuota: {},
-   claudeQuota: {},
+@@ -20,10 +20,11 @@ const emptyStores = (): AccountQuotaStores => ({
    codexQuota: {},
    kimiQuota: {},
+   devinQuota: {},
+   metaQuota: {},
    xaiQuota: {},
 +  pluginQuota: {},
  });
@@ -1391,8 +1621,60 @@ index d1ce4df..b716813 100644
  const makeStat = (
    overrides: Partial<MonitoringAnalyticsAccountStatRow> = {}
  ): MonitoringAnalyticsAccountStatRow => ({
+diff --git c/apps/web/src/features/demo/demoFixtures.ts i/apps/web/src/features/demo/demoFixtures.ts
+index de7b974a..8a7ce9f9 100644
+--- c/apps/web/src/features/demo/demoFixtures.ts
++++ i/apps/web/src/features/demo/demoFixtures.ts
+@@ -40,10 +40,11 @@ import type {
+   CodexQuotaState,
+   CredentialScopedQuotaState,
+   DevinQuotaState,
+   KimiQuotaState,
+   MetaQuotaState,
++  PluginQuotaState,
+   XaiQuotaState,
+ } from '@/types';
+ import type { ModelInfo } from '@/utils/models';
+ import { formatXaiProbeIssue } from '@/utils/quota/xaiPresentation';
+ import { buildQuotaCredentialIdentity } from '@/utils/quota/credentialScope';
+@@ -67,10 +68,11 @@ export type DemoQuotaStoreState = {
+   claudeQuota: Record<string, ClaudeQuotaState>;
+   codexQuota: Record<string, CodexQuotaState>;
+   devinQuota: Record<string, DevinQuotaState>;
+   kimiQuota: Record<string, KimiQuotaState>;
+   metaQuota: Record<string, MetaQuotaState>;
++  pluginQuota: Record<string, PluginQuotaState>;
+   xaiQuota: Record<string, XaiQuotaState>;
+ };
+ 
+ const clone = <T>(value: T): T => {
+   if (typeof structuredClone === 'function') {
+@@ -6198,10 +6200,11 @@ export const getDemoUsageServiceStatus = (): UsageServiceStatus => ({
+ 
+ const getDemoQuotaStoreStateByFileName = (
+   baseNow = getDemoEvidenceEpochMs()
+ ): DemoQuotaStoreState => ({
+   metaQuota: {},
++  pluginQuota: {},
+   codexQuota: {
+     'codex-team-01.json': {
+       status: 'success',
+       planType: 'team',
+       authFileKey: 'codex-team-01.json::codex-team-01',
+@@ -6912,10 +6915,11 @@ export const getDemoQuotaStoreState = (baseNow = getDemoEvidenceEpochMs()): Demo
+     claudeQuota: scopeDemoQuotaRecord(raw.claudeQuota, filesByName),
+     codexQuota: scopeDemoQuotaRecord(raw.codexQuota, filesByName),
+     devinQuota: scopeDemoQuotaRecord(raw.devinQuota, filesByName),
+     kimiQuota: scopeDemoQuotaRecord(raw.kimiQuota, filesByName),
+     metaQuota: scopeDemoQuotaRecord(raw.metaQuota, filesByName),
++    pluginQuota: scopeDemoQuotaRecord(raw.pluginQuota, filesByName),
+     xaiQuota: scopeDemoQuotaRecord(raw.xaiQuota, filesByName),
+   };
+ };
+ 
+ export const getDemoAccountProcessingPolicy = (): AccountProcessingPolicy => ({
 diff --git c/apps/web/src/features/logs/LogsPage.module.scss i/apps/web/src/features/logs/LogsPage.module.scss
-index 168945e..a12b0ba 100644
+index 168945ee..a12b0ba2 100644
 --- c/apps/web/src/features/logs/LogsPage.module.scss
 +++ i/apps/web/src/features/logs/LogsPage.module.scss
 @@ -725,5 +725,28 @@
@@ -1425,7 +1707,7 @@ index 168945e..a12b0ba 100644
 +  margin-bottom: $spacing-sm;
 +}
 diff --git c/apps/web/src/features/logs/LogsPage.tsx i/apps/web/src/features/logs/LogsPage.tsx
-index c9000a8..9f247fa 100644
+index fa1ea7a5..22e86aa9 100644
 --- c/apps/web/src/features/logs/LogsPage.tsx
 +++ i/apps/web/src/features/logs/LogsPage.tsx
 @@ -38,10 +38,11 @@ import {
@@ -1440,11 +1722,11 @@ index c9000a8..9f247fa 100644
  interface ErrorLogItem {
    name: string;
    size?: number;
-@@ -93,11 +94,11 @@ export function LogsPage() {
-   );
+@@ -101,11 +102,11 @@ function LogsPageContent() {
    const requestLogEnabled = config?.requestLog ?? false;
    const [logState, setLogState] = useState<LogState>({ buffer: [], visibleFrom: 0 });
    const [loading, setLoading] = useState(true);
+   const [logsLoaded, setLogsLoaded] = useState(false);
    const [error, setError] = useState('');
 -  const [autoRefresh, setAutoRefresh] = useLocalStorage('logsPage.autoRefresh', false);
 +  const [autoRefresh, setAutoRefresh] = useLocalStorage('logsPage.autoRefresh', true);
@@ -1453,10 +1735,10 @@ index c9000a8..9f247fa 100644
    const [hideManagementLogs, setHideManagementLogs] = useLocalStorage(
      'logsPage.hideManagementLogs',
      true
-@@ -109,11 +110,20 @@ export function LogsPage() {
-   );
+@@ -118,11 +119,20 @@ function LogsPageContent() {
    const [errorLogs, setErrorLogs] = useState<ErrorLogItem[]>([]);
    const [loadingErrors, setLoadingErrors] = useState(false);
+   const [errorLogsLoaded, setErrorLogsLoaded] = useState(false);
    const [errorLogsError, setErrorLogsError] = useState('');
    const [requestLogId, setRequestLogId] = useState<string | null>(null);
 +  const [errorLogName, setErrorLogName] = useState<string | null>(null);
@@ -1474,22 +1756,7 @@ index c9000a8..9f247fa 100644
    const longPressRef = useRef<{
      timer: number | null;
      startX: number;
-@@ -223,13 +233,11 @@ export function LogsPage() {
-         const visibleFrom = Math.max(buffer.length - INITIAL_DISPLAY_LINES, 0);
-         setLogState({ buffer, visibleFrom });
-       }
-     } catch (err: unknown) {
-       console.error('Failed to load logs:', err);
--      if (!incremental) {
--        setError(getErrorMessage(err) || t('logs.load_error'));
--      }
-+      setError(getErrorMessage(err) || t('logs.load_error'));
-     } finally {
-       if (!incremental) {
-         setLoading(false);
-       }
-       logRequestInFlightRef.current = false;
-@@ -351,21 +359,15 @@ export function LogsPage() {
+@@ -399,21 +409,15 @@ function LogsPageContent() {
      }, 8000);
      return () => window.clearInterval(id);
      // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1512,7 +1779,7 @@ index c9000a8..9f247fa 100644
        working = working.filter((line) => !line.includes(MANAGEMENT_API_PREFIX));
      }
  
-@@ -373,18 +375,18 @@ export function LogsPage() {
+@@ -421,18 +425,18 @@ function LogsPageContent() {
        const queryLowered = trimmedSearchQuery.toLowerCase();
        working = working.filter((line) => line.toLowerCase().includes(queryLowered));
      }
@@ -1533,7 +1800,7 @@ index c9000a8..9f247fa 100644
          filters.methodFilterSet.size > 0 &&
          (!line.method || !filters.methodFilterSet.has(line.method))
        ) {
-@@ -404,17 +406,23 @@ export function LogsPage() {
+@@ -452,17 +456,23 @@ function LogsPageContent() {
        }
  
        return true;
@@ -1545,11 +1812,11 @@ index c9000a8..9f247fa 100644
      return {
 -      filteredParsedLines: filteredParsed,
 -      filteredLines: filteredParsed.map((line) => line.raw),
--      removedCount: Math.max(baseLines.length - filteredParsed.length, 0)
+-      removedCount: Math.max(baseLines.length - filteredParsed.length, 0),
 +      filteredParsedLines: visible,
 +      filteredLines: visible.map((line) => line.raw),
 +      removedCount: logState.buffer.length - filteredParsed.length,
-+      availableLineCount: filteredParsed.length
++      availableLineCount: filteredParsed.length,
      };
    }, [
 -    baseLines,
@@ -1559,9 +1826,9 @@ index c9000a8..9f247fa 100644
      filters.methodFilterSet,
      filters.pathFilterSet,
      filters.statusFilterSet,
-     parsedSearchLines
+     parsedSearchLines,
    ]);
-@@ -430,10 +438,11 @@ export function LogsPage() {
+@@ -478,10 +488,11 @@ function LogsPageContent() {
      logState,
      setLogState,
      loading,
@@ -1569,11 +1836,11 @@ index c9000a8..9f247fa 100644
      filteredLineCount: filteredLines.length,
 +    availableLineCount,
      hasStructuredFilters: filters.hasStructuredFilters,
-     showRawLogs
+     showRawLogs,
    });
  
    logScrollerRef.current = scroller;
-@@ -489,12 +498,36 @@ export function LogsPage() {
+@@ -537,12 +548,36 @@ function LogsPageContent() {
    };
  
    const closeRequestLogModal = () => {
@@ -1610,7 +1877,7 @@ index c9000a8..9f247fa 100644
      try {
        const response = await logsApi.downloadRequestLogById(id);
        downloadBlob({
-@@ -783,11 +816,11 @@ export function LogsPage() {
+@@ -831,11 +866,11 @@ function LogsPageContent() {
                          <span className={styles.loadMoreCount}>
                            {t('logs.filtered_lines', { count: removedCount })}
                          </span>
@@ -1623,7 +1890,7 @@ index c9000a8..9f247fa 100644
                    </div>
                  )}
                  {showRawLogs ? (
-@@ -918,17 +951,13 @@ export function LogsPage() {
+@@ -966,17 +1001,13 @@ function LogsPageContent() {
                  {t('common.refresh')}
                </Button>
              }
@@ -1643,8 +1910,8 @@ index c9000a8..9f247fa 100644
                {errorLogsError && <div className="error-box">{errorLogsError}</div>}
  
                <div className={styles.errorPanel}>
-                 {loadingErrors ? (
-@@ -945,10 +974,18 @@ export function LogsPage() {
+                 {loadingErrors && !errorLogsLoaded ? (
+@@ -993,10 +1024,18 @@ function LogsPageContent() {
                              {item.size ? `${(item.size / 1024).toFixed(1)} KB` : ''}{' '}
                              {item.modified ? formatUnixTimestamp(item.modified) : ''}
                            </div>
@@ -1663,7 +1930,7 @@ index c9000a8..9f247fa 100644
                              size="sm"
                              onClick={() => downloadErrorLog(item.name)}
                              disabled={disableControls}
-@@ -965,32 +1002,74 @@ export function LogsPage() {
+@@ -1013,32 +1052,74 @@ function LogsPageContent() {
            </Card>
          )}
        </div>
@@ -1744,7 +2011,7 @@ index c9000a8..9f247fa 100644
    );
  }
 diff --git c/apps/web/src/features/logs/hooks/useLogScroller.ts i/apps/web/src/features/logs/hooks/useLogScroller.ts
-index a19b88e..67d7f60 100644
+index a19b88e2..67d7f60b 100644
 --- c/apps/web/src/features/logs/hooks/useLogScroller.ts
 +++ i/apps/web/src/features/logs/hooks/useLogScroller.ts
 @@ -15,10 +15,11 @@ interface UseLogScrollerOptions {
@@ -1783,7 +2050,7 @@ index a19b88e..67d7f60 100644
      node.scrollTop = node.scrollHeight;
 diff --git c/apps/web/src/features/logs/logPayloads.test.ts i/apps/web/src/features/logs/logPayloads.test.ts
 new file mode 100644
-index 0000000..265d857
+index 00000000..265d857a
 --- /dev/null
 +++ i/apps/web/src/features/logs/logPayloads.test.ts
 @@ -0,0 +1,23 @@
@@ -1812,7 +2079,7 @@ index 0000000..265d857
 +});
 diff --git c/apps/web/src/features/logs/logPayloads.ts i/apps/web/src/features/logs/logPayloads.ts
 new file mode 100644
-index 0000000..4754103
+index 00000000..47541039
 --- /dev/null
 +++ i/apps/web/src/features/logs/logPayloads.ts
 @@ -0,0 +1,25 @@
@@ -1842,7 +2109,7 @@ index 0000000..4754103
 +  return { request, response };
 +}
 diff --git c/apps/web/src/features/monitoring/MonitoringCenterPage.tsx i/apps/web/src/features/monitoring/MonitoringCenterPage.tsx
-index 0c34c38..aa13ca3 100644
+index e7b4a4c4..1aff3fa8 100644
 --- c/apps/web/src/features/monitoring/MonitoringCenterPage.tsx
 +++ i/apps/web/src/features/monitoring/MonitoringCenterPage.tsx
 @@ -40,12 +40,14 @@ import {
@@ -1860,11 +2127,11 @@ index 0c34c38..aa13ca3 100644
    AccountOverviewCard,
  } from '@/features/monitoring/components/AccountOverviewCard';
  import {
-@@ -79,10 +81,11 @@ import { type AccountQuotaState } from '@/features/monitoring/components/account
- import {
+@@ -81,10 +83,11 @@ import {
    ANTIGRAVITY_CONFIG,
    CLAUDE_CONFIG,
    CODEX_CONFIG,
+   DEVIN_CONFIG,
    KIMI_CONFIG,
 +  PLUGIN_QUOTA_CONFIG,
    XAI_CONFIG,
@@ -1872,10 +2139,10 @@ index 0c34c38..aa13ca3 100644
    type QuotaConfig,
    type QuotaRefreshResult,
    type QuotaSetter,
-@@ -270,25 +273,28 @@ export function MonitoringCenterPage() {
-   const antigravityQuota = useQuotaStore((state) => state.antigravityQuota);
+@@ -273,27 +276,30 @@ export function MonitoringCenterPage() {
    const claudeQuota = useQuotaStore((state) => state.claudeQuota);
    const codexQuota = useQuotaStore((state) => state.codexQuota);
+   const devinQuota = useQuotaStore((state) => state.devinQuota);
    const kimiQuota = useQuotaStore((state) => state.kimiQuota);
    const xaiQuota = useQuotaStore((state) => state.xaiQuota);
 +  const pluginQuota = useQuotaStore((state) => state.pluginQuota);
@@ -1884,16 +2151,18 @@ index 0c34c38..aa13ca3 100644
        antigravityQuota,
        claudeQuota,
        codexQuota,
+       devinQuota,
        kimiQuota,
        xaiQuota,
 +      pluginQuota,
      }),
--    [antigravityQuota, claudeQuota, codexQuota, kimiQuota, xaiQuota]
-+    [antigravityQuota, claudeQuota, codexQuota, kimiQuota, xaiQuota, pluginQuota]
+-    [antigravityQuota, claudeQuota, codexQuota, devinQuota, kimiQuota, xaiQuota]
++    [antigravityQuota, claudeQuota, codexQuota, devinQuota, kimiQuota, xaiQuota, pluginQuota]
    );
    const setAntigravityQuota = useQuotaStore((state) => state.setAntigravityQuota);
    const setClaudeQuota = useQuotaStore((state) => state.setClaudeQuota);
    const setCodexQuota = useQuotaStore((state) => state.setCodexQuota);
+   const setDevinQuota = useQuotaStore((state) => state.setDevinQuota);
    const setKimiQuota = useQuotaStore((state) => state.setKimiQuota);
    const setXaiQuota = useQuotaStore((state) => state.setXaiQuota);
 +  const setPluginQuota = useQuotaStore((state) => state.setPluginQuota);
@@ -1902,7 +2171,7 @@ index 0c34c38..aa13ca3 100644
    );
    const [selectedProvider, setSelectedProvider] = useState(
      () => initialMonitoringCenterUiState.current.selectedProvider
-@@ -1352,19 +1358,26 @@ export function MonitoringCenterPage() {
+@@ -1365,20 +1371,27 @@ export function MonitoringCenterPage() {
            return run(
              XAI_CONFIG,
              setXaiQuota,
@@ -1922,6 +2191,7 @@ index 0c34c38..aa13ca3 100644
        setAntigravityQuota,
        setClaudeQuota,
        setCodexQuota,
+       setDevinQuota,
        setKimiQuota,
 +      setPluginQuota,
        setXaiQuota,
@@ -1929,7 +2199,7 @@ index 0c34c38..aa13ca3 100644
      ]
    );
  
-@@ -1587,10 +1600,32 @@ export function MonitoringCenterPage() {
+@@ -1601,10 +1614,32 @@ export function MonitoringCenterPage() {
      focusedAccountId,
      loadAccountQuota,
      pendingCredentialMutationProviders,
@@ -1963,7 +2233,7 @@ index 0c34c38..aa13ca3 100644
        [accountId]: !previous[accountId],
      }));
 diff --git c/apps/web/src/features/monitoring/accountOverviewQuotaTargets.test.ts i/apps/web/src/features/monitoring/accountOverviewQuotaTargets.test.ts
-index 3fc3e81..088ab1c 100644
+index ed86b987..471918ec 100644
 --- c/apps/web/src/features/monitoring/accountOverviewQuotaTargets.test.ts
 +++ i/apps/web/src/features/monitoring/accountOverviewQuotaTargets.test.ts
 @@ -1,9 +1,18 @@
@@ -1986,13 +2256,12 @@ index 3fc3e81..088ab1c 100644
    id: overrides.id ?? 'account@example.com',
    account: overrides.account ?? 'account@example.com',
    provider: overrides.provider,
-@@ -272,5 +281,67 @@ describe('accountOverviewQuotaTargets', () => {
-       { provider: 'antigravity', fileName: 'antigravity.json' },
+@@ -308,5 +317,66 @@ describe('accountOverviewQuotaTargets', () => {
+       { provider: 'devin', authIndex: 'd-1', fileName: 'devin.json', authLabel: 'Devin Account' },
      ]);
-     expect(result.get('same@example.com')).toBeUndefined();
    });
  });
-+
+ 
 +describe('selectStalePluginQuotaRowIds', () => {
 +  const nowMs = Date.parse('2026-10-19T03:00:00Z');
 +  const target = (
@@ -2055,7 +2324,7 @@ index 3fc3e81..088ab1c 100644
 +  });
 +});
 diff --git c/apps/web/src/features/monitoring/accountOverviewQuotaTargets.ts i/apps/web/src/features/monitoring/accountOverviewQuotaTargets.ts
-index 2ec0cbe..5e5b51c 100644
+index daa6e813..2b104ff0 100644
 --- c/apps/web/src/features/monitoring/accountOverviewQuotaTargets.ts
 +++ i/apps/web/src/features/monitoring/accountOverviewQuotaTargets.ts
 @@ -1,6 +1,6 @@
@@ -2065,8 +2334,8 @@ index 2ec0cbe..5e5b51c 100644
    isAntigravityFile,
    isClaudeFile,
    isCodexFile,
-   isDisabledAuthFile,
-@@ -8,14 +8,22 @@ import {
+   isDevinFile,
+@@ -9,14 +9,23 @@ import {
    isXaiFile,
    normalizeAuthIndex,
    resolveCodexChatgptAccountId,
@@ -2077,23 +2346,24 @@ index 2ec0cbe..5e5b51c 100644
  import type { MonitoringAccountAuthState } from './accountOverviewState';
  import type { MonitoringAccountRow } from './hooks/useMonitoringData';
  
--export type MonitoringAccountQuotaProvider = 'antigravity' | 'claude' | 'codex' | 'kimi' | 'xai';
+-export type MonitoringAccountQuotaProvider = 'antigravity' | 'claude' | 'codex' | 'kimi' | 'xai' | 'devin';
 +export type MonitoringAccountQuotaProvider =
 +  | 'antigravity'
 +  | 'claude'
 +  | 'codex'
 +  | 'kimi'
 +  | 'xai'
++  | 'devin'
 +  | 'plugin';
  
  export type MonitoringAccountQuotaTarget = {
    key: string;
    provider: MonitoringAccountQuotaProvider;
    authIndex: string;
-@@ -46,10 +54,11 @@ export const resolveMonitoringAccountQuotaProvider = (
-   if (isCodexFile(file)) return 'codex';
+@@ -48,10 +57,11 @@ export const resolveMonitoringAccountQuotaProvider = (
    if (isClaudeFile(file)) return 'claude';
    if (isAntigravityFile(file)) return 'antigravity';
+   if (isDevinFile(file)) return 'devin';
    if (isKimiFile(file)) return 'kimi';
    if (isXaiFile(file)) return 'xai';
 +  if (isPluginQuotaFile(file)) return 'plugin';
@@ -2102,7 +2372,7 @@ index 2ec0cbe..5e5b51c 100644
  
  const isQuotaTargetable = (file: AuthFileItem) => {
    if (isDisabledAuthFile(file)) return false;
-@@ -120,5 +129,44 @@ export const buildMonitoringAccountQuotaTargetsByRowId = (
+@@ -122,5 +132,44 @@ export const buildMonitoringAccountQuotaTargetsByRowId = (
              left.provider.localeCompare(right.provider)
          ),
        ] as const;
@@ -2148,14 +2418,14 @@ index 2ec0cbe..5e5b51c 100644
 +    return nowMs - lastReadMs >= PLUGIN_QUOTA_STALE_MS;
 +  });
 diff --git c/apps/web/src/features/monitoring/model/monitoringCenterPageModel.test.ts i/apps/web/src/features/monitoring/model/monitoringCenterPageModel.test.ts
-index f121640..dc01198 100644
+index 768a00b1..ddf80a05 100644
 --- c/apps/web/src/features/monitoring/model/monitoringCenterPageModel.test.ts
 +++ i/apps/web/src/features/monitoring/model/monitoringCenterPageModel.test.ts
-@@ -3,10 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
- import {
+@@ -4,10 +4,11 @@ import {
    ANTIGRAVITY_CONFIG,
    CLAUDE_CONFIG,
    CODEX_CONFIG,
+   DEVIN_CONFIG,
    KIMI_CONFIG,
 +  PLUGIN_QUOTA_CONFIG,
    XAI_CONFIG,
@@ -2163,7 +2433,7 @@ index f121640..dc01198 100644
  import {
    fetchAntigravityQuota,
    fetchClaudeQuota,
-@@ -184,10 +185,12 @@ const buildEntryFromMockedProviderFetch = async (
+@@ -206,10 +207,12 @@ const buildEntryFromMockedProviderFetch = async (
          XAI_CONFIG.buildSuccessState(data, target.file),
          translate
        );
@@ -2176,10 +2446,10 @@ index f121640..dc01198 100644
    return entry;
  };
  
-@@ -195,10 +198,48 @@ const emptyQuotaStores = (): MonitoringQuotaStores => ({
-   antigravityQuota: {},
+@@ -218,10 +221,48 @@ const emptyQuotaStores = (): MonitoringQuotaStores => ({
    claudeQuota: {},
    codexQuota: {},
+   devinQuota: {},
    kimiQuota: {},
    xaiQuota: {},
 +  pluginQuota: {},
@@ -2222,17 +2492,17 @@ index f121640..dc01198 100644
 +  });
  });
  
- const codexState = (
+ const devinState = (
    file: MonitoringAccountQuotaTarget['file'],
-   usedPercent: number,
+   dailyPercent: number,
 diff --git c/apps/web/src/features/monitoring/model/monitoringCenterPageModel.ts i/apps/web/src/features/monitoring/model/monitoringCenterPageModel.ts
-index 739349b..9a1fbf9 100644
+index e31f4df3..35ed9670 100644
 --- c/apps/web/src/features/monitoring/model/monitoringCenterPageModel.ts
 +++ i/apps/web/src/features/monitoring/model/monitoringCenterPageModel.ts
-@@ -7,10 +7,11 @@ import type {
-   ClaudeQuotaWindow,
-   CodexQuotaState,
+@@ -9,10 +9,11 @@ import type {
    CodexQuotaWindow,
+   DevinQuotaState,
+   DevinQuotaWindow,
    KimiQuotaState,
    KimiQuotaRow,
 +  PluginQuotaState,
@@ -2241,7 +2511,7 @@ index 739349b..9a1fbf9 100644
  } from '@/types';
  import type { UsageHeaderSnapshot } from '@/services/api/usageService';
  import type {
-@@ -46,10 +47,11 @@ import {
+@@ -48,10 +49,11 @@ import {
    resolveAbsoluteQuotaReset,
    findCodexProviderWindowMatch,
    resolveCodexUsageQuotaScope,
@@ -2253,7 +2523,7 @@ index 739349b..9a1fbf9 100644
    getHeaderSnapshotErrorCode,
    getHeaderSnapshotErrorKind,
    getHeaderSnapshotPlanType,
-@@ -1171,10 +1173,37 @@ const buildAntigravityAccountQuotaWindows = (
+@@ -1165,10 +1167,37 @@ const buildAntigravityAccountQuotaWindows = (
          usageLabel: bucket.description ?? group.description ?? null,
        };
      })
@@ -2291,12 +2561,12 @@ index 739349b..9a1fbf9 100644
      const limit = row.limit;
      const used = row.used;
      const remainingPercent =
-@@ -1303,10 +1332,12 @@ export const getAccountQuotaProviderLabel = (
-       return t('claude_quota.title');
-     case 'kimi':
+@@ -1334,10 +1363,12 @@ export const getAccountQuotaProviderLabel = (
        return t('kimi_quota.title');
      case 'xai':
        return t('xai_quota.title');
+     case 'devin':
+       return t('devin_quota.title');
 +    case 'plugin':
 +      return t('plugin_quota.title', { defaultValue: 'Plugin quota' });
      case 'codex':
@@ -2304,12 +2574,12 @@ index 739349b..9a1fbf9 100644
        return t('codex_quota.title');
    }
  };
-@@ -1319,10 +1350,14 @@ const getAccountQuotaEmptyMessage = (provider: MonitoringAccountQuotaProvider, t
-       return t('claude_quota.empty_windows');
-     case 'kimi':
+@@ -1352,10 +1383,14 @@ const getAccountQuotaEmptyMessage = (provider: MonitoringAccountQuotaProvider, t
        return t('kimi_quota.empty_data');
      case 'xai':
        return t('xai_quota.empty_data');
+     case 'devin':
+       return t('devin_quota.empty_data');
 +    case 'plugin':
 +      return t('plugin_quota.empty_data', {
 +        defaultValue: 'The plugin reported no quota for this credential.',
@@ -2319,10 +2589,10 @@ index 739349b..9a1fbf9 100644
        return t('codex_quota.empty_windows');
    }
  };
-@@ -1349,18 +1384,20 @@ export type MonitoringQuotaStores = {
-   antigravityQuota: Record<string, AntigravityQuotaState>;
+@@ -1383,19 +1418,21 @@ export type MonitoringQuotaStores = {
    claudeQuota: Record<string, ClaudeQuotaState>;
    codexQuota: Record<string, CodexQuotaState>;
+   devinQuota: Record<string, DevinQuotaState>;
    kimiQuota: Record<string, KimiQuotaState>;
    xaiQuota: Record<string, XaiQuotaState>;
 +  pluginQuota: Record<string, PluginQuotaState>;
@@ -2332,6 +2602,7 @@ index 739349b..9a1fbf9 100644
    | AntigravityQuotaState
    | ClaudeQuotaState
    | CodexQuotaState
+   | DevinQuotaState
    | KimiQuotaState
 -  | XaiQuotaState;
 +  | XaiQuotaState
@@ -2341,8 +2612,8 @@ index 739349b..9a1fbf9 100644
    fetchedAtMs?: number;
    failedAtMs?: number;
    error?: string;
-@@ -1468,10 +1505,20 @@ export const buildAccountQuotaEntryFromProviderState = (
-             billing?.officialApiHealth || !billing ? [] : buildXaiAccountQuotaWindows(billing, t),
+@@ -1523,10 +1560,20 @@ export const buildAccountQuotaEntryFromProviderState = (
+           windows: buildDevinAccountQuotaWindows(quota.windows, t),
          },
          quota
        );
@@ -2362,7 +2633,7 @@ index 739349b..9a1fbf9 100644
        const quota = state as CodexQuotaState;
        const planType = quota.planType ?? target.planType;
        const planLabel = getPlanPresentation({ provider: target.provider, planType, t })?.shortLabel;
-@@ -1526,10 +1573,16 @@ export const buildCachedAccountQuotaEntry = (
+@@ -1587,10 +1634,16 @@ export const buildCachedAccountQuotaEntry = (
        return buildAccountQuotaEntryFromProviderState(
          target,
          getCredentialScopedQuotaState(stores.xaiQuota, target.file),
@@ -2381,7 +2652,7 @@ index 739349b..9a1fbf9 100644
    target: MonitoringAccountQuotaTarget,
 diff --git c/apps/web/src/features/oauth/OAuthPage.geminiWeb.test.tsx i/apps/web/src/features/oauth/OAuthPage.geminiWeb.test.tsx
 new file mode 100644
-index 0000000..4632415
+index 00000000..46324153
 --- /dev/null
 +++ i/apps/web/src/features/oauth/OAuthPage.geminiWeb.test.tsx
 @@ -0,0 +1,182 @@
@@ -2568,7 +2839,7 @@ index 0000000..4632415
 +  });
 +});
 diff --git c/apps/web/src/features/oauth/OAuthPage.tsx i/apps/web/src/features/oauth/OAuthPage.tsx
-index 9f68686..af3e5e9 100644
+index d4f7dda4..2fb99a36 100644
 --- c/apps/web/src/features/oauth/OAuthPage.tsx
 +++ i/apps/web/src/features/oauth/OAuthPage.tsx
 @@ -34,10 +34,12 @@ import {
@@ -2584,20 +2855,20 @@ index 9f68686..af3e5e9 100644
    readAccountOAuthReauthSessionId,
  } from '@/features/accounts/model/accountReauthSession';
  import {
-@@ -57,10 +59,12 @@ import iconKimiDark from '@/assets/icons/kimi-dark.svg';
- import iconVertex from '@/assets/icons/vertex.svg';
- import iconGrok from '@/assets/icons/grok.svg';
- import iconGrokDark from '@/assets/icons/grok-dark.svg';
+@@ -61,10 +63,12 @@ import iconGrokDark from '@/assets/icons/grok-dark.svg';
+ import iconDevin from '@/assets/icons/devin.svg';
+ import iconDevinDark from '@/assets/icons/devin-dark.svg';
+ import iconMeta from '@/assets/icons/meta.svg';
  
  interface ProviderState {
 +  portalOpening?: boolean;
 +  portalError?: string;
    url?: string;
    state?: string;
+   userCode?: string;
    status?: 'idle' | 'waiting' | 'success' | 'error';
    error?: string;
-   polling?: boolean;
-@@ -286,10 +290,11 @@ export function OAuthPage() {
+@@ -314,10 +318,11 @@ export function OAuthPage() {
    const callbackAttemptVersions = useRef<Partial<Record<string, number>>>({});
    const oauthPollingScopeRef = useRef(oauthPollingScope);
    const connectionFingerprintRef = useRef(connectionFingerprint);
@@ -2609,7 +2880,7 @@ index 9f68686..af3e5e9 100644
    const clearTimers = useCallback(() => {
      Object.values(pollingTimers.current).forEach((timer) => {
        if (timer !== undefined) window.clearInterval(timer);
-@@ -307,10 +312,11 @@ export function OAuthPage() {
+@@ -335,10 +340,11 @@ export function OAuthPage() {
      if (isOAuthPollingScopeCurrent(previousScope, oauthPollingScope)) return;
      providerAttemptVersions.current = {};
      providerCredentialBaselines.current = {};
@@ -2621,7 +2892,7 @@ index 9f68686..af3e5e9 100644
      setPluginOAuthPlugins([]);
      setVertexState({ fileName: '', location: '', loading: false });
    }, [clearTimers, oauthPollingScope]);
-@@ -332,11 +338,17 @@ export function OAuthPage() {
+@@ -360,11 +366,17 @@ export function OAuthPage() {
              const title = getPluginTitle(plugin);
              const logo = resolvePluginAssetURL(plugin.logo || plugin.metadata?.logo || '', apiBase);
              return {
@@ -2640,7 +2911,7 @@ index 9f68686..af3e5e9 100644
                supportsCallback: false,
                isPlugin: true,
              };
-@@ -358,10 +370,11 @@ export function OAuthPage() {
+@@ -386,10 +398,11 @@ export function OAuthPage() {
      return () => {
        providerAttemptVersions.current = {};
        providerCredentialBaselines.current = {};
@@ -2652,12 +2923,12 @@ index 9f68686..af3e5e9 100644
    }, [clearTimers]);
  
    useEffect(() => {
-@@ -651,10 +664,35 @@ export function OAuthPage() {
-     }, 3000);
-     pollingTimers.current[provider] = timer;
-   };
+@@ -709,10 +722,35 @@ export function OAuthPage() {
  
    const startAuth = async (provider: OAuthProvider) => {
+     if (provider === 'devin' && states[provider]?.state) {
+       return;
+     }
 +    if (provider === 'gemini-web') {
 +      const version = ++portalRequestVersion.current;
 +      const isCurrent = () =>
@@ -2688,7 +2959,7 @@ index 9f68686..af3e5e9 100644
      delete providerCredentialBaselines.current[provider];
      const attempt = beginProviderAttempt(provider);
      updateProviderState(provider, {
-@@ -931,13 +969,15 @@ export function OAuthPage() {
+@@ -1089,13 +1127,15 @@ export function OAuthPage() {
        <div className={styles.content}>
          {providers.map((provider) => {
            const state = states[provider.id] || {};
@@ -2707,17 +2978,16 @@ index 9f68686..af3e5e9 100644
              state.status === 'success' ? 'success' : '',
              state.status === 'error' ? 'error' : '',
            ]
-@@ -961,17 +1001,25 @@ export function OAuthPage() {
-                     )}
-                     {provider.title}
+@@ -1121,19 +1161,24 @@ export function OAuthPage() {
                    </span>
                  }
                  extra={
--                  <Button onClick={() => startAuth(provider.id)} loading={state.polling}>
-+                  <Button
-+                    onClick={() => startAuth(provider.id)}
+                   <Button
+                     onClick={() => startAuth(provider.id)}
+-                    loading={state.polling}
 +                    loading={state.polling || state.portalOpening}
-+                  >
+                     disabled={provider.id === 'devin' && Boolean(state.state)}
+                   >
                      {loginButtonLabel}
                    </Button>
                  }
@@ -2733,9 +3003,37 @@ index 9f68686..af3e5e9 100644
                      <div className={styles.authUrlBox}>
                        <div className={styles.authUrlLabel}>{provider.urlLabel}</div>
                        <div className={styles.authUrlValue}>{state.url}</div>
-                       <div className={styles.authUrlActions}>
+                       {state.userCode && (
+diff --git c/apps/web/src/features/pageRefresh.test.tsx i/apps/web/src/features/pageRefresh.test.tsx
+index 30aa3dfd..11f547e6 100644
+--- c/apps/web/src/features/pageRefresh.test.tsx
++++ i/apps/web/src/features/pageRefresh.test.tsx
+@@ -1043,20 +1043,20 @@ describe('page refresh interactions', () => {
+     }
+   );
+ 
+   it('keeps logs visible and reports auto-refresh failures', async () => {
+     mocks.logs.mockResolvedValueOnce({ lines: ['poll-retained-line'], latestAfter: 1 });
+-    await mount(<LogsPage />);
+-    expect(text(renderer.root)).toContain('poll-retained-line');
+-
+     let poll: (() => void) | null = null;
+     (window as unknown as { setInterval: (handler: () => void) => number }).setInterval = (
+       handler
+     ) => {
+       poll = handler;
+       return 1;
+     };
++    await mount(<LogsPage />);
++    expect(text(renderer.root)).toContain('poll-retained-line');
++
+     const autoRefreshToggle = renderer.root
+       .findAllByType(ToggleSwitch)
+       .find((node) => text(node).includes('logs.auto_refresh'));
+     expect(autoRefreshToggle).toBeTruthy();
+     act(() => { autoRefreshToggle!.props.onChange(true); });
 diff --git c/apps/web/src/features/plugins/PluginResourcePage.tsx i/apps/web/src/features/plugins/PluginResourcePage.tsx
-index 60b34c9..8c7cd3b 100644
+index 150a85a1..22328cc9 100644
 --- c/apps/web/src/features/plugins/PluginResourcePage.tsx
 +++ i/apps/web/src/features/plugins/PluginResourcePage.tsx
 @@ -5,23 +5,20 @@ import { EmptyState } from '@/components/ui/EmptyState';
@@ -2765,8 +3063,8 @@ index 60b34c9..8c7cd3b 100644
    try {
      return decodeURIComponent(value);
    } catch {
-@@ -37,18 +34,20 @@ const parseMenuIndex = (value = '') => {
- export function PluginResourcePage() {
+@@ -44,18 +41,20 @@ export function PluginResourcePage() {
+ function PluginResourcePageContent() {
    const { t } = useTranslation();
    const params = useParams<{ pluginId: string; menuIndex: string }>();
    const connectionStatus = useAuthStore((state) => state.connectionStatus);
@@ -2786,7 +3084,7 @@ index 60b34c9..8c7cd3b 100644
    const pluginID = useMemo(() => safeDecodeURIComponent(params.pluginId), [params.pluginId]);
    const menuIndex = useMemo(() => parseMenuIndex(params.menuIndex), [params.menuIndex]);
  
-@@ -99,10 +98,35 @@ export function PluginResourcePage() {
+@@ -117,10 +116,35 @@ function PluginResourcePageContent() {
      return entries.find((entry) => entry.pluginID === pluginID && entry.menuIndex === menuIndex);
    }, [data?.plugins, menuIndex, pluginID]);
  
@@ -2822,7 +3120,7 @@ index 60b34c9..8c7cd3b 100644
      if (!iframe) return;
  
      const options = { theme: resolvedTheme };
-@@ -117,11 +141,12 @@ export function PluginResourcePage() {
+@@ -135,11 +159,12 @@ function PluginResourcePageContent() {
  
    const handleIframeLoad = useCallback(() => {
      hostStyleBridgeRef.current?.disconnect();
@@ -2838,7 +3136,7 @@ index 60b34c9..8c7cd3b 100644
        hostStyleBridgeRef.current = null;
 diff --git c/apps/web/src/features/plugins/chatgptHostPolicy.ts i/apps/web/src/features/plugins/chatgptHostPolicy.ts
 new file mode 100644
-index 0000000..2df6ba2
+index 00000000..2df6ba2e
 --- /dev/null
 +++ i/apps/web/src/features/plugins/chatgptHostPolicy.ts
 @@ -0,0 +1,38 @@
@@ -2882,7 +3180,7 @@ index 0000000..2df6ba2
 +}
 diff --git c/apps/web/src/features/plugins/chatgptHostRequest.test.ts i/apps/web/src/features/plugins/chatgptHostRequest.test.ts
 new file mode 100644
-index 0000000..706754e
+index 00000000..706754ee
 --- /dev/null
 +++ i/apps/web/src/features/plugins/chatgptHostRequest.test.ts
 @@ -0,0 +1,56 @@
@@ -2944,7 +3242,7 @@ index 0000000..706754e
 +});
 diff --git c/apps/web/src/features/plugins/pluginHostRequest.test.ts i/apps/web/src/features/plugins/pluginHostRequest.test.ts
 new file mode 100644
-index 0000000..8bbc864
+index 00000000..8bbc864d
 --- /dev/null
 +++ i/apps/web/src/features/plugins/pluginHostRequest.test.ts
 @@ -0,0 +1,140 @@
@@ -3090,7 +3388,7 @@ index 0000000..8bbc864
 +});
 diff --git c/apps/web/src/features/plugins/pluginHostRequest.ts i/apps/web/src/features/plugins/pluginHostRequest.ts
 new file mode 100644
-index 0000000..5d8b593
+index 00000000..5d8b5937
 --- /dev/null
 +++ i/apps/web/src/features/plugins/pluginHostRequest.ts
 @@ -0,0 +1,276 @@
@@ -3372,7 +3670,7 @@ index 0000000..5d8b593
 +}
 diff --git c/apps/web/src/services/api/geminiWeb.test.ts i/apps/web/src/services/api/geminiWeb.test.ts
 new file mode 100644
-index 0000000..dfbc571
+index 00000000..dfbc571c
 --- /dev/null
 +++ i/apps/web/src/services/api/geminiWeb.test.ts
 @@ -0,0 +1,155 @@
@@ -3533,7 +3831,7 @@ index 0000000..dfbc571
 +});
 diff --git c/apps/web/src/services/api/geminiWeb.ts i/apps/web/src/services/api/geminiWeb.ts
 new file mode 100644
-index 0000000..6475bc9
+index 00000000..6475bc9c
 --- /dev/null
 +++ i/apps/web/src/services/api/geminiWeb.ts
 @@ -0,0 +1,101 @@
@@ -3640,7 +3938,7 @@ index 0000000..6475bc9
 +};
 diff --git c/apps/web/src/services/api/geminiWebDto.ts i/apps/web/src/services/api/geminiWebDto.ts
 new file mode 100644
-index 0000000..c6b2cbc
+index 00000000..c6b2cbc3
 --- /dev/null
 +++ i/apps/web/src/services/api/geminiWebDto.ts
 @@ -0,0 +1,133 @@
@@ -3778,32 +4076,34 @@ index 0000000..c6b2cbc
 +  };
 +}
 diff --git c/apps/web/src/stores/useQuotaStore.ts i/apps/web/src/stores/useQuotaStore.ts
-index 2056784..51dbdc8 100644
+index 2e27ee51..cb4e93e0 100644
 --- c/apps/web/src/stores/useQuotaStore.ts
 +++ i/apps/web/src/stores/useQuotaStore.ts
-@@ -8,10 +8,11 @@ import type {
-   AntigravityQuotaState,
-   ClaudeQuotaState,
+@@ -10,10 +10,11 @@ import type {
    CodexQuotaState,
    CredentialScopedQuotaState,
+   DevinQuotaState,
    KimiQuotaState,
+   MetaQuotaState,
 +  PluginQuotaState,
    XaiQuotaState,
  } from '@/types';
  import { obfuscatedStorage } from '@/services/storage/secureStorage';
  import { STORAGE_KEY_QUOTA_CACHE } from '@/utils/constants';
  
-@@ -23,15 +24,17 @@ interface QuotaStoreState {
-   antigravityQuota: Record<string, AntigravityQuotaState>;
-   claudeQuota: Record<string, ClaudeQuotaState>;
+@@ -27,17 +28,19 @@ interface QuotaStoreState {
    codexQuota: Record<string, CodexQuotaState>;
+   devinQuota: Record<string, DevinQuotaState>;
    kimiQuota: Record<string, KimiQuotaState>;
+   metaQuota: Record<string, MetaQuotaState>;
    xaiQuota: Record<string, XaiQuotaState>;
 +  pluginQuota: Record<string, PluginQuotaState>;
    setAntigravityQuota: (updater: QuotaUpdater<Record<string, AntigravityQuotaState>>) => void;
    setClaudeQuota: (updater: QuotaUpdater<Record<string, ClaudeQuotaState>>) => void;
    setCodexQuota: (updater: QuotaUpdater<Record<string, CodexQuotaState>>) => void;
+   setDevinQuota: (updater: QuotaUpdater<Record<string, DevinQuotaState>>) => void;
    setKimiQuota: (updater: QuotaUpdater<Record<string, KimiQuotaState>>) => void;
+   setMetaQuota: (updater: QuotaUpdater<Record<string, MetaQuotaState>>) => void;
    setXaiQuota: (updater: QuotaUpdater<Record<string, XaiQuotaState>>) => void;
 +  setPluginQuota: (updater: QuotaUpdater<Record<string, PluginQuotaState>>) => void;
    activateQuotaCacheScope: (scope: string) => void;
@@ -3811,11 +4111,11 @@ index 2056784..51dbdc8 100644
  }
  
  const resolveUpdater = <T>(updater: QuotaUpdater<T>, prev: T): T => {
-@@ -45,10 +48,11 @@ const emptyQuotaState = {
-   antigravityQuota: {},
-   claudeQuota: {},
+@@ -53,10 +56,11 @@ const emptyQuotaState = {
    codexQuota: {},
+   devinQuota: {},
    kimiQuota: {},
+   metaQuota: {},
    xaiQuota: {},
 +  pluginQuota: {},
  };
@@ -3823,7 +4123,7 @@ index 2056784..51dbdc8 100644
  type PersistableQuotaState = CredentialScopedQuotaState & {
    status?: string;
    observedFromUsageHeaders?: boolean;
-@@ -121,10 +125,14 @@ export const useQuotaStore = create<QuotaStoreState>()(
+@@ -171,10 +175,14 @@ export const useQuotaStore = create<QuotaStoreState>()(
          })),
        setXaiQuota: (updater) =>
          set((state) => ({
@@ -3838,11 +4138,11 @@ index 2056784..51dbdc8 100644
            const nextScope = scope.trim();
            if (state.cacheScope === nextScope) return state;
            return quotaStateForScope(nextScope, state.cacheGeneration + 1);
-@@ -153,10 +161,11 @@ export const useQuotaStore = create<QuotaStoreState>()(
-         antigravityQuota: filterPersistableQuotaStates(state.antigravityQuota),
-         claudeQuota: filterPersistableQuotaStates(state.claudeQuota),
+@@ -205,10 +213,11 @@ export const useQuotaStore = create<QuotaStoreState>()(
          codexQuota: filterPersistableCodexQuota(state.codexQuota),
+         devinQuota: filterPersistableQuotaStates(state.devinQuota),
          kimiQuota: filterPersistableQuotaStates(state.kimiQuota),
+         metaQuota: filterPersistableQuotaStates(state.metaQuota),
          xaiQuota: filterPersistableQuotaStates(state.xaiQuota),
 +        pluginQuota: filterPersistableQuotaStates(state.pluginQuota),
        }),
@@ -3850,11 +4150,11 @@ index 2056784..51dbdc8 100644
          const persisted = persistedState as Partial<QuotaStoreState> | undefined;
          return {
            ...currentState,
-@@ -164,10 +173,11 @@ export const useQuotaStore = create<QuotaStoreState>()(
-           antigravityQuota: filterPersistableQuotaStates(persisted?.antigravityQuota),
-           claudeQuota: filterPersistableQuotaStates(persisted?.claudeQuota),
+@@ -218,10 +227,11 @@ export const useQuotaStore = create<QuotaStoreState>()(
            codexQuota: filterPersistableCodexQuota(persisted?.codexQuota),
+           devinQuota: filterPersistableQuotaStates(persisted?.devinQuota),
            kimiQuota: filterPersistableQuotaStates(persisted?.kimiQuota),
+           metaQuota: filterPersistableQuotaStates(persisted?.metaQuota),
            xaiQuota: filterPersistableQuotaStates(persisted?.xaiQuota),
 +          pluginQuota: filterPersistableQuotaStates(persisted?.pluginQuota),
          };
@@ -3863,10 +4163,10 @@ index 2056784..51dbdc8 100644
    )
  );
 diff --git c/apps/web/src/types/quota.ts i/apps/web/src/types/quota.ts
-index 0f717ed..cad08c2 100644
+index f768d990..a58b0d67 100644
 --- c/apps/web/src/types/quota.ts
 +++ i/apps/web/src/types/quota.ts
-@@ -354,10 +354,29 @@ export interface AntigravityQuotaState extends CredentialScopedQuotaState {
+@@ -383,10 +383,29 @@ export interface AntigravityQuotaState extends CredentialScopedQuotaState {
    serverTimeOffsetMs?: number | null;
    error?: string;
    errorStatus?: number;
@@ -3896,7 +4196,7 @@ index 0f717ed..cad08c2 100644
    label: string;
    labelKey?: string;
    labelParams?: Record<string, string | number>;
-@@ -524,10 +543,12 @@ export interface XaiBillingUsage {
+@@ -558,10 +577,12 @@ export interface XaiBillingUsage {
  export interface XaiBillingConfig {
    currentPeriod?: XaiBillingPeriod | null;
    current_period?: XaiBillingPeriod | null;
@@ -3911,7 +4211,7 @@ index 0f717ed..cad08c2 100644
    used?: XaiBillingCent | number | string | null;
 diff --git c/apps/web/src/utils/quota/pluginQuota.test.ts i/apps/web/src/utils/quota/pluginQuota.test.ts
 new file mode 100644
-index 0000000..ee5a867
+index 00000000..ee5a867d
 --- /dev/null
 +++ i/apps/web/src/utils/quota/pluginQuota.test.ts
 @@ -0,0 +1,102 @@
@@ -4019,7 +4319,7 @@ index 0000000..ee5a867
 +});
 diff --git c/apps/web/src/utils/quota/pluginQuota.ts i/apps/web/src/utils/quota/pluginQuota.ts
 new file mode 100644
-index 0000000..26f745a
+index 00000000..26f745ad
 --- /dev/null
 +++ i/apps/web/src/utils/quota/pluginQuota.ts
 @@ -0,0 +1,145 @@
@@ -4169,10 +4469,10 @@ index 0000000..26f745a
 +  return quota;
 +};
 diff --git c/apps/web/src/utils/quota/providerRequests.test.ts i/apps/web/src/utils/quota/providerRequests.test.ts
-index 27eb62e..b37ecf4 100644
+index ac1b36f1..2c47bf04 100644
 --- c/apps/web/src/utils/quota/providerRequests.test.ts
 +++ i/apps/web/src/utils/quota/providerRequests.test.ts
-@@ -1991,10 +1991,27 @@ describe('buildXaiBillingSummary', () => {
+@@ -2607,10 +2607,27 @@ describe('buildXaiBillingSummary', () => {
          creditUsagePercent: 0,
        })
      ).toMatchObject({ periodType: 'weekly', usagePercent: 0 });
@@ -4200,7 +4500,7 @@ index 27eb62e..b37ecf4 100644
        currentPeriod: {
          type: 'weekly',
          start: '2026-08-13T00:00:00Z',
-@@ -3255,32 +3272,40 @@ describe('fetchAntigravityQuota', () => {
+@@ -4003,32 +4020,40 @@ describe('fetchAntigravityQuota', () => {
      mocks.getSubscription.mockResolvedValue({
        plan: 'pro',
        tierName: 'Antigravity Pro',
@@ -4263,153 +4563,23 @@ index 27eb62e..b37ecf4 100644
        {
          name: 'antigravity.json',
          type: 'antigravity',
-@@ -3288,11 +3313,11 @@ describe('fetchAntigravityQuota', () => {
-         project_id: 'project-1',
-       },
-       t
-     );
- 
--    expect(mocks.request).toHaveBeenCalledTimes(1);
-+    expect(mocks.request).toHaveBeenCalledTimes(ANTIGRAVITY_QUOTA_SUMMARY_URLS.length);
-     expect(mocks.request.mock.calls[0][0]).toMatchObject({
-       url: ANTIGRAVITY_QUOTA_SUMMARY_URLS[0],
-     });
-     expect(mocks.getSubscription).toHaveBeenCalledWith('ag-1', undefined);
-     expect(result.subscription).toEqual({
-@@ -3310,10 +3335,68 @@ describe('fetchAntigravityQuota', () => {
-       ],
-     });
-     expect(result.quotaInventoryObserved).toBe(true);
-   });
- 
-+  it('merges the groups that each summary host lists', async () => {
-+    const claudeGroup = {
-+      displayName: 'Claude and GPT models',
-+      buckets: [
-+        {
-+          bucketId: '3p-weekly',
-+          displayName: 'Weekly Limit Remaining',
-+          window: 'weekly',
-+          resetTime: '2026-10-19T06:01:31Z',
-+          remainingFraction: 0,
-+        },
-+      ],
-+    };
-+    const geminiGroup = {
-+      displayName: 'Gemini Models',
-+      buckets: [
-+        {
-+          bucketId: 'gemini-weekly',
-+          displayName: 'Weekly Limit Remaining',
-+          window: 'weekly',
-+          resetTime: '2026-10-21T02:23:26Z',
-+          remainingFraction: 0.66,
-+        },
-+      ],
-+    };
-+    const summary = (groups: unknown[]) => ({
-+      statusCode: 200,
-+      hasStatusCode: true,
-+      header: {},
-+      bodyText: '',
-+      body: { groups },
-+    });
-+    mocks.request
-+      .mockResolvedValueOnce(summary([claudeGroup]))
-+      .mockResolvedValueOnce(summary([claudeGroup]))
-+      .mockResolvedValueOnce(summary([geminiGroup, claudeGroup]));
-+
-+    const result = await fetchAntigravityQuota(
-+      {
-+        name: 'antigravity.json',
-+        type: 'antigravity',
-+        authIndex: 'ag-1',
-+        project_id: 'project-1',
-+      },
-+      t
-+    );
-+
-+    expect(mocks.request.mock.calls.map((call) => call[0].url)).toEqual(
-+      ANTIGRAVITY_QUOTA_SUMMARY_URLS
-+    );
-+    expect(result.groups.map((group) => group.label)).toEqual([
-+      'Claude and GPT models',
-+      'Gemini Models',
-+    ]);
-+    expect(result.groups[1]?.buckets[0]).toMatchObject({ remainingFraction: 0.66 });
-+    expect(result.quotaInventoryObserved).toBe(true);
-+  });
-+
-   it('keeps Antigravity quota and subscription requests on the captured CPA scope', async () => {
-     mocks.getSubscription.mockResolvedValue(null);
-     mocks.request.mockResolvedValueOnce({
-       statusCode: 200,
-       hasStatusCode: true,
 diff --git c/apps/web/src/utils/quota/providerRequests.ts i/apps/web/src/utils/quota/providerRequests.ts
-index ad4f99b..31736b9 100644
+index 0e1cfab2..cbf773de 100644
 --- c/apps/web/src/utils/quota/providerRequests.ts
 +++ i/apps/web/src/utils/quota/providerRequests.ts
-@@ -271,12 +271,18 @@ export const fetchAntigravityQuota = async (
+@@ -297,11 +297,10 @@ export const fetchAntigravityQuota = async (
    let lastError = '';
    let lastStatus: number | undefined;
    let priorityStatus: number | undefined;
    let hadSuccess = false;
    let quotaInventoryObserved = false;
-+  // Summary hosts list different groups (the daily host omits Gemini), so
-+  // every summary host is read and their groups are merged.
-+  const summaryGroups: AntigravityQuotaGroup[] = [];
-+  let summaryServerTimeOffsetMs: number | null = null;
- 
+-
    for (const url of [...ANTIGRAVITY_QUOTA_SUMMARY_URLS, ...ANTIGRAVITY_AVAILABLE_MODELS_URLS]) {
-+    const isSummaryUrl = ANTIGRAVITY_QUOTA_SUMMARY_URLS.includes(url);
-+    if (!isSummaryUrl && summaryGroups.length > 0) break;
      try {
        const result = await apiCallApi.request(
          {
            authIndex,
-           method: 'POST',
-@@ -310,10 +316,20 @@ export const fetchAntigravityQuota = async (
-         quotaInventoryObserved ||= hasExplicitEmptyAntigravityInventory(payload);
-         lastError = t('antigravity_quota.empty_models');
-         continue;
-       }
- 
-+      if (isSummaryUrl) {
-+        if (summaryGroups.length === 0) {
-+          summaryServerTimeOffsetMs = resolveResponseServerTimeOffsetMs(result.header);
-+        }
-+        summaryGroups.push(
-+          ...groups.filter((group) => !summaryGroups.some((known) => known.id === group.id))
-+        );
-+        continue;
-+      }
-+
-       return {
-         groups,
-         quotaInventoryObserved: true,
-         subscription: await subscriptionPromise,
-         serverTimeOffsetMs: resolveResponseServerTimeOffsetMs(result.header),
-@@ -328,10 +344,19 @@ export const fetchAntigravityQuota = async (
-         }
-       }
-     }
-   }
- 
-+  if (summaryGroups.length > 0) {
-+    return {
-+      groups: summaryGroups,
-+      quotaInventoryObserved: true,
-+      subscription: await subscriptionPromise,
-+      serverTimeOffsetMs: summaryServerTimeOffsetMs,
-+    };
-+  }
-+
-   if (hadSuccess) {
-     return {
-       groups: [],
-       quotaInventoryObserved,
-       subscription: await subscriptionPromise,
-@@ -1189,11 +1214,18 @@ export const buildXaiBillingSummary = (
+@@ -1339,11 +1338,18 @@ export const buildXaiBillingSummary = (
    const rawCreditUsagePercent = normalizeNumberValue(
      config.creditUsagePercent ?? config.credit_usage_percent
    );

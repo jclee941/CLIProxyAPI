@@ -1,5 +1,45 @@
 # GeminiWeb Manager Patch Verification
 
+## Full Upstream v1.14.7 Import (2026-10-21)
+
+The complete upstream release is retained at
+`64ce94e6aa1af691555429a3211e67c59c0480ad`. The local patch preserves native
+plugin portals, plugin quota displays, scoped iframe requests and log payload
+inspection. Upstream Devin, Meta, quota scheduling and rate-limit handling
+remain intact. The obsolete Antigravity cross-host merge is removed in favor
+of the upstream Hub identity fix from PR #986.
+
+| Item | Verified value |
+| --- | --- |
+| Patch SHA-256 | `71be59379b767fe3d2eb8ff1e405888515b2eb71fc83a26cd77d6f851d5bf269` |
+| Image tag | `cpa-manager-plus:v1.14.7-geminiweb.20261021.1` |
+| Local OCI image index | `sha256:86da3bfabb3aa93c1f0376b5742fb14ed0393de906989bbeec7acbd9df7afa92` |
+| AMD64 image config / NAS image ID | `sha256:c1c2076caabfc2032aa0254e740f27a558df0fe0751a8b3f84b7677bcfd062de` |
+| Web tests | 4,544 passed in 268 files |
+| Repository tests | 259 passed in 16 files |
+| Manager backend | `go test ./...` passed |
+| Static checks | TypeScript, ESLint and shell syntax passed |
+| Production build | Web build, demo isolation and Manager image build passed |
+
+The repository source-integrity check used
+`CPA_MANAGER_CHANGED_FILES_BASE=HEAD`, which scans the actual working changes
+against the imported upstream tag in this standalone build checkout. No test
+was skipped to handle its otherwise unavailable `origin/main` reference.
+The log refresh test now subscribes to the polling callback before mounting,
+because the retained local auto-refresh default starts it during mount.
+
+Clean replay against the upstream tree reproduced the tested source. Standard
+blank context lines in the generated unified patch contain the required
+context marker; an outer-repository whitespace scan reports those markers,
+not whitespace in the patched source.
+
+NAS transfer preserved all four root filesystem layer digests. The NAS Docker
+engine reports the platform config digest as the image ID, while the local
+containerd image store reports the OCI index digest; both are recorded above.
+The current build logs are under `/tmp/cpa-manager-ag-quota-20261021/`.
+
+## Earlier Verification History
+
 Local verification on 2026-09-13. No deployment or production account calls.
 The native-quota receipt below is retained as the earlier baseline. The current
 combined patch and Remember-off bridge receipt are in **In-Memory Bridge Follow-up**.

@@ -5,7 +5,7 @@ readonly source_url=https://github.com/seakee/CPA-Manager-Plus.git
 # patch_base is the revision the patch was authored against. Its blobs are
 # fetched alongside the build revision so that a patch which no longer applies
 # cleanly to a newer release can still be merged three-way instead of failing.
-readonly patch_base=e1a8788ab796f4d001c5d1e9851c418989b05424
+readonly patch_base=64ce94e6aa1af691555429a3211e67c59c0480ad
 readonly build_suffix=geminiweb.1
 readonly patch_name=0001-gemini-web-manager.patch
 package_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
