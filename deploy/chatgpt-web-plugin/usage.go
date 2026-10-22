@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -15,8 +14,9 @@ type webLimit struct {
 }
 
 type webModelLimit struct {
-	ModelSlug   string `json:"model_slug"`
-	ResetsAfter string `json:"resets_after"`
+	ModelSlug   string   `json:"model_slug"`
+	Limit       *float64 `json:"limit"`
+	ResetsAfter string   `json:"resets_after"`
 }
 
 type webBlockedFeature struct {
@@ -27,9 +27,9 @@ type webBlockedFeature struct {
 	Description     string   `json:"description"`
 }
 
-func webGroup(raw []byte) (quotaGroup, bool) {
+func webQuotaLimits(raw []byte) []webQuotaLimit {
 	if len(raw) == 0 {
-		return quotaGroup{}, false
+		return nil
 	}
 	var payload struct {
 		LimitsProgress  []webLimit          `json:"limits_progress"`
@@ -37,27 +37,14 @@ func webGroup(raw []byte) (quotaGroup, bool) {
 		BlockedFeatures []webBlockedFeature `json:"blocked_features"`
 	}
 	if json.Unmarshal(raw, &payload) != nil {
-		return quotaGroup{}, false
+		return nil
 	}
-	buckets := make([]quotaBucket, 0, len(payload.LimitsProgress)+len(payload.ModelLimits))
+	limits := make([]webQuotaLimit, 0, len(payload.LimitsProgress)+len(payload.ModelLimits))
 	for _, limit := range payload.LimitsProgress {
 		if limit.FeatureName == "" || limit.Remaining == nil {
 			continue
 		}
-		remaining := *limit.Remaining
-		fraction := 1.0
-		if remaining <= 0 {
-			fraction = 0
-		}
-		bucket := quotaBucket{
-			Window:            "web",
-			RemainingFraction: fraction,
-			Description:       limit.FeatureName + " · " + strconv.FormatFloat(remaining, 'f', -1, 64) + " remaining",
-		}
-		if parsed, err := time.Parse(time.RFC3339, limit.ResetAfter); err == nil {
-			bucket.ResetTime = parsed.UTC().Format(time.RFC3339)
-		}
-		buckets = append(buckets, bucket)
+		limits = append(limits, webQuotaLimit{Name: limit.FeatureName, Remaining: limit.Remaining, ResetTime: limit.ResetAfter})
 	}
 	blocked := map[string]webBlockedFeature{}
 	for _, feature := range payload.BlockedFeatures {
@@ -69,31 +56,30 @@ func webGroup(raw []byte) (quotaGroup, bool) {
 		if limit.ModelSlug == "" {
 			continue
 		}
-		bucket := quotaBucket{Window: "web", RemainingFraction: 1, Description: limit.ModelSlug}
+		name := limit.ModelSlug
+		if name == webProModel {
+			name = webAppProModel
+		}
+		view := webQuotaLimit{Name: name, Limit: limit.Limit, ResetTime: limit.ResetsAfter}
 		if reason, ok := blocked["reason"]; ok && (limit.ModelSlug == webProModel || strings.HasSuffix(limit.ModelSlug, "-pro")) {
-			fraction := 0.0
-			bucket.RemainingFraction = fraction
-			description := limit.ModelSlug
+			view.Reduced = true
 			if reason.Limit != nil {
-				description += " · limit " + strconv.FormatFloat(*reason.Limit, 'f', -1, 64)
+				view.Limit = reason.Limit
 			}
-			if reason.ResetsAfterText != "" {
-				description += " · reduced " + reason.ResetsAfterText
-			}
-			bucket.Description = description
 			if reason.ResetsAfter != "" {
-				limit.ResetsAfter = reason.ResetsAfter
+				view.ResetTime = reason.ResetsAfter
 			}
 		}
-		if parsed, err := time.Parse(time.RFC3339, limit.ResetsAfter); err == nil {
-			bucket.ResetTime = parsed.UTC().Format(time.RFC3339)
+		limits = append(limits, view)
+	}
+	for index := range limits {
+		if parsed, err := time.Parse(time.RFC3339, limits[index].ResetTime); err == nil {
+			limits[index].ResetTime = parsed.UTC().Format(time.RFC3339)
+		} else {
+			limits[index].ResetTime = ""
 		}
-		buckets = append(buckets, bucket)
 	}
-	if len(buckets) == 0 {
-		return quotaGroup{}, false
-	}
-	return quotaGroup{DisplayName: "ChatGPT Web", Buckets: buckets}, true
+	return limits
 }
 
 func quotaFromParts(usageRaw, webRaw []byte) (quotaFetchResponse, error) {
@@ -101,8 +87,24 @@ func quotaFromParts(usageRaw, webRaw []byte) (quotaFetchResponse, error) {
 	if err != nil {
 		return quotaFetchResponse{}, err
 	}
-	if group, ok := webGroup(webRaw); ok {
-		response.Groups = append([]quotaGroup{group}, response.Groups...)
+	response.WebLimits = webQuotaLimits(webRaw)
+	for _, limit := range response.WebLimits {
+		if limit.Remaining != nil {
+			response.Summary = append(response.Summary, quotaMetric{
+				Key: "web_" + limit.Name + "_remaining", Label: "ChatGPT Web · " + limit.Name,
+				Value: *limit.Remaining, Unit: "remaining", Format: "number",
+			})
+		}
+		if limit.Limit != nil {
+			label := "ChatGPT Web · " + limit.Name + " limit"
+			if limit.Reduced {
+				label += " (capabilities reduced)"
+			}
+			response.Summary = append(response.Summary, quotaMetric{
+				Key: "web_" + limit.Name + "_limit", Label: label,
+				Value: *limit.Limit, Unit: "requests", Format: "number",
+			})
+		}
 	}
 	return response, nil
 }

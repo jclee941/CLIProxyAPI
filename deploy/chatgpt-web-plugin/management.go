@@ -17,14 +17,15 @@ type httpResponse struct {
 }
 
 type accountView struct {
-	ID      string             `json:"id"`
-	Label   string             `json:"label"`
-	Enabled bool               `json:"enabled"`
-	Status  string             `json:"status"`
-	Plan    string             `json:"plan,omitempty"`
-	Groups  []quotaGroup       `json:"groups"`
-	Error   string             `json:"error,omitempty"`
-	Sub     *quotaSubscription `json:"subscription,omitempty"`
+	ID        string             `json:"id"`
+	Label     string             `json:"label"`
+	Enabled   bool               `json:"enabled"`
+	Status    string             `json:"status"`
+	Plan      string             `json:"plan,omitempty"`
+	Groups    []quotaGroup       `json:"groups"`
+	WebLimits []webQuotaLimit    `json:"webLimits"`
+	Error     string             `json:"error,omitempty"`
+	Sub       *quotaSubscription `json:"subscription,omitempty"`
 }
 
 func managementJSON(status int, value interface{}) (httpResponse, error) {
@@ -103,6 +104,7 @@ func (service *service) accounts(ctx context.Context, callbackID string) (interf
 			continue
 		}
 		view.Status = "ready"
+		view.WebLimits = quota.WebLimits
 		view.Sub = quota.Subscription
 		if quota.Subscription != nil {
 			view.Plan = quota.Subscription.Plan

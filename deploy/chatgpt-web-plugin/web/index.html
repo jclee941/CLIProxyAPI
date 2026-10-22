@@ -348,6 +348,27 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
 
     if (account.error) card.appendChild(text('p', 'notice', account.error));
 
+    var web = text('div', 'group');
+    web.appendChild(text('h3', '', 'ChatGPT Web'));
+    var limits = account.webLimits || [];
+    if (!limits.length) web.appendChild(text('p', 'group-empty', '웹 한도 정보가 제공되지 않았습니다.'));
+    limits.forEach(function (limit) {
+      var remaining = typeof limit.remaining === 'number' ? limit.remaining : null;
+      var tone = limit.reduced ? 'meter-warn' : remaining === 0 ? 'meter-bad' : '';
+      var block = text('div', 'meter ' + tone);
+      var label = text('div', 'meter-label');
+      label.appendChild(text('span', 'meter-name', limit.name));
+      label.appendChild(text('span', '', remaining !== null ? remaining + '회 남음' : limit.reduced ? '추론 기능 축소' : '잔여량 미제공'));
+      block.appendChild(label);
+      var foot = [];
+      if (typeof limit.limit === 'number') foot.push('한도 ' + limit.limit + '회');
+      if (limit.resetTime) foot.push('초기화 ' + new Date(limit.resetTime).toLocaleString());
+      if (foot.length) block.appendChild(text('p', 'meter-foot', foot.join(' · ')));
+      if (limit.reduced) block.appendChild(text('p', 'meter-foot', '추론 기능 제한이며 채팅 잔여 횟수를 뜻하지 않습니다.'));
+      web.appendChild(block);
+    });
+    card.appendChild(web);
+
     (account.groups || []).forEach(function (group) {
       var section = text('div', 'group');
       section.appendChild(text('h3', '', group.displayName || ''));

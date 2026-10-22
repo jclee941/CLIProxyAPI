@@ -149,9 +149,30 @@ type quotaGroup struct {
 	Buckets     []quotaBucket `json:"buckets,omitempty"`
 }
 
+type quotaMetric struct {
+	Key    string  `json:"key"`
+	Label  string  `json:"label"`
+	Value  float64 `json:"value"`
+	Unit   string  `json:"unit,omitempty"`
+	Format string  `json:"format,omitempty"`
+}
+
+// Web quotas expose counts and capability reductions, not a remaining fraction.
+type webQuotaLimit struct {
+	Name      string   `json:"name"`
+	Remaining *float64 `json:"remaining,omitempty"`
+	Limit     *float64 `json:"limit,omitempty"`
+	Reduced   bool     `json:"reduced,omitempty"`
+	ResetTime string   `json:"resetTime,omitempty"`
+}
+
 type quotaFetchResponse struct {
 	Subscription *quotaSubscription `json:"subscription,omitempty"`
 	Groups       []quotaGroup       `json:"groups,omitempty"`
+	Summary      []quotaMetric      `json:"summary,omitempty"`
+	// Detailed web reset and capability state belongs to the plugin dashboard;
+	// the host's existing normalized quota contract carries numeric summaries.
+	WebLimits []webQuotaLimit `json:"-"`
 }
 
 type quotaDescription struct {

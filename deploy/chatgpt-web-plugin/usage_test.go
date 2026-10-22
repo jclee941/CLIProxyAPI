@@ -151,22 +151,22 @@ func TestQuotaSplitsWebFromCodex_whenBothPayloadsArePresent(t *testing.T) {
 	for _, group := range view.Groups {
 		names = append(names, group.DisplayName)
 	}
-	if len(view.Groups) != 2 || names[0] != "ChatGPT Web" || names[1] != "Codex" {
+	if len(view.Groups) != 1 || names[0] != "Codex" {
 		t.Fatalf("groups=%v", names)
 	}
-	web := bucketsByDescription(view.Groups[0])
-	image, ok := web["image_gen · 867 remaining"]
-	if !ok {
-		t.Fatalf("image_gen bucket missing: %+v", view.Groups[0].Buckets)
+	if len(view.WebLimits) != 2 || len(view.Summary) != 2 {
+		t.Fatalf("web limits=%+v summary=%+v", view.WebLimits, view.Summary)
 	}
-	if image.RemainingFraction != 1 || image.Window != "web" {
-		t.Fatalf("image bucket=%+v", image)
+	image := view.WebLimits[1]
+	if image.Name != "image_gen" || image.Remaining == nil || *image.Remaining != 867 || image.Limit != nil {
+		t.Fatalf("image limit=%+v", image)
 	}
 	if image.ResetTime != "2026-09-14T11:35:35Z" {
 		t.Fatalf("image reset=%q", image.ResetTime)
 	}
-	if _, ok := web["deep_research · 250 remaining"]; !ok {
-		t.Fatalf("deep_research bucket missing: %+v", view.Groups[0].Buckets)
+	research := view.WebLimits[0]
+	if research.Name != "deep_research" || research.Remaining == nil || *research.Remaining != 250 {
+		t.Fatalf("deep_research limit=%+v", research)
 	}
 }
 
@@ -176,7 +176,7 @@ func TestQuotaKeepsCodexOnly_whenWebPayloadIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("codex-only combine failed: %v", err)
 	}
-	if len(view.Groups) != 1 || view.Groups[0].DisplayName != "Codex" {
+	if len(view.Groups) != 1 || view.Groups[0].DisplayName != "Codex" || len(view.WebLimits) != 0 || len(view.Summary) != 0 {
 		t.Fatalf("groups=%+v", view.Groups)
 	}
 }
@@ -190,13 +190,12 @@ func TestWebQuotaMapsGpt6ProModelLimits_whenInitReportsThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	web := bucketsByDescription(view.Groups[0])
-	pro, ok := web["gpt-6-pro · limit 200 · reduced in 23 hours"]
-	if !ok {
-		t.Fatalf("gpt-6-pro bucket missing: %+v", view.Groups[0].Buckets)
+	if len(view.WebLimits) != 2 {
+		t.Fatalf("web limits=%+v", view.WebLimits)
 	}
-	if pro.RemainingFraction != 0 || pro.Window != "web" {
-		t.Fatalf("pro bucket=%+v", pro)
+	pro := view.WebLimits[1]
+	if pro.Name != "gpt-app-pro" || pro.Remaining != nil || pro.Limit == nil || *pro.Limit != 200 || !pro.Reduced {
+		t.Fatalf("pro limit=%+v", pro)
 	}
 	if pro.ResetTime != "2026-09-17T23:31:59Z" {
 		t.Fatalf("pro reset=%q", pro.ResetTime)
@@ -209,8 +208,64 @@ func TestWebQuotaReportsExhaustion_whenNothingRemains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bucket := view.Groups[0].Buckets[0]
-	if bucket.RemainingFraction != 0 {
-		t.Fatalf("exhausted web feature must report 0, got %v", bucket.RemainingFraction)
+	if len(view.WebLimits) != 1 || view.WebLimits[0].Remaining == nil || *view.WebLimits[0].Remaining != 0 {
+		t.Fatalf("exhausted web feature must preserve the zero count: %+v", view.WebLimits)
+	}
+}
+
+func TestWebModelLimitWithoutRemainingStaysUnknown(t *testing.T) {
+	view, err := quotaFromParts([]byte(usageFixture), []byte(`{"model_limits":[{"model_slug":"gpt-6-pro","resets_after":"2026-10-23T10:00:00+09:00"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.WebLimits) != 1 || len(view.Summary) != 0 {
+		t.Fatalf("unknown count gained a numeric summary: %+v", view)
+	}
+	limit := view.WebLimits[0]
+	if limit.Remaining != nil || limit.Limit != nil || limit.Reduced || limit.ResetTime != "2026-10-23T01:00:00Z" {
+		t.Fatalf("unknown web limit=%+v", limit)
+	}
+}
+
+func TestWebQuotaReportsCountsWithoutInventingPercentages(t *testing.T) {
+	for _, scenario := range []struct {
+		name  string
+		raw   string
+		key   string
+		value float64
+	}{
+		{"remaining", `{"limits_progress":[{"feature_name":"image_gen","remaining":867}]}`, "web_image_gen_remaining", 867},
+		{"exhausted", `{"limits_progress":[{"feature_name":"image_gen","remaining":0}]}`, "web_image_gen_remaining", 0},
+		{"reduced", `{"model_limits":[{"model_slug":"gpt-6-pro"}],"blocked_features":[{"name":"reason","limit":200,"description":"Capabilities reduced"}]}`, "web_gpt-app-pro_limit", 200},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			view, err := quotaFromParts([]byte(usageFixture), []byte(scenario.raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, group := range view.Groups {
+				for _, bucket := range group.Buckets {
+					if bucket.Window == "web" {
+						t.Fatalf("web quota has an invented remaining fraction: %+v", bucket)
+					}
+				}
+			}
+			encoded, err := json.Marshal(view)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var response struct {
+				Summary []struct {
+					Key   string  `json:"key"`
+					Value float64 `json:"value"`
+				} `json:"summary"`
+			}
+			if err := json.Unmarshal(encoded, &response); err != nil {
+				t.Fatal(err)
+			}
+			if len(response.Summary) != 1 || response.Summary[0].Key != scenario.key || response.Summary[0].Value != scenario.value {
+				t.Fatalf("exact web count was not preserved: %+v", response.Summary)
+			}
+		})
 	}
 }
