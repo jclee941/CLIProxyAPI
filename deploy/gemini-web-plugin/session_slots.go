@@ -13,11 +13,6 @@ var slotCursor atomic.Uint64
 // whose session is pinned or fenced, and every one of those fails in
 // milliseconds, so the fleet looks intermittent while healthy accounts idle.
 func (service *service) pickServableAccount(model string, candidates []struct{ ID, Provider string }) continuationPick {
-	return service.pickRoomAccount(model, candidates, service.tuning().roomTurns())
-}
-
-// pickRoomAccount is pickServableAccount for a video room of the given size.
-func (service *service) pickRoomAccount(model string, candidates []struct{ ID, Provider string }, roomVideos int) continuationPick {
 	store := service.localStore()
 	if store == nil || len(candidates) == 0 {
 		return continuationPick{}
@@ -49,10 +44,10 @@ func (service *service) pickRoomAccount(model string, candidates []struct{ ID, P
 		}
 		eligible = append(eligible, candidate.ID)
 	}
-	// A video room stays on the account that opens it, so it only opens where the
-	// whole room is paid for; with no such account there is no room to open.
+	// Each request admits one generation. Later extensions recheck the owner's
+	// balance and can carry the video to another account.
 	if video {
-		eligible = slices.DeleteFunc(eligible, func(id string) bool { return !service.affordsVideos(id, roomVideos) })
+		eligible = slices.DeleteFunc(eligible, func(id string) bool { return !service.affordsGeneration(id) })
 	}
 	var idle, busy, reserved []string
 	for _, id := range eligible {
@@ -125,9 +120,10 @@ func (service *service) slotIsIdle(reference string) bool {
 
 // ownerServes reports whether the account holding a chain can take its next
 // turn. A busy owner still serves, since the turn waits for its slot; one with
-// spent windows or video allowance, or a session no process can run, is blocked.
+// less than one generation left, spent video allowance, or a session no process
+// can run, is blocked.
 func (service *service) ownerServes(local localSession) bool {
-	if !service.quotaAvailable(local.Target.ID) {
+	if !service.quotaAvailable(local.Target.ID) || !service.affordsGeneration(local.Target.ID) {
 		return false
 	}
 	state := service.leases.get(local.Target.TokenRef).snapshot()

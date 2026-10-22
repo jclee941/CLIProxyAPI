@@ -464,31 +464,29 @@ func roomUsage(remaining float64) *usageView {
 	return &usageView{Metrics: []usageMetric{{RemainingUnits: &remaining, WindowKind: "5h", Unit: "provider_compute_unit"}}}
 }
 
-func TestSchedulerOpensAVideoRoomOnlyWhereTheWholeRoomFits(t *testing.T) {
-	service, local := continuationFixture(t)
-	other := recordFixture(t, "b")
-	seedSession(t, service, other, sessionToken{encodedToken("second")})
-	service.observeQuota(local.Target.ID, roomUsage(1826))
-	service.observeQuota(other.ID, roomUsage(45655))
-
-	for range 4 {
-		if pick := service.pickServableAccount(omniModel, slotCandidates(local.Target.ID, other.ID)); pick.AuthID != other.ID {
-			t.Fatalf("a room opened where it cannot finish: %+v", pick)
-		}
-	}
-}
-
-// A room opened on an account that cannot pay for three videos fails on its
-// second or third turn, where no other account can take it over.
-func TestSchedulerOpensNoRoom_whenNoAccountAffordsOne(t *testing.T) {
+func TestSchedulerOpensAVideoOnlyWhereOneGenerationFits(t *testing.T) {
 	service, local := continuationFixture(t)
 	other := recordFixture(t, "b")
 	seedSession(t, service, other, sessionToken{encodedToken("second")})
 	service.observeQuota(local.Target.ID, roomUsage(1826))
 	service.observeQuota(other.ID, roomUsage(10561))
 
+	for range 4 {
+		if pick := service.pickServableAccount(omniModel, slotCandidates(local.Target.ID, other.ID)); pick.AuthID != other.ID {
+			t.Fatalf("a video started without enough quota for one generation: %+v", pick)
+		}
+	}
+}
+
+func TestSchedulerOpensNoVideo_whenNoAccountAffordsOneGeneration(t *testing.T) {
+	service, local := continuationFixture(t)
+	other := recordFixture(t, "b")
+	seedSession(t, service, other, sessionToken{encodedToken("second")})
+	service.observeQuota(local.Target.ID, roomUsage(1826))
+	service.observeQuota(other.ID, roomUsage(4999))
+
 	if pick := service.pickServableAccount(omniModel, slotCandidates(local.Target.ID, other.ID)); pick.Handled {
-		t.Fatalf("a room opened where three videos do not fit: %+v", pick)
+		t.Fatalf("a video started where one generation does not fit: %+v", pick)
 	}
 	_, err := service.pickContinuation(jsonFixture(t, map[string]any{
 		"Provider": provider, "Model": interactionOmniModel,

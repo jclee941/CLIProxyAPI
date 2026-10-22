@@ -27,8 +27,8 @@ type quotaSnapshot struct {
 	// so, unlike a limit read out of a reply, its next reading moves or lifts it.
 	videoCapUntil int64
 	// roomUnits and weekUnits are what the five hour and weekly windows have
-	// left when an observation names them. A native room pins every turn to the
-	// account that opens it, so this is all a new room can still spend there.
+	// left when an observation names them. Each generation checks these
+	// balances independently, including an extension on its current owner.
 	roomUnits    float64
 	roomMeasured bool
 	weekUnits    float64
@@ -47,14 +47,12 @@ type quotaSnapshot struct {
 	delivered int
 }
 
-// roomTurns is how many videos a native room makes on the account that opens
-// it: the clip and the two extensions a scene asks for. A new interaction may
-// declare a smaller room through generation_config.room_videos.
+// roomTurns bounds the legacy generation_config.room_videos hint. It does not
+// multiply the quota required to admit a request.
 const roomTurns = 3
 
 // defaultGenerationUnits stands in for the cost of a video until one has been
-// measured. A turn spent 3,000 to 4,500 units on 2026-09-25, and a room was
-// held to need 15,000 before the cost was measured.
+// measured. A turn spent 3,000 to 4,500 units on 2026-09-25.
 const defaultGenerationUnits = 5000
 
 // generationSamples bounds how far back the cost of a video is remembered, so a
@@ -67,8 +65,7 @@ const sameWindowSlack = 10 * time.Minute
 
 // generationUnits is what one video costs: what the five hour window lost
 // between two readings of an account, divided by the videos it delivered in
-// between. The dearest recent video sets the price, so a room is never opened
-// on the hope that its turns come cheap.
+// between. The dearest recent video sets the price used for the next generation.
 func (service *service) generationUnits() float64 {
 	service.quota.mu.RLock()
 	defer service.quota.mu.RUnlock()
@@ -82,19 +79,11 @@ func (service *service) generationUnits() float64 {
 	return units
 }
 
-// affordsARoom reports whether an account can pay for a whole new room in both
-// windows. An account short of three videos starts a room it cannot finish, and
-// the turns after its allowance runs out fail where no other account can take
-// them, since the room stays pinned there. An account with no reading stays
-// eligible, as the rotation treats it.
-func (service *service) affordsARoom(id string) bool {
-	return service.affordsVideos(id, service.tuning().roomTurns())
-}
-
-// affordsVideos reports whether an account can pay for a room of the given
-// number of videos in both windows.
-func (service *service) affordsVideos(id string, videos int) bool {
-	need := float64(videos) * service.generationUnits()
+// affordsGeneration reports whether both windows can fund this one generation.
+// An extension is checked again when it arrives; future turns reserve no quota.
+// An account with no reading stays eligible, as the rotation treats it.
+func (service *service) affordsGeneration(id string) bool {
+	need := service.generationUnits()
 	service.quota.mu.RLock()
 	snapshot, found := service.quota.entries[id]
 	service.quota.mu.RUnlock()
@@ -115,7 +104,7 @@ func (service *service) affordsVideos(id string, videos int) bool {
 // window (operator decision 2026-09-29). The week has no such ceiling: on
 // 2026-10-19 an account at 91% of its week sat out every new room with its five
 // hours unused and units left for more than a dozen videos, so the operator
-// removed it. A spent week, or one short of the whole room, still holds an
+// removed it. A spent week, or one short of one generation, still holds an
 // account out.
 const firstEntryRoomCeiling = 0.80
 

@@ -58,6 +58,9 @@ func blockedOwnerHandsTheChain(t *testing.T, declare bool) {
 	}
 	both := slotCandidates(source.Target.ID, target.Target.ID)
 
+	// Each account can fund the next generation, not three future turns.
+	service.observeQuota(source.Target.ID, windowsUsage(6000, 6000))
+	service.observeQuota(target.Target.ID, windowsUsage(6000, 6000))
 	// Given an owner that can serve, the chain stays in its conversation.
 	if choice, err := pick(both); err != nil || choice.AuthID != source.Target.ID {
 		t.Fatalf("a serving owner was passed over: pick=%+v err=%v", choice, err)
@@ -65,6 +68,11 @@ func blockedOwnerHandsTheChain(t *testing.T, declare bool) {
 	// When the host does not offer the owner, another account takes the turn.
 	if choice, err := pick(slotCandidates(target.Target.ID)); err != nil || !choice.Handled || choice.AuthID != target.Target.ID {
 		t.Fatalf("an unoffered owner stalled the chain: pick=%+v err=%v", choice, err)
+	}
+	// A positive balance below one generation cannot fund the next extension.
+	service.observeQuota(source.Target.ID, windowsUsage(4999, 900000))
+	if choice, err := pick(both); err != nil || !choice.Handled || choice.AuthID != target.Target.ID {
+		t.Fatalf("an owner short of one generation kept the chain: pick=%+v err=%v", choice, err)
 	}
 	// When the owner's windows are spent, another account takes the turn.
 	full := 1.0

@@ -11,9 +11,8 @@ import (
 
 const continuationHeader = "X-Gemini-Web-Continuation"
 
-// roomVideosHeader carries the room size the interceptor read from a new
-// interaction's generation_config.room_videos to the scheduler, which receives
-// headers but not the body. A caller-supplied copy is always cleared.
+// roomVideosHeader carries the legacy room_videos hint. Admission ignores it
+// and checks one generation; a caller-supplied copy is always cleared.
 const roomVideosHeader = "X-Gemini-Web-Room-Videos"
 
 func (service *service) interceptContinuation(raw []byte) requestInterceptResponse {
@@ -84,16 +83,6 @@ func (service *service) interceptContinuation(raw []byte) requestInterceptRespon
 		response.Headers = http.Header{roomVideosHeader: {strconv.Itoa(videos)}}
 	}
 	return response
-}
-
-// roomVideos is the room size the interceptor derived for a new interaction,
-// or a whole room when it derived none.
-func (tuned tuning) roomVideos(header string) int {
-	videos, err := strconv.Atoi(header)
-	if err != nil || videos < 1 || videos > tuned.roomTurns() {
-		return tuned.roomTurns()
-	}
-	return videos
 }
 
 func interactionRejection(err error) requestInterceptResponse {
@@ -193,7 +182,7 @@ func (service *service) pickContinuation(raw []byte) (picked continuationPick, e
 				return !service.belowFirstEntryCeilings(candidate.ID)
 			})
 		}
-		pick := service.pickRoomAccount(request.Model, candidates, service.tuning().roomVideos(request.Options.Headers.Get(roomVideosHeader)))
+		pick := service.pickServableAccount(request.Model, candidates)
 		if !pick.Handled && video {
 			return continuationPick{}, failure(409, "account_unavailable")
 		}

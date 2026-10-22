@@ -17,7 +17,7 @@ type tuning struct {
 	RouteRoomCeilingPercent int `yaml:"route_room_ceiling_percent,omitempty"`
 	// VideoLimitHoldSeconds overrides videoLimitHold.
 	VideoLimitHoldSeconds int `yaml:"video_limit_hold_seconds,omitempty"`
-	// RoomTurns overrides roomTurns, which also bounds a request's room_videos.
+	// RoomTurns bounds the legacy room_videos hint, not quota admission.
 	RoomTurns int `yaml:"room_turns,omitempty"`
 	// DefaultGenerationUnits overrides defaultGenerationUnits.
 	DefaultGenerationUnits int `yaml:"default_generation_units,omitempty"`

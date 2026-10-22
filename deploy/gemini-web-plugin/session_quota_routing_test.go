@@ -293,9 +293,7 @@ func TestTheVideoBudgetKeepsAnAccountOutUntilVideosAreBack(t *testing.T) {
 	}
 }
 
-// A video cost 3,500 to 5,200 units on 2026-09-26, and a room is three of them
-// pinned to the account that opens it.
-func TestARoomNeedsThreeMeasuredVideosInBothWindows(t *testing.T) {
+func TestAGenerationNeedsOneMeasuredVideoInBothWindows(t *testing.T) {
 	service, local := continuationFixture(t)
 	other := recordFixture(t, "b")
 	seedSession(t, service, other, sessionToken{encodedToken("other")})
@@ -312,13 +310,13 @@ func TestARoomNeedsThreeMeasuredVideosInBothWindows(t *testing.T) {
 		fiveHour, week float64
 		affords        bool
 	}{
-		{"both windows hold three", 15600, 15600, true},
-		{"five hours short", 15599, 900000, false},
-		{"week short", 48000, 15599, false},
+		{"both windows hold one", 5200, 5200, true},
+		{"five hours short", 5199, 900000, false},
+		{"week short", 48000, 5199, false},
 	} {
 		service.observeQuota(other.ID, windowsUsage(test.fiveHour, test.week))
-		if service.affordsARoom(other.ID) != test.affords {
-			t.Errorf("%s: affords a room = %v", test.name, !test.affords)
+		if service.affordsGeneration(other.ID) != test.affords {
+			t.Errorf("%s: affords a generation = %v", test.name, !test.affords)
 		}
 	}
 }
@@ -329,7 +327,7 @@ func TestAShortReadingFromAWindowThatTurnedOverKeepsNoAccountOut(t *testing.T) {
 	service, local := continuationFixture(t)
 	now := service.now()
 	service.now = func() time.Time { return now }
-	short, full := 10000.0, 900000.0
+	short, full := 4999.0, 900000.0
 	later := float64(now.Add(time.Hour).Unix())
 	muchLater := float64(now.Add(5 * time.Hour).Unix())
 	reading := func(fiveHour, week, fiveHourReset, weekReset float64) *usageView {
@@ -340,20 +338,20 @@ func TestAShortReadingFromAWindowThatTurnedOverKeepsNoAccountOut(t *testing.T) {
 	}
 
 	service.observeQuota(local.Target.ID, reading(short, full, later, muchLater))
-	if service.affordsARoom(local.Target.ID) {
-		t.Fatal("an account short of a room in its five hours opened one")
+	if service.affordsGeneration(local.Target.ID) {
+		t.Fatal("an account short of one generation in its five hours accepted one")
 	}
 	now = time.Unix(int64(later), 0)
-	if !service.affordsARoom(local.Target.ID) {
+	if !service.affordsGeneration(local.Target.ID) {
 		t.Fatal("a five hour window that turned over still kept the account out")
 	}
 
 	service.observeQuota(local.Target.ID, reading(full, short, muchLater, later+3600))
-	if service.affordsARoom(local.Target.ID) {
-		t.Fatal("an account short of a room in its week opened one")
+	if service.affordsGeneration(local.Target.ID) {
+		t.Fatal("an account short of one generation in its week accepted one")
 	}
 	now = time.Unix(int64(later+3600), 0)
-	if !service.affordsARoom(local.Target.ID) {
+	if !service.affordsGeneration(local.Target.ID) {
 		t.Fatal("a weekly window that turned over still kept the account out")
 	}
 }

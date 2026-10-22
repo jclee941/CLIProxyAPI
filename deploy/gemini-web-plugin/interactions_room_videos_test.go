@@ -64,31 +64,32 @@ func TestARoomSizeOutsideANewRoomIsRefused(t *testing.T) {
 	}
 }
 
-func TestSchedulerOpensAOneVideoRoomWhereOneVideoFits(t *testing.T) {
-	service, local := continuationFixture(t)
-	other := recordFixture(t, "b")
-	seedSession(t, service, other, sessionToken{encodedToken("second")})
-	service.observeQuota(local.Target.ID, roomUsage(1826))
-	service.observeQuota(other.ID, roomUsage(10561))
-	candidates := slotCandidates(local.Target.ID, other.ID)
+func TestSchedulerAdmitsOneGenerationRegardlessOfRoomHint(t *testing.T) {
+	for _, test := range []struct{ name, header string }{
+		{"omitted", ""},
+		{"one", "1"},
+		{"legacy three", "3"},
+		{"zero", "0"},
+		{"oversized", "4"},
+		{"unreadable", "two"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, local := continuationFixture(t)
+			other := recordFixture(t, "b")
+			seedSession(t, service, other, sessionToken{encodedToken("second")})
+			service.observeQuota(local.Target.ID, roomUsage(1826))
+			service.observeQuota(other.ID, roomUsage(10561))
+			raw := jsonFixture(t, map[string]any{
+				"Provider": provider, "Model": interactionOmniModel,
+				"Candidates": slotCandidates(local.Target.ID, other.ID),
+				"Options":    map[string]any{"Headers": http.Header{roomVideosHeader: {test.header}}},
+			})
 
-	if pick := service.pickRoomAccount(omniModel, candidates, roomTurns); pick.Handled {
-		t.Fatalf("a three-video room opened where it cannot finish: %+v", pick)
-	}
-	raw := jsonFixture(t, map[string]any{
-		"Provider": provider, "Model": interactionOmniModel, "Candidates": candidates,
-		"Options": map[string]any{"Headers": http.Header{roomVideosHeader: {"1"}}},
-	})
-	pick, err := service.pickContinuation(raw)
-	if err != nil || !pick.Handled || pick.AuthID != other.ID {
-		t.Fatalf("a one-video room did not open where one video fits: %+v, %v", pick, err)
-	}
-}
+			pick, err := service.pickContinuation(raw)
 
-func TestAnUnreadableRoomSizeHoldsAWholeRoom(t *testing.T) {
-	for _, header := range []string{"", "0", "4", "two"} {
-		if videos := (tuning{}).roomVideos(header); videos != roomTurns {
-			t.Errorf("(tuning{}).roomVideos(%q) = %d, want %d", header, videos, roomTurns)
-		}
+			if err != nil || !pick.Handled || pick.AuthID != other.ID {
+				t.Fatalf("a single generation was held to a larger room: pick=%+v err=%v", pick, err)
+			}
+		})
 	}
 }
