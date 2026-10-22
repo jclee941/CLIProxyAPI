@@ -164,6 +164,14 @@ func (service *service) executeRequest(ctx context.Context, method string, reque
 
 func executionFailure(model string, err error) error {
 	if model != omniModel {
+		var public *publicError
+		if errors.As(err, &public) && public.Code == "needs_operator" {
+			// Recovery fences this account, not the stateless request. A 409
+			// is a caller fault to the host and prevents trying a ready account.
+			unavailable := *public
+			unavailable.HTTPStatus = http.StatusServiceUnavailable
+			return &unavailable
+		}
 		return err
 	}
 	var public *publicError

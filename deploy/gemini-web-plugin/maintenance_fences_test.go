@@ -70,3 +70,44 @@ func TestUnknownOmniSubmissionNeedsOperator_withoutGenerationTimeout(t *testing.
 		t.Fatal("maintenance renewed unknown submission")
 	}
 }
+
+func TestStatelessTextCanRotatePastAnAccountAwaitingRecovery(t *testing.T) {
+	service, local := continuationFixture(t)
+	key := continuationKey(strings.Repeat("a", 64))
+	local.State, local.ContinuationActive = localSubmitting, key
+	if err := service.saveContinuations(local, map[string]continuationTurn{
+		key: {CallerScope: testCallerScope, Model: omniModel, State: "submitting", Conversation: "c_chat", Reply: "r_turn"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := authFromRecord(local.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var upstreamCalls atomic.Int32
+	service.client.Transport = transportFunc(func(*http.Request) (*http.Response, error) {
+		upstreamCalls.Add(1)
+		return nil, errors.New("blocked credential reached upstream")
+	})
+	request := executorRequest{
+		AuthID: local.Target.ID, AuthProvider: provider, Model: flashModel,
+		Format: "gemini", SourceFormat: "gemini", Payload: []byte(`{"contents":[{"parts":[{"text":"hello"}]}]}`),
+		StorageJSON: auth.StorageJSON, AuthMetadata: auth.Metadata,
+	}
+
+	result := invoke(t, service, "executor.execute", request)
+
+	if result.OK || result.Error == nil || result.Error.HTTPStatus != http.StatusServiceUnavailable || result.Error.Code != "needs_operator" {
+		t.Fatalf("account availability was treated as a caller conflict: %+v", result.Error)
+	}
+	if upstreamCalls.Load() != 0 {
+		t.Fatal("a fenced account submitted a stateless request")
+	}
+	stored, err := service.sessions.read(local.Target.TokenRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != localSubmitting || stored.ContinuationActive != key {
+		t.Fatal("account rotation discarded the recoverable operation")
+	}
+}

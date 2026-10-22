@@ -7525,7 +7525,7 @@
               "low"
             ],
             "default": "normal",
-            "description": "low is accepted only by flow-veo-3.1-lite. Not valid for images or upscale. When Flow refuses the low-priority queue, the request runs once more at normal priority, which spends credits (5 for 8 seconds at 720p), and further low requests on that account run at normal for the next 30 minutes. Below 5000 credits no credits are spent this way: the refused request, and further low requests for those 30 minutes, answer 429 flow_credit_floor_reached."
+            "description": "low is accepted only by flow-veo-3.1-lite. Not valid for images or upscale. By default, a refused free queue or its 30-minute pause returns 429 flow_paid_fallback_disabled and never switches to paid normal priority. An operator may explicitly enable low_priority_paid_fallback; paid replacements then require at least 5000 credits or return 429 flow_credit_floor_reached."
           },
           "projectId": {
             "type": "string",
