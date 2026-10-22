@@ -50,9 +50,11 @@ Gemini, Chat and Responses routes; Claude callers get the usual Claude error
 object with the same message. `401 flow_unauthenticated` means the linked Google
 session needs a new login, not that the API key is wrong. `429 flow_rate_limited`
 means Google is throttling the linked account for too much traffic; retry after a
-few minutes, not at once. `429 flow_credit_floor_reached` means a `low` priority
-request was refused and the account holds fewer than 5,000 credits, so it was not
-run at `normal` priority (see `priority` below). `429 flow_unusual_activity_hold`
+few minutes, not at once. `429 flow_paid_fallback_disabled` means the free queue
+was refused or is paused, and no paid normal-priority replacement is allowed.
+Only when the operator explicitly enables paid fallback can
+`429 flow_credit_floor_reached` apply: the account holds fewer than 5,000 credits,
+so it was not run at `normal` priority (see `priority` below). `429 flow_unusual_activity_hold`
 means Flow refused the linked account for unusual activity: its requests are
 answered at once, without reaching Flow, until the plugin's own health check
 finds Flow accepting the account again, and the message names the time of the
@@ -95,7 +97,7 @@ Set `aspectRatio` on a video `upscale` to match the source clip. It defaults to
 | Field | Meaning |
 | --- | --- |
 | `mode` | `auto` (default), `text`, `references`, `frames`, `edit`, `extend`, `upscale`. |
-| `priority` | `normal` (default) or `low`. `low` is for `flow-veo-3.1-lite` only (`flow_priority_unsupported` otherwise). Not valid for images or `upscale`. When Flow refuses the low-priority queue as unusual activity, the request runs once more at `normal` priority, which spends credits (5 for 8 seconds at 720p), and further `low` requests on that account run at `normal` for the next 30 minutes. Below 5,000 credits no credits are spent this way: the refused request, and further `low` requests for those 30 minutes, answer `429 flow_credit_floor_reached`. |
+| `priority` | `normal` (default) or `low`. `low` is for `flow-veo-3.1-lite` only (`flow_priority_unsupported` otherwise). Not valid for images or `upscale`. By default, a refused free queue or its 30-minute pause returns `429 flow_paid_fallback_disabled`; it never switches to paid `normal` priority. The operator may explicitly enable `low_priority_paid_fallback` to permit paid replacements, which still require at least 5,000 credits or return `429 flow_credit_floor_reached`. |
 | `projectId` | Existing Flow project of the linked account. When omitted, the plugin creates and reuses a `CLIProxyAPI` project for its lifetime. Pass an explicit ID to keep using the same project across restarts. |
 | `modelKey` | Exact Flow model usage key from the live catalog. It must stay inside the requested model's family. |
 | `firstFrame`, `lastFrame` | Video only. Media references. |
