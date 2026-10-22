@@ -3242,10 +3242,10 @@ index 00000000..706754ee
 +});
 diff --git c/apps/web/src/features/plugins/pluginHostRequest.test.ts i/apps/web/src/features/plugins/pluginHostRequest.test.ts
 new file mode 100644
-index 00000000..8bbc864d
+index 00000000..774cecbd
 --- /dev/null
 +++ i/apps/web/src/features/plugins/pluginHostRequest.test.ts
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,162 @@
 +import { describe, expect, it } from 'vitest';
 +import {
 +  allowPluginRequest,
@@ -3257,6 +3257,28 @@ index 00000000..8bbc864d
 +const origin = 'https://manager.example';
 +const accountId = 'gemini-web-fixture.json';
 +const accounts = new Set([accountId]);
++
++describe('native ChatGPT keyless quota scope', () => {
++  const path = '/v0/management/plugins/chatgpt-web/accounts';
++  it('grants the registered native page its authenticated quota read', () => {
++    expect(
++      trustedPluginResource('chatgpt-web', `${origin}/v0/resource/plugins/chatgpt-web/index`, origin)
++    ).toBe(true);
++    expect(allowPluginRequest('chatgpt-web', { path, method: 'GET' }, accounts)).toBe(true);
++  });
++  it.each([
++    { path, method: 'POST', body: '{}' },
++    { path, method: 'GET', body: '{}' },
++    { path, method: 'GET', headers: { Authorization: 'caller' } },
++    { path: '/v0/management/config', method: 'GET' },
++    { path: '/v0/management/plugins/gemini-web/accounts', method: 'GET' },
++    { path: '/v0/management/plugins/chatgpt-web/other', method: 'GET' },
++    { path: `${origin}${path}`, method: 'GET' },
++    { path: `${path}?redirect=elsewhere`, method: 'GET' },
++  ])('denies anything beyond the native quota read', (request) => {
++    expect(allowPluginRequest('chatgpt-web', request, accounts)).toBe(false);
++  });
++});
 +
 +describe('plugin request scope', () => {
 +  it.each(['accounts', 'refresh', 'login/start', 'login/complete', 'login/status'])(
@@ -3388,10 +3410,10 @@ index 00000000..8bbc864d
 +});
 diff --git c/apps/web/src/features/plugins/pluginHostRequest.ts i/apps/web/src/features/plugins/pluginHostRequest.ts
 new file mode 100644
-index 00000000..5d8b5937
+index 00000000..d66291ec
 --- /dev/null
 +++ i/apps/web/src/features/plugins/pluginHostRequest.ts
-@@ -0,0 +1,276 @@
+@@ -0,0 +1,279 @@
 +import { apiClient, createScopedApiRequestConfig } from '@/services/api/client';
 +import { useAuthStore } from '@/stores/useAuthStore';
 +import { isRecord } from '@/utils/helpers';
@@ -3403,7 +3425,8 @@ index 00000000..5d8b5937
 +  readonly body?: string;
 +};
 +type PluginResponse = { readonly status: number; readonly body: string };
-+const supportedPlugin = (id: string) => id === 'gemini-web' || id === 'chatgpt2api';
++const supportedPlugin = (id: string) =>
++  id === 'gemini-web' || id === 'chatgpt2api' || id === 'chatgpt-web';
 +const accountPattern = /^gemini-web-[A-Za-z0-9_-]+\.json$/;
 +const safePath = (path: string) => /^\/[A-Za-z0-9_/-]+$/.test(path) && !path.includes('//');
 +const failure = (status: number): PluginResponse => ({
@@ -3479,6 +3502,8 @@ index 00000000..5d8b5937
 +    (input.body !== undefined && (typeof input.body !== 'string' || input.method !== 'POST'))
 +  )
 +    return false;
++  if (pluginID === 'chatgpt-web')
++    return input.method === 'GET' && input.path === '/v0/management/plugins/chatgpt-web/accounts';
 +  if (pluginID === 'chatgpt2api' && input.method === 'POST')
 +    return allowChatGPTPost(input.path, input.body);
 +  if (safePath(input.path) && input.path.startsWith(`/v0/management/plugins/${pluginID}/`))

@@ -1,3 +1,3 @@
 services:
   cpa-manager-plus:
-    image: cpa-manager-plus:v1.14.7-geminiweb.20261021.1
+    image: cpa-manager-plus:v1.14.7-geminiweb.20261022.1

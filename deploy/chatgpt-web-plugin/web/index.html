@@ -134,7 +134,7 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
         <div class="heading-copy">
           <h1>ChatGPT Web</h1>
           <p class="hint">자격증명별 ChatGPT Web 한도와 Codex 사용량을 따로 보여줍니다. 조회만 하며 생성이나 토큰 갱신은 하지 않습니다.</p>
-          <p class="hint"><code>gpt-web-chat</code>, <code>gpt-app-pro</code>, <code>gpt-web-image</code> 호출은 웹 세션 한도를 쓰고, Codex 사용량은 API 한도라 따로 집계됩니다.</p>
+          <p class="hint"><code>gpt-web-chat</code>, <code>gpt-6-pro</code>, <code>gpt-web-image</code> 호출은 웹 세션 한도를 쓰고, Codex 사용량은 API 한도라 따로 집계됩니다.</p>
         </div>
         <div class="cluster">
           <button id="refresh" type="button">새로고침</button>
@@ -172,7 +172,7 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
           <div class="api-scroll"><table class="api-table">
             <thead><tr><th>필드</th><th>설명</th></tr></thead>
             <tbody>
-              <tr><td><code>model</code></td><td><code>gpt-web-chat</code>은 ChatGPT 웹 모델 선택기의 프리셋을 <code>reasoning_effort</code>로 고릅니다. <code>gpt-app-pro</code>는 GPT-6 Pro를 사용하며 추론 수준 지정은 무시됩니다. <code>gpt-web-chat(xhigh)</code>처럼 모델 이름 뒤 괄호로도 수준을 줄 수 있고, 괄호 값이 본문보다 우선합니다.</td></tr>
+              <tr><td><code>model</code></td><td><code>gpt-web-chat</code>은 ChatGPT 웹 모델 선택기의 프리셋을 <code>reasoning_effort</code>로 고릅니다. <code>gpt-6-pro</code>는 GPT-6 Pro를 사용하며 추론 수준 지정은 무시됩니다. <code>gpt-web-chat(xhigh)</code>처럼 모델 이름 뒤 괄호로도 수준을 줄 수 있고, 괄호 값이 본문보다 우선합니다.</td></tr>
               <tr><td><code>reasoning_effort</code></td><td>생략하거나 <code>auto</code>면 웹 기본 자동 라우팅입니다. <code>none</code> → Instant, <code>minimal</code>·<code>low</code> → Light, <code>medium</code>(<code>m</code>) → Medium, <code>high</code>(<code>h</code>) → High, <code>xhigh</code>(<code>xh</code>) → Extra High, <code>pro</code>(<code>p</code>) → Pro. <code>/v1/responses</code>의 <code>reasoning.effort</code>도 같은 값으로 받습니다. 그 밖의 값은 <code>400 unsupported_reasoning_effort</code>입니다.</td></tr>
               <tr><td><code>stream</code></td><td><code>true</code>면 답을 받는 대로 <code>chat.completion.chunk</code>로 흘려보내고 <code>data: [DONE]</code>으로 끝냅니다. 첫 청크는 모델이 생각하는 동안 먼저 도착합니다. <code>/v1/responses</code> 스트리밍(Codex 등)도 같은 경로로 동작합니다.</td></tr>
               <tr><td><code>messages</code></td><td>여러 턴을 보낼 수 있습니다. <code>tool</code> 역할과 이전 <code>tool_calls</code>도 이어붙여 대화 맥락으로 전달합니다.</td></tr>
@@ -386,7 +386,7 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
 
   function load() {
     var host = pluginHost();
-    var key = activeKey();
+    var key = host ? '' : activeKey();
     if (!host && !key) {
       authNode.hidden = false;
       stateNode.textContent = 'Manager 로그인 정보를 읽을 수 없습니다. Admin Key를 입력하면 이 탭에서만 사용합니다.';
@@ -415,7 +415,7 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
     }).catch(function (error) {
       stateNode.textContent = '조회 실패: ' + error.message;
       listNode.replaceChildren();
-      authNode.hidden = false;
+      authNode.hidden = Boolean(host);
     });
   }
 
