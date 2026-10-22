@@ -23,6 +23,7 @@ type webReply struct {
 	ConversationID string
 	Model          string
 	Effort         string
+	FinishReason   string
 	Complete       bool
 	TurnEnded      bool
 	ToolAnswered   bool
@@ -42,7 +43,17 @@ type webStreamMessage struct {
 	Metadata struct {
 		ModelSlug      string `json:"model_slug"`
 		ThinkingEffort string `json:"thinking_effort"`
+		FinishDetails  struct {
+			Type string `json:"type"`
+		} `json:"finish_details"`
 	} `json:"metadata"`
+}
+
+func (reply webReply) finishReason() string {
+	if reply.FinishReason != "" {
+		return reply.FinishReason
+	}
+	return "stop"
 }
 
 // answers reports whether this message is the assistant's text to the user. A
@@ -121,6 +132,9 @@ func (reader *webReplyReader) enter(message *webStreamMessage) {
 		reader.reply.Model = message.Metadata.ModelSlug
 		reader.reply.Effort = message.Metadata.ThinkingEffort
 	}
+	if message.answers() && message.Metadata.FinishDetails.Type == "max_tokens" {
+		reader.reply.FinishReason = "length"
+	}
 	if text := message.firstPart(); message.answers() && len(text) > len(reader.reply.Text) {
 		reader.reply.Text = text
 	}
@@ -152,6 +166,20 @@ func (reader *webReplyReader) fold(raw json.RawMessage, pointer string) {
 			reader.fold(item, pointer)
 		}
 	case '{':
+		if pointer == "/message/metadata" && reader.current != nil {
+			if json.Unmarshal(raw, &reader.current.Metadata) == nil && reader.current.answers() &&
+				reader.current.Metadata.FinishDetails.Type == "max_tokens" {
+				reader.reply.FinishReason = "length"
+			}
+			return
+		}
+		if pointer == "/message/metadata/finish_details" && reader.current != nil {
+			if json.Unmarshal(raw, &reader.current.Metadata.FinishDetails) == nil && reader.current.answers() &&
+				reader.current.Metadata.FinishDetails.Type == "max_tokens" {
+				reader.reply.FinishReason = "length"
+			}
+			return
+		}
 		var node struct {
 			Pointer *string           `json:"p"`
 			Value   json.RawMessage   `json:"v"`
@@ -278,9 +306,9 @@ func webTraceEvent(payload string) {
 // webFinalReply re-reads the conversation when the stream did not deliver a
 // whole answer - a patch shape this plugin does not know, or a stream cut while
 // the turn went on server-side - and waits for the newest answer to finish.
-func (client *webClient) webFinalReply(ctx context.Context, conversationID string, budget time.Duration) (string, error) {
+func (client *webClient) webFinalReply(ctx context.Context, conversationID string, budget time.Duration) (webReply, error) {
 	if conversationID == "" {
-		return "", failure(502, "web_conversation_missing")
+		return webReply{}, failure(502, "web_conversation_missing")
 	}
 	path := "/backend-api/conversation/" + conversationID
 	deadline := time.Now().Add(budget)
@@ -288,24 +316,22 @@ func (client *webClient) webFinalReply(ctx context.Context, conversationID strin
 		raw, err := client.call(ctx, http.MethodGet, path,
 			client.header(path, map[string]string{"Accept": "application/json"}), nil, "web_conversation_read_failed")
 		if err == nil {
-			if text := webLatestAssistantText(raw); text != "" {
-				return text, nil
+			if reply := webLatestAssistantReply(raw); reply.Text != "" {
+				return reply, nil
 			}
 		}
 		select {
 		case <-ctx.Done():
-			return "", failure(499, "web_client_disconnected")
+			return webReply{}, failure(499, "web_client_disconnected")
 		case <-time.After(webPollInterval):
 		}
 	}
-	return "", failure(504, "web_reply_not_ready")
+	return webReply{}, failure(504, "web_reply_not_ready")
 }
 
-// webLatestAssistantText returns the newest answer in the conversation once it
-// has finished. The mapping is keyed by message id rather than ordered, so the
-// newest turn is chosen by timestamp, and an answer still being written is not
-// returned as if it were whole.
-func webLatestAssistantText(raw []byte) string {
+// webLatestAssistantReply preserves the newest answer's termination metadata.
+// An answer still being written is not returned as if it were whole.
+func webLatestAssistantReply(raw []byte) webReply {
 	var conversation struct {
 		Mapping map[string]struct {
 			Message *struct {
@@ -316,20 +342,22 @@ func webLatestAssistantText(raw []byte) string {
 		} `json:"mapping"`
 	}
 	if json.Unmarshal(raw, &conversation) != nil {
-		return ""
+		return webReply{}
 	}
-	text, newest, finished := "", -1.0, false
+	reply, newest, finished := webReply{}, -1.0, false
 	for _, node := range conversation.Mapping {
 		message := node.Message
 		if message == nil || !message.answers() || message.firstPart() == "" {
 			continue
 		}
 		if message.CreateTime >= newest {
-			text, newest, finished = message.firstPart(), message.CreateTime, message.Status != "in_progress"
+			reader := webReplyReader{}
+			reader.enter(&message.webStreamMessage)
+			reply, newest, finished = reader.reply, message.CreateTime, message.Status != "in_progress"
 		}
 	}
 	if !finished {
-		return ""
+		return webReply{}
 	}
-	return text
+	return reply
 }

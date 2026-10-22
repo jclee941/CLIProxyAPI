@@ -124,7 +124,7 @@ func TestRelayStreamsContentAsItArrives_whenNoToolsAreOffered(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := relay.finish("Hello"); err != nil {
+	if err := relay.finish(webReply{Text: "Hello"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -165,7 +165,7 @@ func TestRelayHoldsACallBlockBackUntilTheEnd_whenToolsAreOffered(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := relay.finish(strings.Join(pieces, "")); err != nil {
+	if err := relay.finish(webReply{Text: strings.Join(pieces, "")}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -189,7 +189,7 @@ func TestRelayHoldsABareCallBack_whenTheWholeReplyIsTheCall(t *testing.T) {
 	if err := relay.deliver(reply); err != nil {
 		t.Fatal(err)
 	}
-	if err := relay.finish(reply); err != nil {
+	if err := relay.finish(webReply{Text: reply}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -206,7 +206,7 @@ func TestRelaySendsHeldTextAsContent_whenItWasNotACall(t *testing.T) {
 	if err := relay.deliver("{not json"); err != nil {
 		t.Fatal(err)
 	}
-	if err := relay.finish("{not json"); err != nil {
+	if err := relay.finish(webReply{Text: "{not json"}); err != nil {
 		t.Fatal(err)
 	}
 

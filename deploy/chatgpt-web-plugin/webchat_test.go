@@ -163,11 +163,11 @@ func TestWebLatestAssistantTextPicksTheNewestTurn(t *testing.T) {
 		"a":{"message":{"author":{"role":"user"},"create_time":3,"content":{"content_type":"text","parts":["question"]}}},
 		"b":{"message":{"author":{"role":"assistant"},"create_time":1,"content":{"content_type":"text","parts":["older"]}}},
 		"c":{"message":{"author":{"role":"assistant"},"create_time":2,"content":{"content_type":"text","parts":["newer"]}}}}}`)
-	if text := webLatestAssistantText(raw); text != "newer" {
-		t.Fatalf("text = %q", text)
+	if reply := webLatestAssistantReply(raw); reply.Text != "newer" {
+		t.Fatalf("text = %q", reply.Text)
 	}
-	if text := webLatestAssistantText([]byte(`{"mapping":{}}`)); text != "" {
-		t.Fatalf("empty conversation yielded %q", text)
+	if reply := webLatestAssistantReply([]byte(`{"mapping":{}}`)); reply.Text != "" {
+		t.Fatalf("empty conversation yielded %q", reply.Text)
 	}
 }
 
@@ -189,19 +189,18 @@ func TestWebChatModelIsRoutedAndRendered(t *testing.T) {
 	}
 }
 
-// The Pro model is listed as gpt-app-pro while the conversation keeps asking the
-// web product for its own gpt-6-pro slug; the old public name stays claimed so
-// existing callers keep working, but it is no longer advertised.
-func TestWebChatExposesGptAppProOnTheWebSession(t *testing.T) {
+// The public Pro ID matches the upstream slug; the former app name remains an
+// accepted request alias without becoming a second catalog entry.
+func TestWebChatExposesGpt6ProOnTheWebSession(t *testing.T) {
 	ids := map[string]bool{}
 	for _, model := range webChatModels() {
 		ids[model.ID] = true
 	}
-	if !ids["gpt-app-pro"] {
-		t.Fatal("gpt-app-pro is missing from the web chat catalog")
+	if !ids["gpt-6-pro"] {
+		t.Fatal("gpt-6-pro is missing from the web chat catalog")
 	}
-	if ids["gpt-6-pro"] {
-		t.Fatal("gpt-6-pro is still advertised in the web chat catalog")
+	if ids["gpt-app-pro"] {
+		t.Fatal("the legacy app alias is still advertised in the web chat catalog")
 	}
 	for _, model := range []string{"gpt-app-pro", "GPT-App-Pro", "openai/gpt-app-pro(high)", "gpt-6-pro"} {
 		if !claimsWebChatModel(model) {
@@ -218,12 +217,12 @@ func TestWebChatExposesGptAppProOnTheWebSession(t *testing.T) {
 	}
 }
 
-// The web conversation carries text only, so an attachment part has to be
-// refused: dropping it would answer a question about a file that never arrived.
+// A part the plugin cannot upload and show to the model has to be refused:
+// dropping it would answer a question about a file that never arrived.
 func TestWebChatRefusesAttachmentParts(t *testing.T) {
 	for name, part := range map[string]string{
 		"image": `{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}`,
-		"audio": `{"type":"input_audio","input_audio":{"data":"AAAA","format":"mp3"}}`,
+		"audio": `{"type":"input_audio","input_audio":{"data":"AAAA","format":"ogg"}}`,
 		"file":  `{"type":"file","file":{"filename":"a.pdf","file_data":"AAAA"}}`,
 	} {
 		_, _, err := webChatPrompt([]byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"look"},` + part + `]}]}`))

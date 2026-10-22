@@ -311,9 +311,11 @@ func (client *webClient) chatRequirements(ctx context.Context) (webRequirements,
 // webTurn is what one conversation turn asks the product for. Hints are the
 // system_hints the web client sends, such as picture_v2 for an image.
 type webTurn struct {
-	Prompt string
-	Mode   webMode
-	Hints  []string
+	Prompt      string
+	Mode        webMode
+	Hints       []string
+	Attachments []webAttachment
+	Files       []webUploadedFile
 }
 
 // fill adds the fields prepare and start share. The backend validates the
@@ -376,6 +378,9 @@ func (client *webClient) startGeneration(ctx context.Context, turn webTurn, requ
 	}
 	if len(turn.Hints) > 0 {
 		metadata["system_hints"] = turn.Hints
+	}
+	if len(turn.Files) > 0 {
+		metadata["attachments"] = webAttachmentMetadata(turn.Files)
 	}
 	body := map[string]interface{}{
 		"action": "next",

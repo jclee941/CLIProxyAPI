@@ -72,7 +72,7 @@ func (relay *webRelay) run(ctx context.Context, cancel context.CancelFunc, respo
 	if err == nil {
 		relay.service.checkServed(relay.plan.turn.Mode, reply)
 		relay.served = reply.served()
-		err = relay.finish(reply.Text)
+		err = relay.finish(reply)
 	}
 	// Closing tells a caller still listening how the turn ended; the bridge
 	// refuses the close only for a caller that has already gone.
@@ -88,7 +88,10 @@ func (relay *webRelay) deliver(delta string) error {
 		return failure(499, "web_client_disconnected")
 	}
 	relay.text += delta
-	ready := webShowable(relay.text, relay.plan.tools)
+	ready := ""
+	if relay.plan.schema == nil {
+		ready = webShowable(relay.text, relay.plan.tools)
+	}
 	piece, grew := strings.CutPrefix(ready, relay.sent)
 	if !grew || piece == "" {
 		return nil
@@ -99,11 +102,18 @@ func (relay *webRelay) deliver(delta string) error {
 
 // finish closes the turn with what the non-streaming path would have answered:
 // the content not sent yet, any tool calls, and the finish reason.
-func (relay *webRelay) finish(text string) error {
-	content, calls := text, []webToolCall(nil)
+func (relay *webRelay) finish(reply webReply) error {
+	content, calls := reply.Text, []webToolCall(nil)
 	sent := relay.sent
-	if relay.plan.tools {
-		if clean, parsed := webParseToolCalls(text); len(parsed) > 0 {
+	if relay.plan.schema != nil {
+		document, err := reply.structuredJSON(relay.plan.schema)
+		if err != nil {
+			return err
+		}
+		content = document
+	}
+	if relay.plan.tools && reply.finishReason() != "length" {
+		if clean, parsed := webParseToolCalls(reply.Text); len(parsed) > 0 {
 			content, calls, sent = clean, parsed, strings.TrimLeftFunc(sent, unicode.IsSpace)
 		}
 	}
@@ -112,7 +122,7 @@ func (relay *webRelay) finish(text string) error {
 			return err
 		}
 	}
-	reason := "stop"
+	reason := reply.finishReason()
 	if len(calls) > 0 {
 		if err := relay.emit(map[string]any{"tool_calls": webRenderToolCalls(calls, true)}, nil); err != nil {
 			return err

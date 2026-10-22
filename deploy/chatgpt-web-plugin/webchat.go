@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // Chat runs through the same web conversation the image path uses, because that
@@ -17,9 +19,8 @@ import (
 
 const webChatModel = "gpt-web-chat"
 
-// webProModel is the slug the web product knows its Pro preset by, and what the
-// conversation asks for. Callers see it as webAppProModel; the slug itself is also
-// still accepted as a request name so existing clients keep working.
+// webProModel is both the public Pro ID and the upstream conversation slug.
+// webAppProModel remains an accepted legacy request alias.
 const webProModel = "gpt-6-pro"
 const webAppProModel = "gpt-app-pro"
 
@@ -49,14 +50,14 @@ func webChatModels() []modelInfo {
 		SupportedInputModalities:  []string{"text"},
 		SupportedOutputModalities: []string{"text"},
 	}, {
-		ID:                        webAppProModel,
+		ID:                        webProModel,
 		Object:                    "model",
 		OwnedBy:                   provider,
 		Type:                      "openai",
-		DisplayName:               "GPT App Pro",
-		Name:                      webAppProModel,
-		Description:               "ChatGPT web app GPT-6 Pro; spends the web allowance instead of the Codex API allowance",
-		SupportedInputModalities:  []string{"text"},
+		DisplayName:               "GPT-6 Pro",
+		Name:                      webProModel,
+		Description:               "ChatGPT web app GPT-6 Pro; takes WAV and MP3 audio and MP4 video as attachments; spends the web allowance instead of the Codex API allowance",
+		SupportedInputModalities:  []string{"text", "audio", "video"},
 		SupportedOutputModalities: []string{"text"},
 	}}
 }
@@ -113,6 +114,13 @@ type webChatRequest struct {
 	} `json:"tools"`
 	ToolChoice      json.RawMessage `json:"tool_choice"`
 	ReasoningEffort string          `json:"reasoning_effort"`
+	ResponseFormat  struct {
+		Type       string `json:"type"`
+		JSONSchema struct {
+			Schema json.RawMessage `json:"schema"`
+		} `json:"json_schema"`
+	} `json:"response_format"`
+	attachments []webAttachment
 }
 
 // webChatToolPrompt states the call contract, because the web product has no
@@ -180,14 +188,31 @@ func webChatPrompt(payload []byte) (string, webChatRequest, error) {
 	if json.Unmarshal(payload, &request) != nil {
 		return "", request, failure(400, "invalid_chat_request")
 	}
+	switch request.ResponseFormat.Type {
+	case "", "text", "json_object", "json_schema":
+	default:
+		return "", request, failure(400, "unsupported_response_format")
+	}
+	if request.structured() && len(request.Tools) > 0 {
+		return "", request, failure(400, "unsupported_response_format")
+	}
 	var sections []string
 	if instruction := webChatToolPrompt(request); instruction != "" {
 		sections = append(sections, instruction)
 	}
 	for _, message := range request.Messages {
-		text, attachment := webMessageText(message.Content)
-		if attachment {
-			return "", request, failure(400, "unsupported_chat_attachment")
+		text, media, err := webMessageText(message.Content, len(request.attachments))
+		if err != nil {
+			return "", request, err
+		}
+		if len(media) > 0 {
+			if message.Role != "user" {
+				return "", request, unsupportedAttachment()
+			}
+			request.attachments = append(request.attachments, media...)
+			if len(request.attachments) > webAttachmentMaxFiles {
+				return "", request, failure(400, "too_many_chat_attachments")
+			}
 		}
 		switch message.Role {
 		case "system":
@@ -210,8 +235,11 @@ func webChatPrompt(payload []byte) (string, webChatRequest, error) {
 			}
 		}
 	}
+	if instruction := webChatFormatPrompt(request); instruction != "" {
+		sections = append(sections, instruction)
+	}
 	prompt := strings.Join(sections, "\n\n")
-	if strings.TrimSpace(prompt) == "" {
+	if strings.TrimSpace(prompt) == "" && len(request.attachments) == 0 {
 		return "", request, failure(400, "prompt_required")
 	}
 	return prompt, request, nil
@@ -271,32 +299,35 @@ func webDecodeToolCall(raw string) (webToolCall, bool) {
 	return webToolCall{Name: decoded.Name, Arguments: string(arguments)}, true
 }
 
-// webMessageText flattens a message's content to its text. The web conversation
-// is built from text alone, so any other part - an image, audio or file - is
-// reported instead of dropped; answering without it would describe a file the
-// model never saw.
-func webMessageText(raw json.RawMessage) (string, bool) {
+// webMessageText flattens a message's content to its text and collects the audio
+// and video it carries. A part the product cannot be shown to use - an image, a
+// document, a type outside webMediaTypes - is reported instead of dropped;
+// answering without it would describe a file the model never saw. taken is how
+// many attachments earlier messages already hold.
+func webMessageText(raw json.RawMessage, taken int) (string, []webAttachment, error) {
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
-		return text, false
+		return text, nil, nil
 	}
-	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
+	var parts []webChatPart
 	if json.Unmarshal(raw, &parts) != nil {
-		return "", false
+		return "", nil, nil
 	}
 	var builder strings.Builder
+	var media []webAttachment
 	for _, part := range parts {
 		switch part.Type {
 		case "text", "input_text", "output_text":
 			builder.WriteString(part.Text)
 		default:
-			return "", true
+			attachment, err := part.attachment(taken + len(media) + 1)
+			if err != nil {
+				return "", nil, err
+			}
+			media = append(media, attachment)
 		}
 	}
-	return builder.String(), false
+	return builder.String(), media, nil
 }
 
 type webChatPlan struct {
@@ -305,6 +336,7 @@ type webChatPlan struct {
 	callbackID string
 	turn       webTurn
 	tools      bool
+	schema     *jsonschema.Schema
 	candidates []hostEntry
 }
 
@@ -327,6 +359,10 @@ func (service *service) planChat(raw []byte) (webChatPlan, error) {
 	if err != nil {
 		return webChatPlan{}, err
 	}
+	schema, err := webOutputSchema(chat)
+	if err != nil {
+		return webChatPlan{}, err
+	}
 	mode, err := webChatMode(request.Model, chat)
 	if err != nil {
 		return webChatPlan{}, err
@@ -346,8 +382,9 @@ func (service *service) planChat(raw []byte) (webChatPlan, error) {
 		model:      request.Model,
 		stream:     request.StreamID,
 		callbackID: request.HostCallbackID,
-		turn:       webTurn{Prompt: prompt, Mode: mode},
+		turn:       webTurn{Prompt: prompt, Mode: mode, Attachments: chat.attachments},
 		tools:      len(chat.Tools) > 0,
+		schema:     schema,
 	}
 	for offset := 0; offset < min(len(entries), webChatMaxCredentials); offset++ {
 		plan.candidates = append(plan.candidates, entries[(start+offset)%len(entries)])
@@ -368,6 +405,11 @@ func (client *webClient) startReply(ctx context.Context, turn webTurn) (*http.Re
 	if err := client.bootstrap(ctx); err != nil {
 		return nil, err
 	}
+	files, err := client.uploadAttachments(ctx, turn.Attachments)
+	if err != nil {
+		return nil, err
+	}
+	turn.Files = files
 	requirements, err := client.chatRequirements(ctx)
 	if err != nil {
 		return nil, err
@@ -398,12 +440,15 @@ func (client *webClient) finishReply(ctx context.Context, response *http.Respons
 	if mode.reasoning() {
 		budget = webReasoningPollBudget
 	}
-	text, err := client.webFinalReply(ctx, reply.ConversationID, budget)
+	stored, err := client.webFinalReply(ctx, reply.ConversationID, budget)
 	if err != nil {
 		return reply, err
 	}
-	rest, extends := strings.CutPrefix(text, reply.Text)
-	reply.Text = text
+	rest, extends := strings.CutPrefix(stored.Text, reply.Text)
+	reply.Text, reply.FinishReason = stored.Text, stored.FinishReason
+	if stored.Model != "" {
+		reply.Model, reply.Effort = stored.Model, stored.Effort
+	}
 	if onDelta != nil && extends && rest != "" {
 		return reply, onDelta(rest)
 	}
@@ -439,6 +484,11 @@ func (service *service) executeChat(ctx context.Context, raw []byte) (interface{
 			continue
 		}
 		service.checkServed(plan.turn.Mode, reply)
+		if plan.schema != nil {
+			if reply.Text, err = reply.structuredJSON(plan.schema); err != nil {
+				return nil, err
+			}
+		}
 		body, err := webChatPayload(plan.model, reply, plan.tools)
 		if err != nil {
 			return nil, err
@@ -476,8 +526,8 @@ func (reply webReply) served() string {
 
 func webChatPayload(model string, reply webReply, toolsOffered bool) ([]byte, error) {
 	message := map[string]interface{}{"role": "assistant", "content": reply.Text}
-	finish := "stop"
-	if toolsOffered {
+	finish := reply.finishReason()
+	if toolsOffered && finish != "length" {
 		clean, calls := webParseToolCalls(reply.Text)
 		if len(calls) > 0 {
 			message["tool_calls"] = webRenderToolCalls(calls, false)

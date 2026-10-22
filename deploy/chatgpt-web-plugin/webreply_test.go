@@ -104,14 +104,14 @@ func TestLatestAssistantTextWaitsForAnAnswerStillBeingWritten(t *testing.T) {
 	writing := []byte(`{"mapping":{
 		"a":{"message":{"author":{"role":"assistant"},"create_time":1,"status":"finished_successfully","content":{"content_type":"text","parts":["older"]}}},
 		"b":{"message":{"author":{"role":"assistant"},"create_time":2,"status":"in_progress","channel":"final","content":{"content_type":"text","parts":["newer, still"]}}}}}`)
-	if text := webLatestAssistantText(writing); text != "" {
-		t.Fatalf("an unfinished answer was returned: %q", text)
+	if reply := webLatestAssistantReply(writing); reply.Text != "" {
+		t.Fatalf("an unfinished answer was returned: %q", reply.Text)
 	}
 	commentary := []byte(`{"mapping":{
 		"a":{"message":{"author":{"role":"assistant"},"create_time":1,"status":"finished_successfully","channel":"final","content":{"content_type":"text","parts":["the answer"]}}},
 		"b":{"message":{"author":{"role":"assistant"},"create_time":2,"status":"finished_successfully","channel":"commentary","content":{"content_type":"text","parts":["an aside"]}}}}}`)
-	if text := webLatestAssistantText(commentary); text != "the answer" {
-		t.Fatalf("text = %q", text)
+	if reply := webLatestAssistantReply(commentary); reply.Text != "the answer" {
+		t.Fatalf("text = %q", reply.Text)
 	}
 }
 
