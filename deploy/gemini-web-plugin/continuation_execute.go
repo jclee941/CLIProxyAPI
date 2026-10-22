@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 )
 
@@ -282,8 +283,18 @@ func (service *service) runContinuation(ctx context.Context, execution continuat
 					view.State = "outcome_unknown"
 					service.reportUnnamed(view.Error, turn, lines, shapes)
 					service.reportVideoTurn(diag, view.Error)
-					if releaseErr := service.releaseAfter(execution, turn, "no_operation"); releaseErr != nil {
+					state := "no_operation"
+					var rpcFailure *webRPCError
+					var authentication *AuthenticationFailure
+					rejected := errors.As(submitErr, &rpcFailure) || errors.As(submitErr, &authentication)
+					if rejected {
+						state, turn.Error, turn.ErrorMessage = "failed", view.Error, submitErr.Error()
+					}
+					if releaseErr := service.releaseAfter(execution, turn, state); releaseErr != nil {
 						return nil, releaseErr
+					}
+					if rejected {
+						return nil, submitErr
 					}
 				}
 				if view.State == "pending" {

@@ -197,6 +197,9 @@ func webReplyText(raw []byte) (string, error) {
 			continue
 		}
 		for _, entry := range entries {
+			if err := webFrameError(entry); err != nil {
+				return "", err
+			}
 			if jsonField(entry, 0) != "wrb.fr" {
 				continue
 			}

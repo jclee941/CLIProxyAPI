@@ -22,6 +22,9 @@ func continuationFrame(turn continuationTurn, raw []byte) (continuationTurn, err
 	}
 	payload := false
 	for _, entry := range entries {
+		if err := webFrameError(entry); err != nil {
+			return turn, err
+		}
 		if jsonField(entry, 0) != "wrb.fr" {
 			continue
 		}

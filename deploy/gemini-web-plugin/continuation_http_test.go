@@ -43,6 +43,7 @@ type continuationWebFixture struct {
 	video          bool
 	pending        bool
 	wrongReply     bool
+	rpcError       int
 	// answer is the prose a non-video candidate carries; empty keeps "answer".
 	answer string
 	// argon advertises 4 Argon (mode 8) beside 3.8 Flash.
@@ -107,6 +108,10 @@ func continuationWeb(t *testing.T, service *service, fixture *continuationWebFix
 			fixture.fields = append(fixture.fields, fields)
 			fixture.languages = append(fixture.languages, request.URL.Query().Get("hl"))
 			fixture.selections = append(fixture.selections, request.Header.Get("x-goog-ext-525001261-jspb"))
+			if fixture.rpcError != 0 {
+				writeFixture(t, writer, string(jsonFixture(t, []any{[]any{"wrb.fr", nil, nil, nil, nil, []any{fixture.rpcError}, "generic"}}))+"\n")
+				return
+			}
 			turn := ""
 			if len(fields) > 59 {
 				turn, _ = fields[59].(string)

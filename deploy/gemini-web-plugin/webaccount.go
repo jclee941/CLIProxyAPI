@@ -439,11 +439,14 @@ func rpcFrames(raw []byte, rpcID string) ([]any, error) {
 		}
 		remaining = strings.TrimLeft(tail, " \t\r\n")
 		for _, frame := range frames {
+			if jsonField(frame, 0) == "er" {
+				return nil, webFrameError(frame)
+			}
 			if jsonField(frame, 0) != "wrb.fr" || jsonField(frame, 1) != rpcID {
 				continue
 			}
-			if jsonField(frame, 5, 0) != nil {
-				return nil, failure(403, "web_rpc_denied")
+			if err := webFrameError(frame); err != nil {
+				return nil, err
 			}
 			matched = append(matched, frame)
 		}

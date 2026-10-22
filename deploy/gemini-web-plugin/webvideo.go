@@ -284,6 +284,9 @@ func webResponseFrames(raw []byte) ([]any, error) {
 			continue
 		}
 		for _, entry := range entries {
+			if err := webFrameError(entry); err != nil {
+				return nil, err
+			}
 			encoded, ok := jsonField(entry, 2).(string)
 			if !ok || jsonField(entry, 0) != "wrb.fr" {
 				continue
