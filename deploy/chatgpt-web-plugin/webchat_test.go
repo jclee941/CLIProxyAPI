@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -188,22 +189,51 @@ func TestWebChatModelIsRoutedAndRendered(t *testing.T) {
 	}
 }
 
-func TestWebChatExposesGpt6ProOnTheWebSession(t *testing.T) {
+// The Pro model is listed as gpt-app-pro while the conversation keeps asking the
+// web product for its own gpt-6-pro slug; the old public name stays claimed so
+// existing callers keep working, but it is no longer advertised.
+func TestWebChatExposesGptAppProOnTheWebSession(t *testing.T) {
 	ids := map[string]bool{}
 	for _, model := range webChatModels() {
 		ids[model.ID] = true
 	}
-	if !ids[webProModel] {
-		t.Fatal("gpt-6-pro is missing from the web chat catalog")
+	if !ids["gpt-app-pro"] {
+		t.Fatal("gpt-app-pro is missing from the web chat catalog")
 	}
-	if !claimsWebChatModel("GPT-6-Pro") {
-		t.Fatal("gpt-6-pro must be claimed by the web chat path")
+	if ids["gpt-6-pro"] {
+		t.Fatal("gpt-6-pro is still advertised in the web chat catalog")
 	}
-	if mode, err := webChatMode(webProModel, webChatRequest{}); err != nil || mode.Model != webProModel {
-		t.Fatalf("pro mode = %+v, err = %v", mode, err)
+	for _, model := range []string{"gpt-app-pro", "GPT-App-Pro", "openai/gpt-app-pro(high)", "gpt-6-pro"} {
+		if !claimsWebChatModel(model) {
+			t.Fatalf("%s must be claimed by the web chat path", model)
+		}
+	}
+	for _, model := range []string{"gpt-app-pro", "gpt-6-pro"} {
+		if mode, err := webChatMode(model, webChatRequest{}); err != nil || mode.Model != "gpt-6-pro" || mode.Effort != "" {
+			t.Fatalf("%s mode = %+v, err = %v", model, mode, err)
+		}
 	}
 	if mode, err := webChatMode(webChatModel, webChatRequest{}); err != nil || mode.Model != webUpstreamModel || mode.Effort != "" {
 		t.Fatalf("default chat must stay auto, got %+v, err = %v", mode, err)
+	}
+}
+
+// The web conversation carries text only, so an attachment part has to be
+// refused: dropping it would answer a question about a file that never arrived.
+func TestWebChatRefusesAttachmentParts(t *testing.T) {
+	for name, part := range map[string]string{
+		"image": `{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}`,
+		"audio": `{"type":"input_audio","input_audio":{"data":"AAAA","format":"mp3"}}`,
+		"file":  `{"type":"file","file":{"filename":"a.pdf","file_data":"AAAA"}}`,
+	} {
+		_, _, err := webChatPrompt([]byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"look"},` + part + `]}]}`))
+		var public *publicError
+		if !errors.As(err, &public) || public.HTTPStatus != 400 || public.Code != "unsupported_chat_attachment" {
+			t.Fatalf("%s part: err = %v", name, err)
+		}
+	}
+	if _, _, err := webChatPrompt([]byte(`{"messages":[{"role":"user","content":[{"type":"input_text","text":"hi"}]},{"role":"assistant","content":null,"tool_calls":[{"function":{"name":"f","arguments":"{}"}}]}]}`)); err != nil {
+		t.Fatalf("text-only parts and null assistant content were refused: %v", err)
 	}
 }
 

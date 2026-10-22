@@ -16,7 +16,12 @@ import (
 // re-read only when the stream did not deliver a whole answer.
 
 const webChatModel = "gpt-web-chat"
+
+// webProModel is the slug the web product knows its Pro preset by, and what the
+// conversation asks for. Callers see it as webAppProModel; the slug itself is also
+// still accepted as a request name so existing clients keep working.
 const webProModel = "gpt-6-pro"
+const webAppProModel = "gpt-app-pro"
 
 // webChatPollBudget bounds the re-read that runs when the stream produced no
 // text. A chat reply is quick, unlike an image, so waiting the image budget here
@@ -44,13 +49,13 @@ func webChatModels() []modelInfo {
 		SupportedInputModalities:  []string{"text"},
 		SupportedOutputModalities: []string{"text"},
 	}, {
-		ID:                        webProModel,
+		ID:                        webAppProModel,
 		Object:                    "model",
 		OwnedBy:                   provider,
 		Type:                      "openai",
-		DisplayName:               "GPT-6 Pro",
-		Name:                      webProModel,
-		Description:               "ChatGPT web GPT-6 Pro; spends the web allowance instead of the Codex API allowance",
+		DisplayName:               "GPT App Pro",
+		Name:                      webAppProModel,
+		Description:               "ChatGPT web app GPT-6 Pro; spends the web allowance instead of the Codex API allowance",
 		SupportedInputModalities:  []string{"text"},
 		SupportedOutputModalities: []string{"text"},
 	}}
@@ -59,7 +64,7 @@ func webChatModels() []modelInfo {
 func claimsWebChatModel(model string) bool {
 	base, _ := webModelParts(model)
 	switch base {
-	case webChatModel, webProModel:
+	case webChatModel, webAppProModel, webProModel:
 		return true
 	default:
 		return false
@@ -180,7 +185,10 @@ func webChatPrompt(payload []byte) (string, webChatRequest, error) {
 		sections = append(sections, instruction)
 	}
 	for _, message := range request.Messages {
-		text, _ := webMessageText(message.Content)
+		text, attachment := webMessageText(message.Content)
+		if attachment {
+			return "", request, failure(400, "unsupported_chat_attachment")
+		}
 		switch message.Role {
 		case "system":
 			if strings.TrimSpace(text) != "" {
@@ -263,10 +271,14 @@ func webDecodeToolCall(raw string) (webToolCall, bool) {
 	return webToolCall{Name: decoded.Name, Arguments: string(arguments)}, true
 }
 
+// webMessageText flattens a message's content to its text. The web conversation
+// is built from text alone, so any other part - an image, audio or file - is
+// reported instead of dropped; answering without it would describe a file the
+// model never saw.
 func webMessageText(raw json.RawMessage) (string, bool) {
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
-		return text, true
+		return text, false
 	}
 	var parts []struct {
 		Type string `json:"type"`
@@ -277,11 +289,14 @@ func webMessageText(raw json.RawMessage) (string, bool) {
 	}
 	var builder strings.Builder
 	for _, part := range parts {
-		if part.Type == "text" || part.Type == "input_text" {
+		switch part.Type {
+		case "text", "input_text", "output_text":
 			builder.WriteString(part.Text)
+		default:
+			return "", true
 		}
 	}
-	return builder.String(), true
+	return builder.String(), false
 }
 
 type webChatPlan struct {

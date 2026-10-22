@@ -46,13 +46,13 @@ func webModelParts(model string) (string, string) {
 	return strings.TrimSpace(base[:open]), strings.TrimSpace(base[open+1 : len(base)-1])
 }
 
-// webChatMode resolves the web turn a chat request asks for. gpt-6-pro has a
-// single effort, so a requested level is moot there. For gpt-web-chat a model
+// webChatMode resolves the web turn a chat request asks for. gpt-app-pro (and its
+// former name gpt-6-pro) has a single effort, so a requested level is moot there. For gpt-web-chat a model
 // suffix overrides the body's reasoning_effort, as it does for the host's own
 // providers, and asking for neither keeps the product's auto routing.
 func webChatMode(model string, request webChatRequest) (webMode, error) {
 	base, effort := webModelParts(model)
-	if base == webProModel {
+	if base == webAppProModel || base == webProModel {
 		return webMode{Model: webProModel}, nil
 	}
 	if effort == "" {
