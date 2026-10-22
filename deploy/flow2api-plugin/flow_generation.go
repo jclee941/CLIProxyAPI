@@ -19,7 +19,7 @@ type flowGeneratedMedia struct {
 // A refused low-priority queue stays refused for hours (130 of 143 videos fell
 // back on the night of 2026-10-10), and every refused try is three more
 // submissions Flow counts against the account. After a refusal, low-priority
-// requests on that account go straight to normal priority for this long.
+// requests are held for this long unless paid fallback is explicitly enabled.
 const flowLowPriorityPause = 30 * time.Minute
 
 func (service *service) lowPriorityPaused(account string) bool {
@@ -198,9 +198,15 @@ func (service *service) holdDailyQuota(account, model string, err error) {
 // for work the caller asks to run at normal priority.
 const flowFallbackCreditFloor = 5000
 
-// lowPriorityFallback refuses the normal-priority fallback below the credit
-// floor, judged by the latest balance read.
+// lowPriorityFallback requires explicit permission to spend credits and then
+// preserves the credit floor, judged by the latest balance read.
 func (service *service) lowPriorityFallback(account string) error {
+	if !service.settings().LowPriorityPaidFallback {
+		return &publicError{
+			Code: "flow_paid_fallback_disabled", HTTPStatus: 429,
+			Message: "flow_paid_fallback_disabled: the free queue is unavailable; paid normal priority is disabled",
+		}
+	}
 	if reading, _ := service.lastFlowReading(account); reading.credits >= flowFallbackCreditFloor {
 		return nil
 	}
@@ -302,9 +308,9 @@ func (service *service) flowGenerate(ctx context.Context, record storageRecord, 
 		// Flow refuses the free low-priority Veo Lite queue with UNUSUAL_ACTIVITY
 		// once an account has leaned on it, while the same request at normal
 		// priority is accepted. A refusal means nothing started, so the request
-		// goes once more at normal priority, which spends credits, unless the
-		// balance is below the credit floor.
-		service.report(map[string]any{"provider": provider, "state": "flow_low_priority_refused", "reason": model.id}, "flow2api: generation")
+		// goes once more at normal priority only with explicit permission to
+		// spend credits and a balance at or above the credit floor.
+		service.report(map[string]any{"provider": provider, "state": "flow_low_priority_refused", "reason": model.id, "error": safeCredentialMessage(err)}, "flow2api: generation")
 		service.pauseLowPriority(record.SourceAuthID)
 		if err = service.lowPriorityFallback(record.SourceAuthID); err == nil {
 			input.options.Priority = "normal"

@@ -208,5 +208,5 @@ func (service *service) flowStatus(ctx context.Context, request managementReques
 	}
 	token, chat := service.telegramTarget()
 	health := map[string]any{"interval_seconds": int64(service.healthCheckInterval() / time.Second), "telegram": token != "" && chat != ""}
-	return map[string]any{"provider": provider, "captcha": service.settings().FlowCaptchaProvider, "models": flowModelInfos(), "accounts": accounts, "health_checks": health}, nil
+	return map[string]any{"provider": provider, "captcha": service.settings().FlowCaptchaProvider, "low_priority_paid_fallback": service.settings().LowPriorityPaidFallback, "models": flowModelInfos(), "accounts": accounts, "health_checks": health}, nil
 }

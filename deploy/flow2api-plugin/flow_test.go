@@ -620,6 +620,9 @@ func TestFlowLowPriorityRefusalFallsBackToNormalPriority(t *testing.T) {
 	fixture.reply("YhhmEf", refused, refused, refused, rpcEnvelope(t, "YhhmEf", []any{[]any{media}}))
 	fixture.reply("jwpduf", rpcEnvelope(t, "jwpduf", []any{[]any{append(slices.Clone(media), fixture.link("video"))}}))
 	service, record := flowService(t, fixture)
+	service.mu.Lock()
+	service.config.LowPriorityPaidFallback = true
+	service.mu.Unlock()
 	clock := time.Unix(1700000000, 0)
 	service.now = func() time.Time { return clock }
 	lowVideo := `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8,"flow":{"priority":"low"}}}`
@@ -648,6 +651,34 @@ func TestFlowLowPriorityRefusalFallsBackToNormalPriority(t *testing.T) {
 		if strings.HasSuffix(key, "_low_priority") != low {
 			t.Fatalf("submission %d used model %q", attempt, key)
 		}
+	}
+}
+
+func TestFlowLowPriorityRefusalReportsFlowsCode(t *testing.T) {
+	// Given: Flow refusing every low-priority token for unusual activity, an
+	// account below the credit floor, and a host that records the plugin's log.
+	fixture := newFlowFixture(t)
+	fixture.replies["nzlxg"] = []string{rpcEnvelope(t, "nzlxg", []any{flowFallbackCreditFloor - 1, 2, 3, 3})}
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", flowErrorEnvelope(t, []any{"wrb.fr", "YhhmEf", nil, nil, nil, []any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY"}}}}, "generic"}))
+	service, record := flowService(t, fixture)
+	var refusals []string
+	service.host = func(method string, payload []byte) ([]byte, error) {
+		var entry struct {
+			Fields map[string]string `json:"fields"`
+		}
+		if method == "host.log" && json.Unmarshal(payload, &entry) == nil && entry.Fields["state"] == "flow_low_priority_refused" {
+			refusals = append(refusals, entry.Fields["error"])
+		}
+		return nil, nil
+	}
+
+	// When: a low-priority video is requested.
+	flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8,"flow":{"priority":"low"}}}`)
+
+	// Then: the refusal line names the code Flow answered with.
+	if !slices.Equal(refusals, []string{"flow_captcha_rejected: PUBLIC_ERROR_UNUSUAL_ACTIVITY"}) {
+		t.Fatalf("refusal reports = %q", refusals)
 	}
 }
 
@@ -715,6 +746,9 @@ func TestFlowLowPriorityRefusalBelowTheCreditFloorSpendsNothing(t *testing.T) {
 	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
 	fixture.reply("YhhmEf", flowErrorEnvelope(t, []any{"wrb.fr", "YhhmEf", nil, nil, nil, []any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY"}}}}, "generic"}))
 	service, record := flowService(t, fixture)
+	service.mu.Lock()
+	service.config.LowPriorityPaidFallback = true
+	service.mu.Unlock()
 	lowVideo := `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8,"flow":{"priority":"low"}}}`
 
 	// When: a low-priority video is requested twice.
