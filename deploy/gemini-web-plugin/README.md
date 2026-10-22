@@ -104,7 +104,7 @@ every key.
 | --- | --- | --- |
 | `route_room_ceiling_percent` | 80 | A new room opens only on an account below this share of its five-hour window (1-100). |
 | `video_limit_hold_seconds` | 1800 | How long an account the product reported out of video sits out. |
-| `room_turns` | 3 | Videos a room makes on the account that opens it; also the largest `room_videos` a request may name. |
+| `room_turns` | 3 | Maximum accepted legacy `room_videos` hint. It does not reserve quota: each generation and extension checks one video's cost. |
 | `default_generation_units` | 5000 | Stand-in cost of a video until one has been measured. |
 | `generation_samples` | 8 | Measured video costs remembered, so a price change reaches the scheduler within a few videos. |
 | `same_window_slack_seconds` | 600 | How far two readings of one five-hour window may disagree about when it turns over. |

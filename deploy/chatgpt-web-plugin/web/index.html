@@ -176,6 +176,8 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
               <tr><td><code>reasoning_effort</code></td><td>생략하거나 <code>auto</code>면 웹 기본 자동 라우팅입니다. <code>none</code> → Instant, <code>minimal</code>·<code>low</code> → Light, <code>medium</code>(<code>m</code>) → Medium, <code>high</code>(<code>h</code>) → High, <code>xhigh</code>(<code>xh</code>) → Extra High, <code>pro</code>(<code>p</code>) → Pro. <code>/v1/responses</code>의 <code>reasoning.effort</code>도 같은 값으로 받습니다. 그 밖의 값은 <code>400 unsupported_reasoning_effort</code>입니다.</td></tr>
               <tr><td><code>stream</code></td><td><code>true</code>면 답을 받는 대로 <code>chat.completion.chunk</code>로 흘려보내고 <code>data: [DONE]</code>으로 끝냅니다. 첫 청크는 모델이 생각하는 동안 먼저 도착합니다. <code>/v1/responses</code> 스트리밍(Codex 등)도 같은 경로로 동작합니다.</td></tr>
               <tr><td><code>messages</code></td><td>여러 턴을 보낼 수 있습니다. <code>tool</code> 역할과 이전 <code>tool_calls</code>도 이어붙여 대화 맥락으로 전달합니다.</td></tr>
+              <tr><td><code>input_audio</code> / <code>video_url</code></td><td><code>gpt-6-pro</code>에서 WAV·MP3 오디오는 <code>input_audio: {data, format}</code>, MP4 영상은 <code>video_url: {url: "data:video/mp4;base64,..."}</code>로 보냅니다. user 메시지만 받으며 최대 10개, 파일당 디코딩 후 100 MiB입니다.</td></tr>
+              <tr><td><code>response_format</code></td><td><code>json_object</code>와 <code>json_schema</code>를 지원합니다. 웹 표시용 표지를 제거한 뒤 실제 JSON 스키마를 검증합니다. 스트리밍도 완성된 문서가 검증된 후 본문을 보냅니다. tools와 함께 쓰는 요청은 거부합니다.</td></tr>
               <tr><td><code>tools</code></td><td>웹 제품에는 함수 호출이 없어, 도구 계약을 프롬프트로 지시하고 응답에서 호출 블록을 파싱해 <code>tool_calls</code>로 복원합니다. 스트리밍에서는 호출 블록이 시작되기 전까지의 본문만 먼저 보내고, 호출은 끝에서 <code>tool_calls</code> 청크로 보냅니다.</td></tr>
               <tr><td><code>tool_choice</code></td><td>도구 사용 강제 여부를 같은 프롬프트 지시에 반영합니다. <code>required</code>는 프록시의 구조화 출력 검사가 답을 끝까지 모은 뒤 전달하므로 스트리밍이어도 한 번에 도착합니다.</td></tr>
             </tbody>
@@ -186,13 +188,15 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
             <thead><tr><th>필드</th><th>설명</th></tr></thead>
             <tbody>
               <tr><td><code>system_fingerprint</code></td><td>실제로 답한 웹 프리셋입니다. 예: <code>gpt-5-6-thinking/max</code>(Extra High), <code>gpt-6-pro</code>. 자동 라우팅이면 제품이 고른 모델이 들어갑니다. 스트리밍에서는 마지막 청크들에 실립니다.</td></tr>
+              <tr><td><code>finish_reason</code></td><td>업스트림의 출력 한도 종료는 <code>length</code>로 구분합니다. JSON이 잘렸다면 정상 완료로 반환하지 않고 구조화 출력 오류를 전달합니다.</td></tr>
             </tbody>
           </table></div>
 
           <h3>동작</h3>
           <ul class="api-limits">
             <li>요청마다 열린 ChatGPT 대화는 답을 받은 뒤 삭제되어 계정의 채팅 기록에 남지 않습니다.</li>
-            <li>텍스트 입출력만 지원합니다.</li>
+            <li>Pro의 WAV·MP3·MP4 첨부를 지원합니다. 이미지는 이미지 생성 API를 사용하며, 채팅의 이미지·문서·OGG 첨부는 지원하지 않습니다.</li>
+            <li>오디오는 실제 파일의 신호 분석에 활용할 수 있지만, 직접 청취나 미세한 음질 순위의 신뢰성을 보장하지 않습니다.</li>
             <li>Codex API 한도가 아니라 브라우저 세션 한도를 소비합니다.</li>
           </ul>
 
@@ -203,6 +207,9 @@ input { font: inherit; min-height: 36px; padding: 0 var(--space-3); border: 1px 
               <tr><td><code>unsupported_reasoning_effort</code></td><td>400. 웹 프리셋에 없는 추론 수준입니다. 생성 전에 거부하므로 한도를 쓰지 않습니다.</td></tr>
               <tr><td><code>web_reply_not_ready</code></td><td>504. 스트림이 완성된 답 없이 끝났고, 대화를 다시 읽어도 기다리는 동안 답이 완성되지 않았습니다. 일반 턴은 45초, 추론·Pro 턴은 20분까지 기다립니다.</td></tr>
               <tr><td><code>web_transport_failed</code></td><td>업스트림 연결이 실패했습니다. 전송 전 실패는 자동으로 재시도합니다.</td></tr>
+              <tr><td><code>invalid_json_schema</code></td><td>400. 유효하지 않거나 외부 참조가 필요한 JSON 스키마입니다. 생성 전에 거부합니다.</td></tr>
+              <tr><td><code>web_structured_output_invalid</code></td><td>422. 완성된 JSON이 없거나 요청한 스키마에 맞지 않습니다.</td></tr>
+              <tr><td><code>web_structured_output_truncated</code></td><td>422. 웹 제품의 출력 한도로 JSON이 잘렸습니다. 요청의 출력량을 줄이거나 호출자에서 블록을 나누어야 합니다.</td></tr>
             </tbody>
           </table></div>
         </div>

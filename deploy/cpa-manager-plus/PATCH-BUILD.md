@@ -148,7 +148,7 @@ portal is a clearly labeled HTML fixture; this does not verify Google login.
 ## In-Memory Plugin Requests
 
 The same patch now installs `__CPAMP_PLUGIN_HOST__` only on the owned, registered,
-enabled Gemini Web or ChatGPT2API resource iframe. It is a frozen, non-enumerable
+enabled Gemini Web, native ChatGPT Web or retained ChatGPT2API resource iframe. It is a frozen, non-enumerable
 capability with version, plugin ID, exact resource URL, and a request function.
 It contains no credential. The child validates those fields and prefers this
 transport over the existing explicit remembered-login/standalone adapter.
@@ -158,8 +158,10 @@ sent in window messages, or requested a second time.
 The parent uses the current native scoped API client internally. Each call checks
 the connected auth, credential/target identity, original Document, iframe owner,
 exact registered resource URL and same origin. Input is limited to root-relative
-`/v0/management/plugins/<that-plugin>/` paths: Gemini GET/POST, ChatGPT GET.
-ChatGPT additionally permits only the exact POST paths `import-codex`,
+`/v0/management/plugins/<that-plugin>/` paths: Gemini GET/POST. Native ChatGPT
+Web permits only `GET /v0/management/plugins/chatgpt-web/accounts`, with no
+request body or caller headers. The retained ChatGPT2API scope additionally
+permits only the exact POST paths `import-codex`,
 `refresh-web`, and `set-web-enabled`. Bodies must be JSON objects no larger than
 4096 UTF-8 bytes. Import accepts one `codex_<64 lowercase hex>` ID, literal
 `consent:true`, and optional literal `allow_disabled_source:true`; refresh accepts
