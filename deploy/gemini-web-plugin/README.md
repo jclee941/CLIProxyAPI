@@ -169,8 +169,18 @@ Each account publishes a text model per Gemini web mode it offers, named
 `gemini-app-3.8-flash` and `gemini-app-4-argon`. They answer `generateContent`
 and `/v1/chat/completions`. `generationConfig.thinkingConfig.thinkingLevel`
 accepts `low`, `medium` and `high`; any other value is refused with
-`invalid_thinking_level`. Code the web app ran comes back as ordinary fenced
+`invalid_thinking_level`. A request that names no level takes the one the
+plugin setting `text_thinking_levels` maps its model to, and sends none for a
+model it does not list. Code the web app ran comes back as ordinary fenced
 blocks. The 3.1 Pro mode is not published: every text turn in it failed.
+
+When the web app answers a text turn with one of its stock failure sentences
+("Sorry, something went wrong. Please try your request again." and three like
+it), the turn fails with HTTP 502 `web_generic_error` instead of returning the
+sentence as text, and the core retries it on another account; the last
+account's error is the one returned. A non-streaming request still open when the
+core starts its keepalive (`nonstream-keepalive-interval`) has already been sent
+HTTP 200, so its error arrives as the `error` object of that body.
 
 `gemini-lyria-3.5` makes a music track through `generateContent`. The answer
 carries the web app's text, the track as `audio/mpeg` and its cover video as
