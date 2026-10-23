@@ -103,7 +103,8 @@ type webSession struct {
 	requestID       int
 	generationFrame func([]byte) error
 	rotated         bool
-	onRotate        func(string)
+	onRotate        func(map[string]string)
+	onPageFailure   func(code, page string)
 	// tuned is the plugin tuning when the session was made.
 	tuned tuning
 	// flowCookies is never part of cookie, so no Gemini request can carry it.
@@ -273,7 +274,7 @@ func (session *webSession) absorb(response *http.Response) {
 	// stored the moment it changes. Waiting until the call returns loses the
 	// rotation whenever the process goes down mid-turn.
 	if session.onRotate != nil {
-		session.onRotate(merged)
+		session.onRotate(updates)
 	}
 	for _, pair := range strings.Split(merged, ";") {
 		name, value, found := strings.Cut(strings.TrimSpace(pair), "=")
@@ -318,6 +319,9 @@ func (session *webSession) bootstrap(ctx context.Context) error {
 	xsrf, okXSRF := bootstrapValue(bootstrapXSRFPattern, text)
 	build, okBuild := bootstrapValue(bootstrapBuildPattern, text)
 	if !okXSRF || !okBuild {
+		if session.onPageFailure != nil {
+			session.onPageFailure("web_bootstrap_failed", text)
+		}
 		return failure(502, "web_bootstrap_failed")
 	}
 	session.xsrf, session.build = xsrf, build

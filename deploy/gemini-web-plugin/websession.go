@@ -140,6 +140,9 @@ func (service *service) webIdentity(ctx context.Context, reference string, crede
 	}
 	digest := webAccountDigest(string(page))
 	if !accountDigestPattern.MatchString(digest) {
+		if session.onPageFailure != nil {
+			session.onPageFailure("credential_identity_invalid", string(page))
+		}
 		return credentialInspection{}, failure(502, "credential_identity_invalid")
 	}
 	return credentialInspection{AccountSHA256: digest, AuthUser: uint64(credential.AuthUser)}, nil

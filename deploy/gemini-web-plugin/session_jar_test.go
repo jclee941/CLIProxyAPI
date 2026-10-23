@@ -104,3 +104,49 @@ func TestSessionAbsorbsSidccWhichArrivesWithoutSecure(t *testing.T) {
 		t.Fatalf("a half-rotated jar was stored: %s", session.cookie)
 	}
 }
+
+func TestTrackedJarPreservesOtherSessionsRotations(t *testing.T) {
+	for _, finishOld := range []bool{false, true} {
+		t.Run(map[bool]string{false: "response", true: "completion"}[finishOld], func(t *testing.T) {
+			service, local := continuationFixture(t)
+			credential, err := decodeWebCredential(sessionToken{local.Token})
+			if err != nil {
+				t.Fatal(err)
+			}
+			old := service.newSession(credential)
+			newer := service.newSession(credential)
+			service.trackJar(local.Target.TokenRef, old)
+			service.trackJar(local.Target.TokenRef, newer)
+			old.absorb(&http.Response{Header: http.Header{"Set-Cookie": {
+				"SIDCC=first; Path=/; Domain=.google.com",
+			}}})
+			newer.absorb(&http.Response{Header: http.Header{"Set-Cookie": {
+				"__Secure-1PSIDTS=current; Path=/; Domain=.google.com",
+				"SIDCC=current; Path=/; Domain=.google.com",
+			}}})
+
+			if finishOld {
+				service.persistJar(local.Target.TokenRef, old)
+			} else {
+				old.absorb(&http.Response{Header: http.Header{"Set-Cookie": {
+					"NID=updated; Path=/; Domain=.google.com",
+				}}})
+			}
+
+			stored, err := service.sessions.read(local.Target.TokenRef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := decodeWebCredential(sessionToken{stored.Token})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !contains(got.Cookie, "__Secure-1PSIDTS=current") || !contains(got.Cookie, "SIDCC=current") {
+				t.Fatal("older session overwrote the newer session's cookies")
+			}
+			if !finishOld && !contains(got.Cookie, "NID=updated") {
+				t.Fatal("the response's actual update was lost")
+			}
+		})
+	}
+}

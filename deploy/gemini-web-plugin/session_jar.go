@@ -10,12 +10,28 @@ import (
 // it the plugin keeps sending a cookie upstream has already retired, which is
 // what made healthy accounts expire at random under load.
 func (service *service) trackJar(reference string, session *webSession) {
-	session.onRotate = func(cookie string) { service.storeJar(reference, cookie) }
+	session.onRotate = func(updates map[string]string) {
+		service.updateCredential(reference, func(credential *webCredential) bool {
+			merged := webMergeCookies(credential.Cookie, updates)
+			if merged == credential.Cookie {
+				return false
+			}
+			credential.Cookie = merged
+			return true
+		})
+	}
+	session.onPageFailure = func(code, page string) {
+		fields := appPageFailureFields(code, page)
+		fields["auth_id"] = reference
+		service.report(fields, "gemini-web: application page validation failed")
+	}
 	session.onFlowRotate = func(updates map[string]string) { service.storeFlowCookies(reference, updates) }
 }
 
 func (service *service) persistJar(reference string, session *webSession) {
-	if session == nil || !session.rotated {
+	// Tracked responses already persisted their deltas. Replaying the full jar
+	// here would undo rotations from requests that finished in the meantime.
+	if session == nil || !session.rotated || session.onRotate != nil {
 		return
 	}
 	service.storeJar(reference, session.cookie)
