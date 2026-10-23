@@ -177,6 +177,9 @@ func (service *service) nativeText(ctx context.Context, record storageRecord, to
 		if err != nil {
 			return nil, err
 		}
+		if webGenericError(text) {
+			return nil, failure(502, "web_generic_error")
+		}
 		body, err := webRenderResponse(requested, text, payload)
 		var violation *webToolViolation
 		if !errors.As(err, &violation) {

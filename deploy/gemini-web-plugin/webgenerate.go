@@ -231,6 +231,22 @@ func webReplyText(raw []byte) (string, error) {
 // &..."); its renderer reads the suffix, which a markdown reader shows as text.
 var webCodeFence = regexp.MustCompile("```(\\w*)\\?code_[a-z_]+&code_event_index=\\d+")
 
+// webGenericErrors are the web app's stock answers to a turn it failed. They
+// arrive as an ordinary reply, so they would reach a caller as the model's
+// answer; on 2026-10-23 every account's 3.8 Flash text turns ended this way for
+// hours while 4 Argon answered.
+var webGenericErrors = map[string]bool{
+	"Sorry, something went wrong. Please try your request again.":                                 true,
+	"I'm having a hard time fulfilling your request. Can I help you with something else instead?": true,
+	"I encountered an error doing what you asked. Could you try again?":                           true,
+	"I seem to be encountering an error. Can I try something else for you?":                       true,
+}
+
+// webGenericError reports whether a reply is one of those stock answers in full.
+func webGenericError(text string) bool {
+	return webGenericErrors[strings.ReplaceAll(strings.TrimSpace(text), "\u2019", "'")]
+}
+
 // webConversationID is the per-turn identifier the protocol expects in slot 59.
 func webConversationID() (string, error) {
 	raw := make([]byte, 16)
