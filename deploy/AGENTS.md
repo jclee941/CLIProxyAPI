@@ -10,7 +10,7 @@ Deployment convergence and native plugin artifacts; score 13 from subtree size, 
 - `gemini-web-plugin/`: active Gemini native plugin and its browser resources.
 - `chatgpt-web-plugin/`: active ChatGPT native plugin and dashboard.
 - `flow2api-plugin/`: active Flow native plugin borrowing Gemini-owned sessions.
-- `shared-browser/`: profile capture tooling and the signed-out Flow captcha browser.
+- `shared-browser/`: profile capture tooling and the Flow captcha browser.
 - `gemini-web/`: `start-production.sh` is the live core start script (installed as `runtime/start-production.sh` on the NAS); the rest is historical .114 cutover and operator-import tooling.
 - `cpa-manager-plus/`: CPA Manager Plus patch build (`build-patched.sh`, `patches/`, browser harness) behind the image the NAS runs; its compose, systemd and gateway files are the historical .114 layout, and the live Manager config is `/volume1/docker/cliproxy/manager/compose.yml` outside the repo.
 - `elk/`, `telegram-*/`, `gemini-login-desktop/`: retained ancillary packages outside the native artifact manifest.
@@ -24,7 +24,7 @@ Deployment convergence and native plugin artifacts; score 13 from subtree size, 
 | Hot-load evidence | `cpa-converge.py` | Match the installed version in the host load log, not merely the plugin listing |
 | Convergence contracts | `cpa_converge_test.py` | Local management server and Docker fixture |
 | Deployment procedure | `README.md` | Current NAS paths and explicit convergence command |
-| Account/browser ownership | `shared-browser/README.md` | Captured profiles stopped; signed-out captcha browser stays running |
+| Account/browser ownership | `shared-browser/README.md` | Captured profiles stopped; the captcha browser stays running |
 | Provider implementation | `gemini-web-plugin/AGENTS.md`, `chatgpt-web-plugin/AGENTS.md`, `flow2api-plugin/AGENTS.md` | Module-local contracts and checks |
 
 ## CONVENTIONS
@@ -49,4 +49,4 @@ Deployment convergence and native plugin artifacts; score 13 from subtree size, 
 - Do not assume a schedule: deploys are explicit `pull-deploy.sh` runs.
 - Do not treat a failed health check as permission to restore stale plugin or core state.
 - Do not leave a captured account's Chrome profile running beside CPA's rotating cookie store.
-- Do not sign in to `shared-browser-flowcaptcha`; it mints tokens without holding an account session.
+- Sign `shared-browser-flowcaptcha` in only to a dedicated Google account CPA never holds; never to a Gemini or Flow account CPA rotates.

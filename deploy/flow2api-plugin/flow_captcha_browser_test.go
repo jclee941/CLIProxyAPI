@@ -139,7 +139,7 @@ func (fixture *devtoolsFixture) socket(writer http.ResponseWriter, request *http
 		fixture.methods = append(fixture.methods, command.Method)
 		fixture.mu.Unlock()
 		switch command.Method {
-		case "Page.enable", "Page.setBypassCSP", "Network.enable", "Network.clearBrowserCookies":
+		case "Page.enable", "Page.setBypassCSP", "Network.enable":
 		case "Network.setBlockedURLs":
 			fixture.mu.Lock()
 			fixture.blocked = append(fixture.blocked, command.Params.URLs...)
@@ -292,7 +292,7 @@ func TestFlowBrowserBlocksFlowScriptsBeforeOpeningThePage(t *testing.T) {
 	}
 }
 
-func TestFlowBrowserOpensEachTokenPageWithoutLeftoversOrCookies(t *testing.T) {
+func TestFlowBrowserOpensEachTokenPageWithoutLeftoversAndKeepsItsCookies(t *testing.T) {
 	// Given: token pages an earlier instance left open in the browser.
 	fixture := newFlowFixture(t)
 	devtools := newDevtoolsFixture(t)
@@ -307,11 +307,10 @@ func TestFlowBrowserOpensEachTokenPageWithoutLeftoversOrCookies(t *testing.T) {
 	flowInlineMedia(t, flowExecute(t, service, record, "flow-nano-banana-2", `{"contents":[{"parts":[{"text":"a fox"}]}]}`))
 
 	// Then: the leftover pages were closed before one new page opened, and the
-	// new page emptied the cookie jar before navigating to the token page.
+	// cookie jar, which may hold a dedicated account's sign-in, was kept.
 	devtools.mu.Lock()
 	defer devtools.mu.Unlock()
-	clearedAt, openedAt := slices.Index(devtools.methods, "Network.clearBrowserCookies"), slices.Index(devtools.methods, "Page.navigate")
-	if !slices.Equal(devtools.closed, []string{"left-1", "left-2"}) || devtools.pages != 1 || clearedAt < 0 || openedAt < clearedAt {
+	if !slices.Equal(devtools.closed, []string{"left-1", "left-2"}) || devtools.pages != 1 || slices.Contains(devtools.methods, "Network.clearBrowserCookies") {
 		t.Fatalf("closed %v, pages %d, methods %q", devtools.closed, devtools.pages, devtools.methods)
 	}
 }

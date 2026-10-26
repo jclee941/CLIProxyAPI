@@ -66,8 +66,9 @@ A manually stopped container stays stopped across Docker and NAS restarts.
 
 ## Flow captcha browser
 
-`shared-browser-flowcaptcha` is the one container that keeps running. It never
-signs in to Google, so it holds no session that CPA could lose. flow2api's
+`shared-browser-flowcaptcha` is the one container that keeps running. It holds
+no session CPA could lose: it stays signed out, or is signed in only to a
+dedicated Google account that CPA never holds. flow2api's
 `captcha_provider: browser` mints Flow's reCAPTCHA tokens in it over DevTools at
 `captcha_base_url: http://shared-browser-flowcaptcha:9223`, on the core's Docker
 network. Its data directory holds an empty `Default` profile:
@@ -87,4 +88,7 @@ deploy/shared-browser/run.sh
 docker network connect cliproxyapi_backend shared-browser-flowcaptcha
 ```
 
-Do not sign in to it.
+Never sign it in to a Gemini or Flow account CPA holds; two holders rotate the
+same session. Flow's free `low` priority queue refuses signed-out tokens in busy
+hours, so a dedicated account CPA never holds may be signed in through noVNC;
+flow2api keeps the browser's cookie jar.

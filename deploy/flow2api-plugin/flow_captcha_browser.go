@@ -121,13 +121,6 @@ func (browser *flowBrowser) openLocked(ctx context.Context, client *http.Client)
 	if _, err := browser.callLocked("Network.enable", nil); err != nil {
 		return err
 	}
-	// Every token page starts from an empty cookie jar. Flow refuses the free
-	// low-priority queue as UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC once one
-	// reCAPTCHA client (its _GRECAPTCHA cookie) has minted many tokens, and the
-	// signed-out browser holds no session a cleared jar could lose.
-	if _, err := browser.callLocked("Network.clearBrowserCookies", nil); err != nil {
-		return err
-	}
 	if _, err := browser.callLocked("Network.setBlockedURLs", map[string]any{"urls": flowBrowserBlockedScripts}); err != nil {
 		return err
 	}

@@ -11,7 +11,7 @@ Google Flow generation and resource APIs over Gemini-owned sessions; score 13 fo
 | Generation submission | `flow_generate.go`, `flow_generation.go`, `flow_batch.go` | Token rejection, batch settlement, output count |
 | Options and credit policy | `flow_input_types.go`, `flow_model_options.go`, `flow_selection.go` | Explicit modes, live capabilities, low-priority admission |
 | Gemini session borrowing | `session_exchange.go`, `flow_session.go` | Broker requests, lease wait, RPC framing |
-| Captcha providers | `flow_captcha.go`, `flow_captcha_browser.go` | Native, signed-out browser, external solver |
+| Captcha providers | `flow_captcha.go`, `flow_captcha_browser.go` | Native, token browser, external solver |
 | Resource operations | `flow_projects_api.go`, `flow_scenes_api.go`, `flow_collections_api.go`, `flow_entities_api.go` | Validated Google resource shapes |
 | Tools and workflows | `flow_tools_api.go`, `flow_tool_versions.go`, `flow_workflows_api.go` | Builder state, version history, recovery reads |
 | Agent sessions and messages | `flow_agents_api.go`, `flow_agent_messages.go` | Project-scoped conversations, typed events, structured prompts |
@@ -29,7 +29,7 @@ Google Flow generation and resource APIs over Gemini-owned sessions; score 13 fo
 - Gemini owns credentials and rotation; Flow receives broker response bodies and scoped headers, never its cookie jar.
 - A refused credential lease can be awaited before submission; `withoutLeaseWait` lets account listings and quota lookups answer at once from the latest reading (`flowReadings`, also fed by generation balance reads and used for the credit floor); only a lookup with no reading waits up to `flowQuotaLeaseWait`.
 - Rejected captcha tokens can be replaced because no generation started; a lost response is an unknown outcome.
-- Each browser token page opens after closing leftover Flow token pages and with an emptied cookie jar; a `flow_rate_limited` refusal naming `UNUSUAL_ACTIVITY` (the free queue's `UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC`) judges the token's client, so a browser token is replaced from a fresh page within `flowTokenAttempts`. Native and solver tokens, and other traffic throttles, are returned as they are.
+- Each browser token page opens after closing leftover Flow token pages and keeps the browser's cookie jar; a `flow_rate_limited` refusal naming `UNUSUAL_ACTIVITY` (the free queue's `UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC`) judges the token's client, so a browser token is replaced from a fresh page within `flowTokenAttempts`. Native and solver tokens, and other traffic throttles, are returned as they are.
 - Low-priority refusal may fall back to paid normal priority only with at least the code's 5000-credit floor.
 - `web/index.html` is generated from `../gemini-web-plugin/web/src/flow/`; follow that web directory's guide.
 - Public consumer behavior is documented in `README.md`; do not infer supported model options from names alone.
@@ -41,5 +41,5 @@ Google Flow generation and resource APIs over Gemini-owned sessions; score 13 fo
 - Do not turn malformed resource replies or missing text into an empty success.
 - Do not invent token usage where Flow supplies none.
 - Do not echo solver responses or cookie/account secrets in errors.
-- Do not sign in to the captcha browser or create a second holder of Gemini's session.
+- Do not sign the captcha browser in to an account CPA holds (a Gemini or Flow account): that creates a second holder of Gemini's rotating session. A dedicated Google account CPA never holds may be signed in there, because Flow's free low-priority queue refuses signed-out tokens in busy hours.
 - Do not edit the generated dashboard in this directory.
