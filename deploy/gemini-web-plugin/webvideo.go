@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -354,8 +355,18 @@ func (session *webSession) download(ctx context.Context, url, failureCode string
 // generateVideo submits the prompt and then re-reads the conversation until the
 // download appears.
 func (session *webSession) generateVideo(ctx context.Context, prompt string, account webAccount, model capability, framing omniFraming, thinking int, language string, attachments []webAttachment) ([]byte, error) {
+	// Preserve complete receipt frames if the transport cuts the submit stream.
+	// A named operation is recovered by reading it, never by submitting again.
+	session.generationFrame = func(raw []byte) error {
+		session.diag.observeFrame(raw)
+		return nil
+	}
 	raw, err := session.submitVideo(ctx, prompt, account, model, framing, thinking, language, attachments)
-	if err != nil {
+	session.generationFrame = nil
+	var cut *webStreamCut
+	if errors.As(err, &cut) {
+		raw = cut.Delivered
+	} else if err != nil {
 		return nil, err
 	}
 	frames, err := webResponseFrames(raw)
@@ -373,8 +384,21 @@ func (session *webSession) generateVideo(ctx context.Context, prompt string, acc
 			candidate = value
 		}
 	}
-	if conversation == "" || reply == "" || candidate == nil {
+	if conversation == "" || reply == "" {
+		if cut != nil {
+			return nil, cut
+		}
 		return nil, failure(502, "missing_video_operation")
+	}
+	if candidate == nil || cut != nil {
+		turns, err := session.rpc(ctx, webVideoTurnsRPC, []any{conversation, 1, nil, 1, []any{1}, []any{4}, nil, 1})
+		if err != nil {
+			return nil, err
+		}
+		candidate, err = continuationCandidate(continuationTurn{Conversation: conversation, Reply: reply}, turns)
+		if err != nil {
+			return nil, err
+		}
 	}
 	session.diag.observe(candidate)
 	state, err := webParseVideoCandidate(candidate)

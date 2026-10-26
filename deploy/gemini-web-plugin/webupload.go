@@ -93,8 +93,8 @@ func (session *webSession) upload(ctx context.Context, name, mimeType string, si
 	start.Header.Set("X-Goog-Upload-Command", "start")
 	start.Header.Set("X-Goog-Upload-Protocol", "resumable")
 	start.Header.Set("X-Goog-Upload-Header-Content-Length", strconv.FormatInt(size, 10))
+	start.Header.Set("X-Goog-Upload-Header-Content-Type", mimeType)
 	start.Header.Set("X-Tenant-Id", "bard-storage")
-	start.Header.Set("Push-ID", webUploadFeed)
 	start.Header.Set("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
 	started, err := session.client.Do(start)
 	if err != nil {
@@ -117,7 +117,7 @@ func (session *webSession) upload(ctx context.Context, name, mimeType string, si
 	finalise.ContentLength = size
 	finalise.Header = session.uploadHeaders()
 	finalise.Header.Set("X-Tenant-Id", "bard-storage")
-	finalise.Header.Set("Push-ID", webUploadFeed)
+	finalise.Header.Set("Content-Type", mimeType)
 	finalise.Header.Set("X-Goog-Upload-Command", "upload, finalize")
 	finalise.Header.Set("X-Goog-Upload-Offset", "0")
 	response, err := session.client.Do(finalise)
@@ -150,6 +150,14 @@ func (session *webSession) uploadHeaders() http.Header {
 		"Cookie":     {session.cookie},
 		"Origin":     {session.origin},
 		"User-Agent": {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+	}
+	feed := webUploadFeed
+	if session.uploadFeed != "" {
+		feed = session.uploadFeed
+	}
+	headers.Set("Push-ID", feed)
+	if session.uploadPrivacyContext != "" {
+		headers.Set("X-Client-Pctx", session.uploadPrivacyContext)
 	}
 	if session.prefix != "" {
 		headers.Set("X-Goog-AuthUser", strings.TrimPrefix(session.prefix, "/u/"))

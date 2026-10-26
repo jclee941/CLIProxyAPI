@@ -38,9 +38,11 @@ const webOrigin = "https://gemini.google.com"
 const accountCapabilityRPC = "otAQ7b"
 
 var (
-	bootstrapXSRFPattern    = regexp.MustCompile(`"SNlM0e"\s*:\s*("(?:[^"\\]|\\.)*")`)
-	bootstrapBuildPattern   = regexp.MustCompile(`"cfb2h"\s*:\s*("(?:[^"\\]|\\.)*")`)
-	bootstrapSessionPattern = regexp.MustCompile(`"FdrFJe"\s*:\s*("(?:[^"\\]|\\.)*")`)
+	bootstrapXSRFPattern          = regexp.MustCompile(`"SNlM0e"\s*:\s*("(?:[^"\\]|\\.)*")`)
+	bootstrapBuildPattern         = regexp.MustCompile(`"cfb2h"\s*:\s*("(?:[^"\\]|\\.)*")`)
+	bootstrapSessionPattern       = regexp.MustCompile(`"FdrFJe"\s*:\s*("(?:[^"\\]|\\.)*")`)
+	bootstrapUploadFeedPattern    = regexp.MustCompile(`"qKIAYe"\s*:\s*("(?:[^"\\]|\\.)*")`)
+	bootstrapUploadContextPattern = regexp.MustCompile(`"Ylro7b"\s*:\s*("(?:[^"\\]|\\.)*")`)
 )
 
 type webCredential struct {
@@ -108,10 +110,12 @@ type webSession struct {
 	// tuned is the plugin tuning when the session was made.
 	tuned tuning
 	// flowCookies is never part of cookie, so no Gemini request can carry it.
-	flowCookies  map[string]string
-	onFlowRotate func(map[string]string)
-	onCut        func(map[string]any)
-	uploadOrigin string
+	flowCookies          map[string]string
+	onFlowRotate         func(map[string]string)
+	onCut                func(map[string]any)
+	uploadOrigin         string
+	uploadFeed           string
+	uploadPrivacyContext string
 	// diag, when set, records what the video candidates looked like for the
 	// one-line turn report. It is read-only with respect to the turn.
 	diag *videoTurnDiag
@@ -325,6 +329,8 @@ func (session *webSession) bootstrap(ctx context.Context) error {
 		return failure(502, "web_bootstrap_failed")
 	}
 	session.xsrf, session.build = xsrf, build
+	session.uploadFeed, _ = bootstrapValue(bootstrapUploadFeedPattern, text)
+	session.uploadPrivacyContext, _ = bootstrapValue(bootstrapUploadContextPattern, text)
 	if sessionID, ok := bootstrapValue(bootstrapSessionPattern, text); ok {
 		session.sessionID = sessionID
 	}

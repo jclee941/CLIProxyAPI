@@ -3,9 +3,65 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
+
+func TestNativeVideoRecoversInterruptedSubmissionWithoutResubmitting(t *testing.T) {
+	for _, lateCandidate := range []bool{false, true} {
+		t.Run(fmt.Sprintf("late_candidate=%t", lateCandidate), func(t *testing.T) {
+			// Given: the stream names a video turn before the transport is cut.
+			service, local := continuationFixture(t)
+			fixture := &continuationWebFixture{video: true, interrupted: true, lateCandidate: lateCandidate}
+			continuationWeb(t, service, fixture)
+			service.host = (&loginHostFixture{records: map[string]json.RawMessage{local.Target.ID: jsonFixture(t, local.Target)}, service: service}).call
+			auth, err := authFromRecord(local.Target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := executorRequest{AuthID: local.Target.ID, AuthProvider: provider, Model: omniModel, Format: "gemini", SourceFormat: "gemini", StorageJSON: auth.StorageJSON, AuthMetadata: auth.Metadata, Payload: []byte(`{"contents":[{"role":"user","parts":[{"text":"first"}]}]}`), HostCallbackID: "fixture-generation"}
+			request.Metadata.CallerScope = testCallerScope
+
+			// When: the native generateContent path processes that submission.
+			result := invoke(t, service, "executor.execute", request)
+
+			// Then: the video is delivered from the same operation, not generated again.
+			if !result.OK {
+				t.Fatalf("native interrupted video failed: %+v", result.Error)
+			}
+			var response struct{ Payload []byte }
+			if err := json.Unmarshal(result.Result, &response); err != nil {
+				t.Fatal(err)
+			}
+			var payload struct {
+				Candidates []struct {
+					Content struct {
+						Parts []struct {
+							InlineData struct {
+								MIMEType string `json:"mimeType"`
+								Data     string `json:"data"`
+							} `json:"inlineData"`
+						} `json:"parts"`
+					} `json:"content"`
+				} `json:"candidates"`
+			}
+			if err := json.Unmarshal(response.Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if len(payload.Candidates) == 0 || len(payload.Candidates[0].Content.Parts) == 0 ||
+				payload.Candidates[0].Content.Parts[0].InlineData.MIMEType != "video/mp4" ||
+				payload.Candidates[0].Content.Parts[0].InlineData.Data == "" {
+				t.Fatal("native response did not contain the recovered video")
+			}
+			fixture.mu.Lock()
+			defer fixture.mu.Unlock()
+			if len(fixture.fields) != 1 {
+				t.Fatalf("interrupted video was resubmitted: %d submissions", len(fixture.fields))
+			}
+		})
+	}
+}
 
 // An attached video is uploaded, accepted and then ignored unless the prompt
 // declares it as a reference, which the generation reports as no_video_generated.
