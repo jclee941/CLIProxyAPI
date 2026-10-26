@@ -90,6 +90,7 @@ func (browser *flowBrowser) openLocked(ctx context.Context, client *http.Client)
 	if err != nil || endpoint.Host == "" {
 		return failure(503, "flow_captcha_browser_unreachable")
 	}
+	browser.closeLeftoverPagesLocked(ctx, client)
 	var page struct {
 		ID string `json:"id"`
 	}
@@ -120,6 +121,13 @@ func (browser *flowBrowser) openLocked(ctx context.Context, client *http.Client)
 	if _, err := browser.callLocked("Network.enable", nil); err != nil {
 		return err
 	}
+	// Every token page starts from an empty cookie jar. Flow refuses the free
+	// low-priority queue as UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC once one
+	// reCAPTCHA client (its _GRECAPTCHA cookie) has minted many tokens, and the
+	// signed-out browser holds no session a cleared jar could lose.
+	if _, err := browser.callLocked("Network.clearBrowserCookies", nil); err != nil {
+		return err
+	}
 	if _, err := browser.callLocked("Network.setBlockedURLs", map[string]any{"urls": flowBrowserBlockedScripts}); err != nil {
 		return err
 	}
@@ -143,6 +151,28 @@ func (browser *flowBrowser) openLocked(ctx context.Context, client *http.Client)
 	(document.head || document.documentElement).appendChild(script);
 })`
 	return browser.evaluateLocked(loader, &browser.userAgent)
+}
+
+// closeLeftoverPagesLocked closes the token pages an instance that stopped
+// without closing its page left behind; each keeps a reCAPTCHA client running
+// in the same browser. A failed listing leaves them for the next open.
+func (browser *flowBrowser) closeLeftoverPagesLocked(ctx context.Context, client *http.Client) {
+	var targets []struct {
+		ID   string `json:"id"`
+		Type string `json:"type"`
+		URL  string `json:"url"`
+	}
+	if err := browser.devtools(ctx, client, http.MethodGet, "/json/list", &targets); err != nil {
+		return
+	}
+	for _, target := range targets {
+		if target.Type != "page" || target.URL != flowBrowserPage {
+			continue
+		}
+		if err := browser.devtools(ctx, client, http.MethodGet, "/json/close/"+target.ID, nil); err != nil {
+			_ = err // A page left open only holds browser memory until Chrome restarts.
+		}
+	}
 }
 
 func (browser *flowBrowser) closeLocked(client *http.Client) {

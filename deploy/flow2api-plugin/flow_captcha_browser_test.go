@@ -26,6 +26,7 @@ type devtoolsFixture struct {
 	server      *httptest.Server
 	mu          sync.Mutex
 	pages       int
+	stale       []string
 	closed      []string
 	methods     []string
 	blocked     []string
@@ -55,6 +56,23 @@ func (fixture *devtoolsFixture) serve(writer http.ResponseWriter, request *http.
 		fixture.closed = append(fixture.closed, strings.TrimPrefix(request.URL.Path, "/json/close/"))
 		fixture.mu.Unlock()
 		writeFixture(fixture.t, writer, "Target is closing")
+	case request.Method == http.MethodGet && request.URL.Path == "/json/list":
+		targets := []map[string]string{}
+		open := slices.Clone(fixture.stale)
+		for page := 1; page <= fixture.pages; page++ {
+			open = append(open, fmt.Sprintf("page-%d", page))
+		}
+		for _, id := range open {
+			if !slices.Contains(fixture.closed, id) {
+				targets = append(targets, map[string]string{"id": id, "type": "page", "url": flowBrowserPage})
+			}
+		}
+		fixture.mu.Unlock()
+		listing, err := json.Marshal(targets)
+		if err != nil {
+			fixture.t.Error(err)
+		}
+		writeFixture(fixture.t, writer, string(listing))
 	case strings.HasPrefix(request.URL.Path, "/devtools/page/"):
 		fixture.mu.Unlock()
 		fixture.socket(writer, request, strings.TrimPrefix(request.URL.Path, "/devtools/page/"))
@@ -121,7 +139,7 @@ func (fixture *devtoolsFixture) socket(writer http.ResponseWriter, request *http
 		fixture.methods = append(fixture.methods, command.Method)
 		fixture.mu.Unlock()
 		switch command.Method {
-		case "Page.enable", "Page.setBypassCSP", "Network.enable":
+		case "Page.enable", "Page.setBypassCSP", "Network.enable", "Network.clearBrowserCookies":
 		case "Network.setBlockedURLs":
 			fixture.mu.Lock()
 			fixture.blocked = append(fixture.blocked, command.Params.URLs...)
@@ -271,5 +289,64 @@ func TestFlowBrowserBlocksFlowScriptsBeforeOpeningThePage(t *testing.T) {
 	blockedAt, openedAt := slices.Index(devtools.methods, "Network.setBlockedURLs"), slices.Index(devtools.methods, "Page.navigate")
 	if blockedAt < 0 || openedAt < blockedAt || !slices.Equal(devtools.blocked, flowBrowserBlockedScripts) {
 		t.Fatalf("methods %q, blocked %q", devtools.methods, devtools.blocked)
+	}
+}
+
+func TestFlowBrowserOpensEachTokenPageWithoutLeftoversOrCookies(t *testing.T) {
+	// Given: token pages an earlier instance left open in the browser.
+	fixture := newFlowFixture(t)
+	devtools := newDevtoolsFixture(t)
+	devtools.stale = []string{"left-1", "left-2"}
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("ogiZ0b", rpcEnvelope(t, "ogiZ0b", []any{[]any{[]any{flowTestMedia, fixture.link("image")}}}))
+	service, record := flowService(t, fixture)
+	service.config.FlowCaptchaProvider, service.config.FlowCaptchaBaseURL = "browser", devtools.server.URL
+	t.Cleanup(func() { service.captchaBrowser.close(service.client) })
+
+	// When: an image is requested.
+	flowInlineMedia(t, flowExecute(t, service, record, "flow-nano-banana-2", `{"contents":[{"parts":[{"text":"a fox"}]}]}`))
+
+	// Then: the leftover pages were closed before one new page opened, and the
+	// new page emptied the cookie jar before navigating to the token page.
+	devtools.mu.Lock()
+	defer devtools.mu.Unlock()
+	clearedAt, openedAt := slices.Index(devtools.methods, "Network.clearBrowserCookies"), slices.Index(devtools.methods, "Page.navigate")
+	if !slices.Equal(devtools.closed, []string{"left-1", "left-2"}) || devtools.pages != 1 || clearedAt < 0 || openedAt < clearedAt {
+		t.Fatalf("closed %v, pages %d, methods %q", devtools.closed, devtools.pages, devtools.methods)
+	}
+}
+
+func TestFlowBrowserReplacesATokenFlowThrottledForUnusualTraffic(t *testing.T) {
+	// Given: Flow throttling the first low-priority token's client as unusual
+	// traffic before accepting a token from a fresh page.
+	fixture := newFlowFixture(t)
+	devtools := newDevtoolsFixture(t)
+	media := []any{flowTestOp, flowTestProject, flowTestMedia}
+	throttled := flowErrorEnvelope(t, []any{"wrb.fr", "YhhmEf", nil, nil, nil, []any{3, nil, []any{[]any{"type.googleapis.com/google.rpc.ErrorInfo", []any{"PUBLIC_ERROR_UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC"}}}}, "generic"})
+	fixture.reply("jHPbke", rpcEnvelope(t, "jHPbke", []any{flowTestProject}))
+	fixture.reply("YhhmEf", throttled, rpcEnvelope(t, "YhhmEf", []any{[]any{media}}))
+	fixture.reply("jwpduf", rpcEnvelope(t, "jwpduf", []any{[]any{append(slices.Clone(media), fixture.link("video"))}}))
+	service, record := flowService(t, fixture)
+	service.config.FlowCaptchaProvider, service.config.FlowCaptchaBaseURL = "browser", devtools.server.URL
+	t.Cleanup(func() { service.captchaBrowser.close(service.client) })
+
+	// When: a low-priority video is requested.
+	mime, _ := flowInlineMedia(t, flowExecute(t, service, record, "flow-veo-3.1-lite", `{"contents":[{"parts":[{"text":"a fox"}]}],"generationConfig":{"durationSeconds":8,"flow":{"priority":"low"}}}`))
+
+	// Then: the throttled token's page was replaced, the resent submission
+	// carried the fresh page's token, and the video was delivered.
+	if mime != "video/mp4" || fixture.count("YhhmEf") != 2 {
+		t.Fatalf("video %s after %d submissions", mime, fixture.count("YhhmEf"))
+	}
+	fixture.mu.Lock()
+	resent := fixture.calls["YhhmEf"][1].Get("f.req")
+	fixture.mu.Unlock()
+	if !strings.Contains(resent, `\"browser-token-page-2-1\"`) {
+		t.Fatalf("the resent submission did not carry the fresh page's token")
+	}
+	devtools.mu.Lock()
+	defer devtools.mu.Unlock()
+	if devtools.pages != 2 || !slices.Equal(devtools.closed, []string{"page-1"}) {
+		t.Fatalf("pages %d, closed %v", devtools.pages, devtools.closed)
 	}
 }

@@ -215,6 +215,15 @@ func (service *service) flowSubmit(ctx context.Context, record storageRecord, pr
 				service.captchaBrowser.close(service.client)
 				continue
 			}
+		case "flow_rate_limited":
+			if attempt < flowTokenAttempts && flowUnusualTraffic(err) && service.settings().FlowCaptchaProvider == "browser" {
+				// UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC judges the browser token's
+				// client, not the account: the next token comes from a fresh
+				// page with an empty cookie jar, and the refusal started nothing.
+				// Other token sources would resend from the same client.
+				service.captchaBrowser.close(service.client)
+				continue
+			}
 		case "flow_transport_failed", "flow_response_failed", "flow_session_exchange_transport_failed", "flow_session_exchange_response_failed", "flow_session_exchange_response_too_large":
 			return failure(502, "flow_submission_outcome_unknown")
 		}
@@ -249,6 +258,13 @@ func (service *service) nativeFlowToken(ctx context.Context, record storageRecor
 		return err
 	})
 	return token, err
+}
+
+// flowUnusualTraffic reports whether Flow throttled a token's client for
+// unusual activity, as opposed to a model or account traffic limit.
+func flowUnusualTraffic(err error) bool {
+	var public *publicError
+	return errors.As(err, &public) && public.Code == "flow_rate_limited" && strings.Contains(public.Message, "UNUSUAL_ACTIVITY")
 }
 
 // flowUnusualActivity reports whether Flow refused a token for unusual activity.

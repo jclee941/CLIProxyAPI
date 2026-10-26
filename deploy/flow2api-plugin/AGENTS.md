@@ -29,6 +29,7 @@ Google Flow generation and resource APIs over Gemini-owned sessions; score 13 fo
 - Gemini owns credentials and rotation; Flow receives broker response bodies and scoped headers, never its cookie jar.
 - A refused credential lease can be awaited before submission; `withoutLeaseWait` lets account listings and quota lookups answer at once from the latest reading (`flowReadings`, also fed by generation balance reads and used for the credit floor); only a lookup with no reading waits up to `flowQuotaLeaseWait`.
 - Rejected captcha tokens can be replaced because no generation started; a lost response is an unknown outcome.
+- Each browser token page opens after closing leftover Flow token pages and with an emptied cookie jar; a `flow_rate_limited` refusal naming `UNUSUAL_ACTIVITY` (the free queue's `UNUSUAL_ACTIVITY_TOO_MUCH_TRAFFIC`) judges the token's client, so a browser token is replaced from a fresh page within `flowTokenAttempts`. Native and solver tokens, and other traffic throttles, are returned as they are.
 - Low-priority refusal may fall back to paid normal priority only with at least the code's 5000-credit floor.
 - `web/index.html` is generated from `../gemini-web-plugin/web/src/flow/`; follow that web directory's guide.
 - Public consumer behavior is documented in `README.md`; do not infer supported model options from names alone.
